@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
-import { Search, X, ChevronLeft, ChevronRight, Eye, FileCheck, Pencil, Save, RotateCcw, CheckCircle2, Plus, Trash2, Download, Upload, Loader2, Check, Globe, Sparkles, ClipboardPaste } from 'lucide-react';
+import { Search, X, ChevronLeft, ChevronRight, Eye, FileCheck, Pencil, Save, RotateCcw, CheckCircle2, Plus, Trash2, Download, Upload, Loader2, Check, Globe, Sparkles, ClipboardPaste, Package } from 'lucide-react';
 import { fetchShipments, fetchAnalytics, getCotes } from '@/lib/staticData';
 import { parseEnviosExcel } from '@/lib/parseExcelRegistro';
 import type { Shipment } from '@/lib/types';
@@ -74,6 +74,13 @@ interface FieldDef {
   type: FieldType;
   options?: string[];
   step?: string;
+}
+
+interface ProductoCorteLine {
+  id: string;
+  producto: string;
+  corte: string;
+  cajas: number | '';
 }
 
 const SECTIONS: { title: string; fields: FieldDef[] }[] = [
@@ -196,6 +203,12 @@ export default function ShipmentTable() {
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const limit = 20;
+  const [detailLineas, setDetailLineas] = useState<ProductoCorteLine[]>([]);
+  const addDetailLinea = () => setDetailLineas(prev => [...prev, { id: String(Date.now()), producto: '', corte: '', cajas: '' }]);
+  const removeDetailLinea = (id: string) => setDetailLineas(prev => prev.length > 1 ? prev.filter(l => l.id !== id) : prev);
+  const updateDetailLinea = (id: string, field: 'producto' | 'corte' | 'cajas', value: string) => {
+    setDetailLineas(prev => prev.map(l => l.id === id ? { ...l, [field]: field === 'cajas' ? (value === '' ? '' : parseInt(value) || 0) : value } : l));
+  };
 
   useEffect(() => {
     (async () => {
@@ -294,6 +307,17 @@ export default function ShipmentTable() {
         }
       }
     }
+    // Handle lineas: compute totals and store
+    const filledLineas = detailLineas.filter(l => l.producto.trim() || l.corte.trim());
+    if (filledLineas.length > 0) {
+      const productoFromLineas = filledLineas.map(l => l.producto).filter(Boolean).join(', ');
+      const corteFromLineas = filledLineas.map(l => l.corte).filter(Boolean).join(', ');
+      const cajasFromLineas = filledLineas.reduce((s, l) => s + (typeof l.cajas === 'number' ? l.cajas : 0), 0);
+      (changed as Record<string, unknown>).denominacionMercaderia = productoFromLineas || null;
+      (changed as Record<string, unknown>).corte = corteFromLineas || null;
+      (changed as Record<string, unknown>).cantidadEnvases = cajasFromLineas || null;
+      (changed as Record<string, unknown>).lineas = filledLineas;
+    }
     if (Object.keys(changed).length === 0) {
       setSaveMsg('Sin cambios');
       setTimeout(() => setSaveMsg(null), 2000);
@@ -317,7 +341,7 @@ export default function ShipmentTable() {
     setEditForm({ ...editForm });
     setSaveMsg('Guardado');
     setTimeout(() => setSaveMsg(null), 2000);
-  }, [selected, editForm, edits]);
+  }, [selected, editForm, edits, detailLineas]);
 
   const handleResetField = useCallback((key: string) => {
     if (!selected) return;
@@ -683,7 +707,7 @@ export default function ShipmentTable() {
       </CardContent></Card>
 
       {/* ===== SHEET: DETALLE / EDICION ===== */}
-      <Sheet open={detailOpen} onOpenChange={open => { setDetailOpen(open); if (!open) setEditMode(false); }}>
+      <Sheet open={detailOpen} onOpenChange={open => { setDetailOpen(open); if (!open) { setEditMode(false); setDetailLineas([]); } }}>
         <SheetContent className="sm:max-w-xl overflow-y-auto">
           {selected && (<>
             <SheetHeader>
@@ -706,6 +730,18 @@ export default function ShipmentTable() {
                         handleSave();
                         setEditMode(false);
                       } else {
+                        // Initialize lineas from existing record
+                        const existingLineas = (selected as any).lineas as ProductoCorteLine[] | undefined;
+                        if (existingLineas && existingLineas.length > 0) {
+                          setDetailLineas(existingLineas);
+                        } else {
+                          setDetailLineas([{
+                            id: '1',
+                            producto: selected.denominacionMercaderia || '',
+                            corte: selected.corte || '',
+                            cajas: selected.cantidadEnvases != null ? selected.cantidadEnvases : '',
+                          }]);
+                        }
                         setEditMode(true);
                       }
                     }}
@@ -737,11 +773,14 @@ export default function ShipmentTable() {
               </div>
 
               {/* Editable sections */}
-              {SECTIONS.map(section => (
+              {SECTIONS.map((section, sIdx) => (
                 <div key={section.title}>
                   <p className="text-xs font-bold text-emerald-600 uppercase tracking-wide mb-2">{section.title}</p>
                   <div className="space-y-2">
                     {section.fields.map(field => {
+                      // Skip producto/corte in edit mode for first section - shown in multi-line area below
+                      if (editMode && sIdx === 0 && (field.key === 'denominacionMercaderia' || field.key === 'corte')) return null;
+
                       const edited = isFieldEdited(field.key);
                       if (editMode) {
                         return (
@@ -785,6 +824,73 @@ export default function ShipmentTable() {
                       );
                     })}
                   </div>
+
+                  {/* Multi-line Productos y Corte section after first section in edit mode */}
+                  {editMode && sIdx === 0 && (
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide flex items-center gap-1.5">
+                          <Package className="h-3.5 w-3.5" />Productos y Corte
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs gap-1 text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                          onClick={addDetailLinea}
+                        >
+                          <Plus className="h-3 w-3" />Agregar linea
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
+                        {detailLineas.map((linea, idx) => (
+                          <div key={linea.id} className="flex items-center gap-2 p-2 bg-emerald-50/60 border border-emerald-200/60 rounded-lg">
+                            <span className="text-[10px] text-slate-400 w-4 shrink-0 text-center font-mono">{idx + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <label className="text-[10px] text-slate-400 block mb-0.5">Producto</label>
+                              <Input value={linea.producto} onChange={e => updateDetailLinea(linea.id, 'producto', e.target.value)} placeholder="Producto..." className="h-7 text-xs" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <label className="text-[10px] text-slate-400 block mb-0.5">Corte</label>
+                              <Input value={linea.corte} onChange={e => updateDetailLinea(linea.id, 'corte', e.target.value)} placeholder="Corte..." className="h-7 text-xs" />
+                            </div>
+                            <div className="w-20 shrink-0">
+                              <label className="text-[10px] text-slate-400 block mb-0.5">Cajas</label>
+                              <Input type="number" min="0" value={linea.cajas === '' ? '' : linea.cajas} onChange={e => updateDetailLinea(linea.id, 'cajas', e.target.value)} placeholder="0" className="h-7 text-xs text-right font-mono" />
+                            </div>
+                            {detailLineas.length > 1 && (
+                              <button type="button" className="mt-4 shrink-0 p-1 rounded hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors" onClick={() => removeDetailLinea(linea.id)} title="Quitar linea">
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {detailLineas.length > 1 && (
+                          <div className="flex justify-end pt-1 pr-1">
+                            <span className="text-xs font-medium text-emerald-700">
+                              Total cajas: {detailLineas.reduce((s, l) => s + (typeof l.cajas === 'number' ? l.cajas : 0), 0).toLocaleString('es-UY')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Read-only: show lineas if they exist */}
+                  {!editMode && sIdx === 0 && (selected as any).lineas && ((selected as any).lineas as ProductoCorteLine[]).length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wide">Productos y Corte</p>
+                      {((selected as any).lineas as ProductoCorteLine[]).map((l, i) => (
+                        <div key={l.id || i} className="flex items-center gap-3 py-1 text-xs">
+                          <span className="text-slate-400 font-mono w-4 text-center">{i + 1}</span>
+                          <span className="flex-1 text-slate-800">{l.producto || '-'}</span>
+                          <span className="text-slate-600">{l.corte || '-'}</span>
+                          <span className="font-mono text-emerald-700 w-16 text-right">{typeof l.cajas === 'number' ? l.cajas.toLocaleString('es-UY') : '-'}</span>
+                          <span className="text-slate-400 text-[10px]">cajas</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

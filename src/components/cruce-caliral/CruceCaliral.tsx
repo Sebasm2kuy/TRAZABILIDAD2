@@ -216,6 +216,13 @@ interface IngresoEdit {
   producto?: string;
 }
 
+interface ProductoCorteLine {
+  id: string;
+  producto: string;
+  corte: string;
+  cajas: number | '';
+}
+
 interface ManualIngreso {
   cote: string;
   tramite: number;
@@ -225,6 +232,7 @@ interface ManualIngreso {
   pesoNeto: number;
   pesoBruto: number;
   envases: number;
+  lineas?: ProductoCorteLine[];
 }
 
 interface ManualExportacion {
@@ -239,6 +247,7 @@ interface ManualExportacion {
   pesoBruto: number | null;
   cantidadEnvases: number | null;
   observaciones: string | null;
+  lineas?: ProductoCorteLine[];
 }
 
 interface EditsStore {
@@ -1199,6 +1208,7 @@ export default function CruceCaliral() {
   const [ni_cajas, setNi_cajas] = useState('');
   const [ni_pesoNeto, setNi_pesoNeto] = useState('');
   const [ni_pesoBruto, setNi_pesoBruto] = useState('');
+  const [ni_lineas, setNi_lineas] = useState<ProductoCorteLine[]>([{ id: '1', producto: '', corte: '', cajas: '' }]);
 
   // MGAP import state
   const [mgapPaste, setMgapPaste] = useState('');
@@ -1219,6 +1229,21 @@ export default function CruceCaliral() {
   const [ne_corte, setNe_corte] = useState('');
   const [ne_cajas, setNe_cajas] = useState('');
   const [ne_pesoNeto, setNe_pesoNeto] = useState('');
+  const [ne_lineas, setNe_lineas] = useState<ProductoCorteLine[]>([{ id: '1', producto: '', corte: '', cajas: '' }]);
+
+  // Lineas helper functions for ingreso
+  const addNiLinea = () => setNi_lineas(prev => [...prev, { id: String(Date.now()), producto: '', corte: '', cajas: '' }]);
+  const removeNiLinea = (id: string) => setNi_lineas(prev => prev.length > 1 ? prev.filter(l => l.id !== id) : prev);
+  const updateNiLinea = (id: string, field: 'producto' | 'corte' | 'cajas', value: string) => {
+    setNi_lineas(prev => prev.map(l => l.id === id ? { ...l, [field]: field === 'cajas' ? (value === '' ? '' : parseInt(value) || 0) : value } : l));
+  };
+
+  // Lineas helper functions for export
+  const addNeLinea = () => setNe_lineas(prev => [...prev, { id: String(Date.now()), producto: '', corte: '', cajas: '' }]);
+  const removeNeLinea = (id: string) => setNe_lineas(prev => prev.length > 1 ? prev.filter(l => l.id !== id) : prev);
+  const updateNeLinea = (id: string, field: 'producto' | 'corte' | 'cajas', value: string) => {
+    setNe_lineas(prev => prev.map(l => l.id === id ? { ...l, [field]: field === 'cajas' ? (value === '' ? '' : parseInt(value) || 0) : value } : l));
+  };
 
   // Process MGAP pasted content for ingreso
   const processMgapImport = () => {
@@ -1227,7 +1252,7 @@ export default function CruceCaliral() {
     if (parsed.cote) { setNi_cote(parsed.cote); filled.push('COTE'); }
     if (parsed.tramite) { setNi_tramite(String(parsed.tramite)); filled.push('Tramite'); }
     if (parsed.fecha) { setNi_fecha(parsed.fecha); filled.push('Fecha'); }
-    if (parsed.producto) { setNi_producto(parsed.producto); filled.push('Producto'); }
+    if (parsed.producto) { setNi_producto(parsed.producto); setNi_lineas(prev => [{ ...prev[0], producto: parsed.producto || prev[0].producto }]); filled.push('Producto'); }
     if (parsed.cajas) { setNi_cajas(String(parsed.cajas)); filled.push('Cajas'); }
     if (parsed.pesoNeto) { setNi_pesoNeto(String(parsed.pesoNeto)); filled.push('Kg Neto'); }
     if (parsed.pesoBruto) { setNi_pesoBruto(String(parsed.pesoBruto)); filled.push('Kg Bruto'); }
@@ -1248,7 +1273,7 @@ export default function CruceCaliral() {
     if (parsed.tramite) { setNe_nroTramite(String(parsed.tramite)); filled.push('Tramite'); }
     if (parsed.fecha) { setNe_fecha(parsed.fecha); filled.push('Fecha'); }
     if (parsed.pais) { setNe_pais(parsed.pais); filled.push('Pais'); }
-    if (parsed.producto) { setNe_producto(parsed.producto); filled.push('Producto'); }
+    if (parsed.producto) { setNe_producto(parsed.producto); setNe_lineas(prev => [{ ...prev[0], producto: parsed.producto || prev[0].producto }]); filled.push('Producto'); }
     if (parsed.corte) { setNe_corte(parsed.corte); filled.push('Corte'); }
     if (parsed.cajas) { setNe_cajas(String(parsed.cajas)); filled.push('Cajas'); }
     if (parsed.pesoNeto) { setNe_pesoNeto(String(parsed.pesoNeto)); filled.push('Kg Neto'); }
@@ -1694,6 +1719,7 @@ export default function CruceCaliral() {
     setNi_fecha('');
     setNi_pesoNeto('');
     setNi_pesoBruto('');
+    setNi_lineas([{ id: '1', producto, corte: '', cajas: cajas }]);
     setAddIngresoOpen(true);
   };
 
@@ -1716,15 +1742,18 @@ export default function CruceCaliral() {
       toast.error('Ingresa el numero de tramite');
       return;
     }
+    const filledLineas = ni_lineas.filter(l => l.producto.trim() || l.corte.trim());
+    const totalCajasFromLineas = filledLineas.reduce((s, l) => s + (typeof l.cajas === 'number' ? l.cajas : 0), 0);
     const newIngreso: ManualIngreso = {
       cote,
       tramite: tramiteVal,
       fecha: ni_fecha ? new Date(ni_fecha).toISOString() : new Date().toISOString(),
-      producto: ni_producto,
-      cortes: [],
-      envases: parseInt(String(ni_cajas).replace(/[^0-9]/g, '')) || 0,
+      producto: filledLineas.length > 0 ? filledLineas.map(l => l.producto).filter(Boolean).join(', ') : ni_producto,
+      cortes: filledLineas.map(l => l.corte).filter(Boolean),
       pesoNeto: parseFloat(String(ni_pesoNeto).replace(/[^0-9.,]/g, '')) || 0,
       pesoBruto: parseFloat(String(ni_pesoBruto).replace(/[^0-9.,]/g, '')) || 0,
+      envases: totalCajasFromLineas || (parseInt(String(ni_cajas).replace(/[^0-9]/g, '')) || 0),
+      lineas: filledLineas.length > 0 ? filledLineas : undefined,
     };
     let newEdits: EditsStore;
     if (existingManualIdx >= 0) {
@@ -1750,23 +1779,27 @@ export default function CruceCaliral() {
     }
     setNi_cote(''); setNi_tramite(''); setNi_fecha('');
     setNi_producto(''); setNi_cajas(''); setNi_pesoNeto(''); setNi_pesoBruto('');
+    setNi_lineas([{ id: '1', producto: '', corte: '', cajas: '' }]);
   };
 
   const saveNewExp = () => {
     const cote = ne_nroCote.trim().toUpperCase();
     if (!cote) return;
+    const filledExpLineas = ne_lineas.filter(l => l.producto.trim() || l.corte.trim());
+    const totalCajasExp = filledExpLineas.reduce((s, l) => s + (typeof l.cajas === 'number' ? l.cajas : 0), 0);
     const newExp: ManualExportacion = {
       id: `manual-${cote}-${Date.now()}`,
       nroTramite: parseInt(String(ne_nroTramite).replace(/[^0-9]/g, '')) || 0,
       fechaTramite: ne_fecha ? new Date(ne_fecha).toISOString() : new Date().toISOString(),
       nroCote: cote,
       paisDestino: ne_pais,
-      denominacionMercaderia: ne_producto,
-      corte: ne_corte,
+      denominacionMercaderia: filledExpLineas.length > 0 ? filledExpLineas.map(l => l.producto).filter(Boolean).join(', ') : ne_producto,
+      corte: filledExpLineas.length > 0 ? filledExpLineas.map(l => l.corte).filter(Boolean).join(', ') : ne_corte,
       pesoNeto: ne_pesoNeto ? parseFloat(String(ne_pesoNeto).replace(/[^0-9.,]/g, '')) : null,
       pesoBruto: null,
-      cantidadEnvases: ne_cajas ? parseInt(String(ne_cajas).replace(/[^0-9]/g, '')) : null,
+      cantidadEnvases: totalCajasExp || (ne_cajas ? parseInt(String(ne_cajas).replace(/[^0-9]/g, '')) : null),
       observaciones: null,
+      lineas: filledExpLineas.length > 0 ? filledExpLineas : undefined,
     };
     const newEdits: EditsStore = {
       ...edits,
@@ -1779,6 +1812,7 @@ export default function CruceCaliral() {
     setNe_nroCote(''); setNe_nroTramite(''); setNe_fecha('');
     setNe_pais(''); setNe_producto(''); setNe_corte('');
     setNe_cajas(''); setNe_pesoNeto('');
+    setNe_lineas([{ id: '1', producto: '', corte: '', cajas: '' }]);
   };
 
   const hasEditsCount = Object.keys(edits.exports).length + Object.keys(edits.ingresos).length + (edits.ingresosManuales?.length || 0) + (edits.exportacionesManuales?.length || 0);
@@ -2487,10 +2521,57 @@ export default function CruceCaliral() {
                       <div className="grid grid-cols-2 gap-3">
                         <div><FieldLabel>Tramite</FieldLabel><Input inputMode="numeric" value={ni_tramite} onChange={e => setNi_tramite(e.target.value)} placeholder="19282" className="h-8 text-xs font-mono" /></div>
                         <div><FieldLabel>Fecha</FieldLabel><Input type="date" value={ni_fecha} onChange={e => setNi_fecha(e.target.value)} className="h-8 text-xs" /></div>
-                        <div className="col-span-2"><FieldLabel>Producto</FieldLabel><Input value={ni_producto} onChange={e => setNi_producto(e.target.value)} placeholder="Menudencias bovinas..." className="h-8 text-xs" /></div>
-                        <div><FieldLabel>Cajas (envases)</FieldLabel><Input inputMode="numeric" value={ni_cajas} onChange={e => setNi_cajas(e.target.value)} placeholder="90" className="h-8 text-xs font-mono" /></div>
                         <div><FieldLabel>Kg Neto</FieldLabel><Input inputMode="numeric" value={ni_pesoNeto} onChange={e => setNi_pesoNeto(e.target.value)} placeholder="2500" className="h-8 text-xs font-mono" /></div>
                         <div><FieldLabel>Kg Bruto</FieldLabel><Input inputMode="numeric" value={ni_pesoBruto} onChange={e => setNi_pesoBruto(e.target.value)} placeholder="2800" className="h-8 text-xs font-mono" /></div>
+                      </div>
+
+                      {/* Productos y Corte - Multi-linea */}
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide flex items-center gap-1.5">
+                            <Package className="h-3.5 w-3.5" />Productos y Corte
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-6 text-xs gap-1 text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                            onClick={addNiLinea}
+                          >
+                            <Plus className="h-3 w-3" />Agregar linea
+                          </Button>
+                        </div>
+                        <div className="space-y-2">
+                          {ni_lineas.map((linea, idx) => (
+                            <div key={linea.id} className="flex items-center gap-2 p-2 bg-emerald-50/60 border border-emerald-200/60 rounded-lg">
+                              <span className="text-[10px] text-slate-400 w-4 shrink-0 text-center font-mono">{idx + 1}</span>
+                              <div className="flex-1 min-w-0">
+                                <label className="text-[10px] text-slate-400 block mb-0.5">Producto</label>
+                                <Input value={linea.producto} onChange={e => updateNiLinea(linea.id, 'producto', e.target.value)} placeholder="Menudencias bovinas..." className="h-7 text-xs" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <label className="text-[10px] text-slate-400 block mb-0.5">Corte</label>
+                                <Input value={linea.corte} onChange={e => updateNiLinea(linea.id, 'corte', e.target.value)} placeholder="Corte..." className="h-7 text-xs" />
+                              </div>
+                              <div className="w-20 shrink-0">
+                                <label className="text-[10px] text-slate-400 block mb-0.5">Cajas</label>
+                                <Input type="number" min="0" value={linea.cajas === '' ? '' : linea.cajas} onChange={e => updateNiLinea(linea.id, 'cajas', e.target.value)} placeholder="0" className="h-7 text-xs text-right font-mono" />
+                              </div>
+                              {ni_lineas.length > 1 && (
+                                <button type="button" className="mt-4 shrink-0 p-1 rounded hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors" onClick={() => removeNiLinea(linea.id)} title="Quitar linea">
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          {ni_lineas.length > 1 && (
+                            <div className="flex justify-end pt-1 pr-1">
+                              <span className="text-xs font-medium text-emerald-700">
+                                Total cajas: {ni_lineas.reduce((s, l) => s + (typeof l.cajas === 'number' ? l.cajas : 0), 0).toLocaleString('es-UY')}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                       <div className="flex gap-2 mt-3">
                         <Button size="sm" onClick={() => { saveNewIngreso(ingresoDetailCote, true); }} className="flex-1" disabled={!ni_tramite.trim()}>
@@ -2899,10 +2980,57 @@ export default function CruceCaliral() {
               <div><FieldLabel>COTE</FieldLabel><Input value={ni_cote} onChange={e => setNi_cote(e.target.value.toUpperCase())} placeholder="P12345" className="h-8 text-xs font-mono" /></div>
               <div><FieldLabel>Tramite</FieldLabel><Input inputMode="numeric" value={ni_tramite} onChange={e => setNi_tramite(e.target.value)} className="h-8 text-xs font-mono" /></div>
               <div><FieldLabel>Fecha</FieldLabel><Input type="date" value={ni_fecha} onChange={e => setNi_fecha(e.target.value)} className="h-8 text-xs" /></div>
-              <div><FieldLabel>Producto</FieldLabel><Input value={ni_producto} onChange={e => setNi_producto(e.target.value)} className="h-8 text-xs" /></div>
-              <div><FieldLabel>Cajas (envases)</FieldLabel><Input inputMode="numeric" value={ni_cajas} onChange={e => setNi_cajas(e.target.value)} className="h-8 text-xs font-mono" /></div>
               <div><FieldLabel>Kg Neto</FieldLabel><Input inputMode="numeric" value={ni_pesoNeto} onChange={e => setNi_pesoNeto(e.target.value)} className="h-8 text-xs font-mono" /></div>
               <div><FieldLabel>Kg Bruto</FieldLabel><Input inputMode="numeric" value={ni_pesoBruto} onChange={e => setNi_pesoBruto(e.target.value)} className="h-8 text-xs font-mono" /></div>
+            </div>
+
+            {/* Productos y Corte - Multi-linea */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide flex items-center gap-1.5">
+                  <Package className="h-3.5 w-3.5" />Productos y Corte
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-xs gap-1 text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                  onClick={addNiLinea}
+                >
+                  <Plus className="h-3 w-3" />Agregar linea
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {ni_lineas.map((linea, idx) => (
+                  <div key={linea.id} className="flex items-center gap-2 p-2 bg-emerald-50/60 border border-emerald-200/60 rounded-lg">
+                    <span className="text-[10px] text-slate-400 w-4 shrink-0 text-center font-mono">{idx + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Producto</label>
+                      <Input value={linea.producto} onChange={e => updateNiLinea(linea.id, 'producto', e.target.value)} placeholder="Menudencias bovinas..." className="h-7 text-xs" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Corte</label>
+                      <Input value={linea.corte} onChange={e => updateNiLinea(linea.id, 'corte', e.target.value)} placeholder="Corte..." className="h-7 text-xs" />
+                    </div>
+                    <div className="w-20 shrink-0">
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Cajas</label>
+                      <Input type="number" min="0" value={linea.cajas === '' ? '' : linea.cajas} onChange={e => updateNiLinea(linea.id, 'cajas', e.target.value)} placeholder="0" className="h-7 text-xs text-right font-mono" />
+                    </div>
+                    {ni_lineas.length > 1 && (
+                      <button type="button" className="mt-4 shrink-0 p-1 rounded hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors" onClick={() => removeNiLinea(linea.id)} title="Quitar linea">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {ni_lineas.length > 1 && (
+                  <div className="flex justify-end pt-1 pr-1">
+                    <span className="text-xs font-medium text-emerald-700">
+                      Total cajas: {ni_lineas.reduce((s, l) => s + (typeof l.cajas === 'number' ? l.cajas : 0), 0).toLocaleString('es-UY')}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex gap-2 pt-2 border-t">
               <Button size="sm" onClick={saveNewIngreso} className="flex-1" disabled={!ni_cote.trim() || !ni_tramite.trim()}>
@@ -2968,10 +3096,56 @@ export default function CruceCaliral() {
               <div><FieldLabel>Tramite</FieldLabel><Input type="number" value={ne_nroTramite} onChange={e => setNe_nroTramite(e.target.value)} className="h-8 text-xs font-mono" /></div>
               <div><FieldLabel>Fecha</FieldLabel><Input type="date" value={ne_fecha} onChange={e => setNe_fecha(e.target.value)} className="h-8 text-xs" /></div>
               <div><FieldLabel>Pais</FieldLabel><Input value={ne_pais} onChange={e => setNe_pais(e.target.value)} className="h-8 text-xs" /></div>
-              <div><FieldLabel>Producto</FieldLabel><Input value={ne_producto} onChange={e => setNe_producto(e.target.value)} className="h-8 text-xs" /></div>
-              <div><FieldLabel>Corte</FieldLabel><Input value={ne_corte} onChange={e => setNe_corte(e.target.value)} className="h-8 text-xs" /></div>
-              <div><FieldLabel>Cajas (envases)</FieldLabel><Input type="number" value={ne_cajas} onChange={e => setNe_cajas(e.target.value)} className="h-8 text-xs font-mono" /></div>
               <div><FieldLabel>Kg Neto</FieldLabel><Input type="number" value={ne_pesoNeto} onChange={e => setNe_pesoNeto(e.target.value)} className="h-8 text-xs font-mono" /></div>
+            </div>
+
+            {/* Productos y Corte - Multi-linea */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-blue-700 uppercase tracking-wide flex items-center gap-1.5">
+                  <Package className="h-3.5 w-3.5" />Productos y Corte
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-xs gap-1 text-blue-700 border-blue-300 hover:bg-blue-50"
+                  onClick={addNeLinea}
+                >
+                  <Plus className="h-3 w-3" />Agregar linea
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {ne_lineas.map((linea, idx) => (
+                  <div key={linea.id} className="flex items-center gap-2 p-2 bg-blue-50/60 border border-blue-200/60 rounded-lg">
+                    <span className="text-[10px] text-slate-400 w-4 shrink-0 text-center font-mono">{idx + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Producto</label>
+                      <Input value={linea.producto} onChange={e => updateNeLinea(linea.id, 'producto', e.target.value)} placeholder="Menudencias bovinas..." className="h-7 text-xs" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Corte</label>
+                      <Input value={linea.corte} onChange={e => updateNeLinea(linea.id, 'corte', e.target.value)} placeholder="Corte..." className="h-7 text-xs" />
+                    </div>
+                    <div className="w-20 shrink-0">
+                      <label className="text-[10px] text-slate-400 block mb-0.5">Cajas</label>
+                      <Input type="number" min="0" value={linea.cajas === '' ? '' : linea.cajas} onChange={e => updateNeLinea(linea.id, 'cajas', e.target.value)} placeholder="0" className="h-7 text-xs text-right font-mono" />
+                    </div>
+                    {ne_lineas.length > 1 && (
+                      <button type="button" className="mt-4 shrink-0 p-1 rounded hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors" onClick={() => removeNeLinea(linea.id)} title="Quitar linea">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {ne_lineas.length > 1 && (
+                  <div className="flex justify-end pt-1 pr-1">
+                    <span className="text-xs font-medium text-blue-700">
+                      Total cajas: {ne_lineas.reduce((s, l) => s + (typeof l.cajas === 'number' ? l.cajas : 0), 0).toLocaleString('es-UY')}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex gap-2 pt-2 border-t">
               <Button size="sm" onClick={saveNewExp} className="flex-1" disabled={!ne_nroCote.trim()}>

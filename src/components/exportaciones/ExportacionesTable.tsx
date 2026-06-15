@@ -36,6 +36,13 @@ interface IngresoCote {
   cajas: number | '';
 }
 
+interface ProductoCorteLine {
+  id: string;
+  producto: string;
+  corte: string;
+  cajas: number | '';
+}
+
 function loadIngresos(): Record<string, IngresoCote[]> {
   try { const r = localStorage.getItem(EXP_INGRESOS_KEY); return r ? JSON.parse(r) : {}; } catch { return {}; }
 }
@@ -223,6 +230,13 @@ export default function ExportacionesTable() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const excelInputRef = useRef<HTMLInputElement>(null);
+  const [detailLineas, setDetailLineas] = useState<ProductoCorteLine[]>([]);
+
+  const addDetailLinea = () => setDetailLineas(prev => [...prev, { id: String(Date.now()), producto: '', corte: '', cajas: '' }]);
+  const removeDetailLinea = (id: string) => setDetailLineas(prev => prev.length > 1 ? prev.filter(l => l.id !== id) : prev);
+  const updateDetailLinea = (id: string, field: 'producto' | 'corte' | 'cajas', value: string) => {
+    setDetailLineas(prev => prev.map(l => l.id === id ? { ...l, [field]: field === 'cajas' ? (value === '' ? '' : parseInt(value) || 0) : value } : l));
+  };
 
   // Delete record state (declared early so useEffects can reference it)
   const [deletedIds, setDeletedIds] = useState<Set<string>>(() => {
@@ -336,6 +350,23 @@ export default function ExportacionesTable() {
       }
     }
 
+    // Handle lineas (multi-line productos y corte)
+    const filledLineas = detailLineas.filter(l => l.producto.trim() || l.corte.trim());
+    if (filledLineas.length > 0) {
+      const firstProducto = filledLineas.map(l => l.producto).filter(Boolean).join(', ') || null;
+      const firstCorte = filledLineas.map(l => l.corte).filter(Boolean).join(', ') || null;
+      const totalCajas = filledLineas.reduce((s, l) => s + (typeof l.cajas === 'number' ? l.cajas : 0), 0);
+      (changed as Record<string, unknown>).denominacionMercaderia = firstProducto;
+      (changed as Record<string, unknown>).corte = firstCorte;
+      (changed as Record<string, unknown>).cantidadEnvases = totalCajas || null;
+      (changed as Record<string, unknown>).lineas = filledLineas;
+    }
+
+    // Remove undefined values from changed
+    for (const k of Object.keys(changed)) {
+      if ((changed as Record<string, unknown>)[k] === undefined) delete (changed as Record<string, unknown>)[k];
+    }
+
     if (Object.keys(changed).length === 0) {
       setSaveMsg('Sin cambios');
       setTimeout(() => setSaveMsg(null), 2000);
@@ -364,7 +395,7 @@ export default function ExportacionesTable() {
     setEditForm({ ...editForm });
     setSaveMsg('Guardado');
     setTimeout(() => setSaveMsg(null), 2000);
-  }, [selected, editForm, edits]);
+  }, [selected, editForm, edits, detailLineas]);
 
   const handleResetField = useCallback((key: string) => {
     if (!selected) return;
@@ -532,6 +563,17 @@ export default function ExportacionesTable() {
             }
           }
           handleOpenDetail(withEdits);
+          const existingLineasPdf = (withEdits as any).lineas as ProductoCorteLine[] | undefined;
+          if (existingLineasPdf && existingLineasPdf.length > 0) {
+            setDetailLineas(existingLineasPdf);
+          } else {
+            setDetailLineas([{
+              id: '1',
+              producto: withEdits.denominacionMercaderia || '',
+              corte: withEdits.corte || '',
+              cajas: withEdits.cantidadEnvases != null ? withEdits.cantidadEnvases : '',
+            }]);
+          }
           setEditMode(true);
           setPdfError(null);
         }
@@ -568,6 +610,12 @@ export default function ExportacionesTable() {
 
       // Open in edit mode
       handleOpenDetail(newRecord as ExpRecord);
+      setDetailLineas([{
+        id: '1',
+        producto: newRecord.denominacionMercaderia || '',
+        corte: newRecord.corte || '',
+        cajas: newRecord.cantidadEnvases != null ? newRecord.cantidadEnvases : '',
+      }]);
       setEditMode(true);
     } catch (err) {
       console.error('Error parsing PDF:', err);
@@ -761,7 +809,7 @@ export default function ExportacionesTable() {
       </CardContent></Card>
 
       {/* ===== SHEET: DETALLE / EDICION ===== */}
-      <Sheet open={detailOpen} onOpenChange={open => { setDetailOpen(open); if (!open) setEditMode(false); }}>
+      <Sheet open={detailOpen} onOpenChange={open => { setDetailOpen(open); if (!open) { setEditMode(false); setDetailLineas([]); } }}>
         <SheetContent className="sm:max-w-xl overflow-y-auto">
           {selected && (<>
             <SheetHeader>
@@ -785,6 +833,17 @@ export default function ExportacionesTable() {
                         handleSave();
                         setEditMode(false);
                       } else {
+                        const existingLineas = (selected as any).lineas as ProductoCorteLine[] | undefined;
+                        if (existingLineas && existingLineas.length > 0) {
+                          setDetailLineas(existingLineas);
+                        } else {
+                          setDetailLineas([{
+                            id: '1',
+                            producto: selected.denominacionMercaderia || '',
+                            corte: selected.corte || '',
+                            cajas: selected.cantidadEnvases != null ? selected.cantidadEnvases : '',
+                          }]);
+                        }
                         setEditMode(true);
                       }
                     }}
@@ -813,11 +872,11 @@ export default function ExportacionesTable() {
               </div>
 
               {/* Editable sections */}
-              {SECTIONS.map(section => (
+              {SECTIONS.map((section, sIdx) => (
                 <div key={section.title}>
                   <p className="text-xs font-bold text-blue-600 uppercase tracking-wide mb-2">{section.title}</p>
                   <div className="space-y-2">
-                    {section.fields.map(field => {
+                    {section.fields.filter(f => !(editMode && sIdx === 0 && (f.key === 'denominacionMercaderia' || f.key === 'corte'))).map(field => {
                       const edited = isFieldEdited(field.key);
                       if (editMode) {
                         return (
@@ -873,6 +932,73 @@ export default function ExportacionesTable() {
                       );
                     })}
                   </div>
+
+                  {/* Multi-line Productos y Corte section after first section in edit mode */}
+                  {editMode && sIdx === 0 && (
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-bold text-blue-700 uppercase tracking-wide flex items-center gap-1.5">
+                          <Package className="h-3.5 w-3.5" />Productos y Corte
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs gap-1 text-blue-700 border-blue-300 hover:bg-blue-50"
+                          onClick={addDetailLinea}
+                        >
+                          <Plus className="h-3 w-3" />Agregar linea
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
+                        {detailLineas.map((linea, idx) => (
+                          <div key={linea.id} className="flex items-center gap-2 p-2 bg-blue-50/60 border border-blue-200/60 rounded-lg">
+                            <span className="text-[10px] text-slate-400 w-4 shrink-0 text-center font-mono">{idx + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <label className="text-[10px] text-slate-400 block mb-0.5">Producto</label>
+                              <Input value={linea.producto} onChange={e => updateDetailLinea(linea.id, 'producto', e.target.value)} placeholder="Producto..." className="h-7 text-xs" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <label className="text-[10px] text-slate-400 block mb-0.5">Corte</label>
+                              <Input value={linea.corte} onChange={e => updateDetailLinea(linea.id, 'corte', e.target.value)} placeholder="Corte..." className="h-7 text-xs" />
+                            </div>
+                            <div className="w-20 shrink-0">
+                              <label className="text-[10px] text-slate-400 block mb-0.5">Cajas</label>
+                              <Input type="number" min="0" value={linea.cajas === '' ? '' : linea.cajas} onChange={e => updateDetailLinea(linea.id, 'cajas', e.target.value)} placeholder="0" className="h-7 text-xs text-right font-mono" />
+                            </div>
+                            {detailLineas.length > 1 && (
+                              <button type="button" className="mt-4 shrink-0 p-1 rounded hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors" onClick={() => removeDetailLinea(linea.id)} title="Quitar linea">
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {detailLineas.length > 1 && (
+                          <div className="flex justify-end pt-1 pr-1">
+                            <span className="text-xs font-medium text-blue-700">
+                              Total cajas: {detailLineas.reduce((s, l) => s + (typeof l.cajas === 'number' ? l.cajas : 0), 0).toLocaleString('es-UY')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Read-only: show lineas if they exist */}
+                  {!editMode && sIdx === 0 && (selected as any).lineas && ((selected as any).lineas as ProductoCorteLine[]).length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wide">Productos y Corte</p>
+                      {((selected as any).lineas as ProductoCorteLine[]).map((l, i) => (
+                        <div key={l.id || i} className="flex items-center gap-3 py-1 text-xs">
+                          <span className="text-slate-400 font-mono w-4 text-center">{i + 1}</span>
+                          <span className="flex-1 text-slate-800">{l.producto || '-'}</span>
+                          <span className="text-slate-600">{l.corte || '-'}</span>
+                          <span className="font-mono text-blue-700 w-16 text-right">{typeof l.cajas === 'number' ? l.cajas.toLocaleString('es-UY') : '-'}</span>
+                          <span className="text-slate-400 text-[10px]">cajas</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
 
