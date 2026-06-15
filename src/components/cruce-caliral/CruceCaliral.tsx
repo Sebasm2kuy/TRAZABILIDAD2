@@ -653,10 +653,10 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits }:
               <th className="px-3 py-2.5 hidden xl:table-cell">Contenedores</th>
               <th className="px-3 py-2.5 text-right">Pallets</th>
               <th className="px-3 py-2.5 text-right">Cajas Stock</th>
-              <th className="px-3 py-2.5 text-right">Cajas Ingreso</th>
-              <th className="px-3 py-2.5 text-right">Cajas Export.</th>
               <th className="px-3 py-2.5 text-right">Saldo Teorico</th>
               <th className="px-3 py-2.5 text-right">Diff Stock/Saldo</th>
+              <th className="px-3 py-2.5 text-right">Cajas Ingreso</th>
+              <th className="px-3 py-2.5 text-right">Cajas Export.</th>
               <th className="px-3 py-2.5 w-8"></th>
             </tr>
           </thead>
@@ -683,20 +683,6 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits }:
                     <td className="px-3 py-2.5 text-xs text-right font-mono">{agg.totalPallets}</td>
                     <td className="px-3 py-2.5 text-xs text-right font-mono font-medium text-teal-700">{agg.totalCajas.toLocaleString('es-UY')}</td>
                     <td className="px-3 py-2.5 text-xs text-right font-mono">
-                      {ing ? (
-                        <span className="text-emerald-700">{ing.envases.toLocaleString('es-UY')}</span>
-                      ) : (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-xs text-right font-mono">
-                      {expCajas > 0 ? (
-                        <span className="text-blue-700">{expCajas.toLocaleString('es-UY')}</span>
-                      ) : (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-xs text-right font-mono">
                       {saldoTeorico !== null ? (
                         <span className={saldoTeorico < 0 ? 'text-red-600 font-medium' : 'text-violet-700 font-medium'}>
                           {saldoTeorico.toLocaleString('es-UY')}
@@ -715,6 +701,20 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits }:
                         </span>
                       ) : (
                         <span className="text-[10px] text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-right font-mono">
+                      {ing ? (
+                        <span className="text-emerald-700">{ing.envases.toLocaleString('es-UY')}</span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-right font-mono">
+                      {expCajas > 0 ? (
+                        <span className="text-blue-700">{expCajas.toLocaleString('es-UY')}</span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-center">
