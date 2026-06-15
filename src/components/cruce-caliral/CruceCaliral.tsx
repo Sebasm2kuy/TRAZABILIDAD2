@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, X, ChevronLeft, ChevronRight, Eye, Download, ArrowLeftRight, AlertTriangle, CheckCircle2, Link2, Unlink, PackageMinus, Package, Pencil, Save, Plus, Trash2, RotateCcw, Upload } from 'lucide-react';
+import { Search, X, ChevronLeft, ChevronRight, Eye, Download, ArrowLeftRight, AlertTriangle, CheckCircle2, Link2, Unlink, PackageMinus, Package, Pencil, Save, Plus, Trash2, RotateCcw, Upload, ClipboardPaste, Globe, Sparkles } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { schedulePush } from '@/lib/googleSheets';
 import type { ExpRecord } from '@/lib/types';
@@ -15,6 +16,117 @@ import { buildStockAggMap, SIN_CODIGO_KEY } from '@/lib/parseStockXls';
 
 function fd(d: string | null | undefined) { if (!d) return '-'; return new Date(d).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
 function fmt(n: number) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return Math.round(n).toLocaleString('es-UY'); }
+
+// --- MGAP page content parser ---
+interface MgapParsed {
+  cote?: string;
+  tramite?: number;
+  fecha?: string;
+  producto?: string;
+  cajas?: number;
+  pesoNeto?: number;
+  pesoBruto?: number;
+  corte?: string;
+  pais?: string;
+}
+
+function parseMgapContent(raw: string): MgapParsed {
+  const r: MgapParsed = {};
+  if (!raw?.trim()) return r;
+
+  // Check if it's a URL — extract tramite from DSP,NNNNNN pattern
+  const urlMatch = raw.trim().match(/DSP[,.]\s*(\d+)/i);
+  if (urlMatch && raw.trim().startsWith('http')) {
+    r.tramite = parseInt(urlMatch[1]);
+    return r;
+  }
+
+  // Strip HTML tags to get plain text
+  const text = raw
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/tr>/gi, '\n')
+    .replace(/<\/td>/gi, '\t')
+    .replace(/<\/th?>/gi, '\t')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#\d+;/g, '')
+    .replace(/\t+/g, '\t')
+    .replace(/\n{3,}/g, '\n\n');
+
+  // Extract COTE: look for P followed by 4-8 digits (ingreso COTE pattern)
+  // Try label-value patterns first, then standalone
+  const coteLabel = text.match(/(?:Nro\.?\s*Cote[:\s\t]+|Cote[:\s\t]+|Nro\.?\s*C\.?O\.?T\.?E\.?[:\s\t]+)([PE]\s*\d[\d.\s]{3,15})/i);
+  if (coteLabel) {
+    r.cote = coteLabel[1].replace(/[\s.]+/g, '').toUpperCase();
+  } else {
+    // Look for standalone COTE pattern: P or E followed by digits
+    const coteStandalone = text.match(/\b([PE])\s*(\d{4,8})\b/i);
+    if (coteStandalone) {
+      r.cote = (coteStandalone[1] + coteStandalone[2]).toUpperCase();
+    }
+  }
+
+  // Extract Tramite
+  const tramLabel = text.match(/(?:Tr[aá]mite\s*(?:Nro\.?|Numero|N[°o])?[:\s\t]+)(\d[\d.]*)/i);
+  if (tramLabel) {
+    r.tramite = parseInt(tramLabel[1].replace(/\./g, ''));
+  } else {
+    const tramUrl = text.match(/DSP[,.]\s*(\d+)/i);
+    if (tramUrl) r.tramite = parseInt(tramUrl[1]);
+  }
+
+  // Extract Date — try multiple formats
+  const fechaLabel = text.match(/(?:Fecha\s*(?:Emisi[oó]n|Tr[aá]mite|Inicio)?[:\s\t]+)(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})/i);
+  if (fechaLabel) {
+    let d = parseInt(fechaLabel[1]), m = parseInt(fechaLabel[2]), y = parseInt(fechaLabel[3]);
+    if (y < 100) y += 2000;
+    // Handle DD/MM/YYYY format (Uruguayan standard)
+    const iso = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    r.fecha = iso;
+  }
+
+  // Extract Producto / Denominacion
+  const prodLabel = text.match(/(?:Denominaci[oó]n(?:\s*(?:de\s*la\s*)?Mercader[ií]a)?|Producto|Descripci[oó]n)[:\s\t]+([^\t\n]{4,80}?)(?=\s*(?:Peso|Cant|Envases|Corte|Tropa|Faena|$))/im);
+  if (prodLabel) {
+    r.producto = prodLabel[1].trim().replace(/\s+/g, ' ');
+  }
+
+  // Extract Corte
+  const corteLabel = text.match(/(?:Corte|Tipo\s*Corte|Cortes)[:\s\t]+([^\t\n]{2,60}?)(?=\s*(?:Peso|Cant|Envases|Producto|Tropa|Faena|$))/im);
+  if (corteLabel) {
+    r.corte = corteLabel[1].trim().replace(/\s+/g, ' ');
+  }
+
+  // Extract Pais destino
+  const paisLabel = text.match(/(?:Pa[ií]s(?:\s*Destino)?|Destino|Destinatario)[:\s\t]+([^\t\n]{2,60}?)(?=\s*(?:Peso|Cant|Envases|Producto|Corte|Tropa|Faena|$))/im);
+  if (paisLabel) {
+    r.pais = paisLabel[1].trim().replace(/\s+/g, ' ');
+  }
+
+  // Extract Cajas / Envases
+  const cajasLabel = text.match(/(?:Cant\.?\s*(?:Envases|Cajas|Trozos)|Envases|Cajas|Total\s*Envases)[:\s\t]+(\d[\d.]*)/i);
+  if (cajasLabel) {
+    r.cajas = parseInt(cajasLabel[1].replace(/\./g, ''));
+  }
+
+  // Extract Peso Neto
+  const pnLabel = text.match(/Peso\s*Neto[:\s\t]+(\d[\d.,]*)/i);
+  if (pnLabel) {
+    r.pesoNeto = parseFloat(pnLabel[1].replace(/\./g, '').replace(',', '.'));
+  }
+
+  // Extract Peso Bruto
+  const pbLabel = text.match(/Peso\s*Bruto[:\s\t]+(\d[\d.,]*)/i);
+  if (pbLabel) {
+    r.pesoBruto = parseFloat(pbLabel[1].replace(/\./g, '').replace(',', '.'));
+  }
+
+  return r;
+}
 
 // --- Types ---
 interface IngresoLine {
@@ -1034,6 +1146,12 @@ export default function CruceCaliral() {
   const [ni_pesoNeto, setNi_pesoNeto] = useState('');
   const [ni_pesoBruto, setNi_pesoBruto] = useState('');
 
+  // MGAP import state
+  const [mgapPaste, setMgapPaste] = useState('');
+  const [showMgapImport, setShowMgapImport] = useState(false);
+  const [mgapExportPaste, setMgapExportPaste] = useState('');
+  const [showMgapExportImport, setShowMgapExportImport] = useState(false);
+
   // New manual export form state
   const [addExpOpen, setAddExpOpen] = useState(false);
   const [ne_nroCote, setNe_nroCote] = useState('');
@@ -1044,6 +1162,47 @@ export default function CruceCaliral() {
   const [ne_corte, setNe_corte] = useState('');
   const [ne_cajas, setNe_cajas] = useState('');
   const [ne_pesoNeto, setNe_pesoNeto] = useState('');
+
+  // Process MGAP pasted content for ingreso
+  const processMgapImport = () => {
+    const parsed = parseMgapContent(mgapPaste);
+    const filled: string[] = [];
+    if (parsed.cote) { setNi_cote(parsed.cote); filled.push('COTE'); }
+    if (parsed.tramite) { setNi_tramite(String(parsed.tramite)); filled.push('Tramite'); }
+    if (parsed.fecha) { setNi_fecha(parsed.fecha); filled.push('Fecha'); }
+    if (parsed.producto) { setNi_producto(parsed.producto); filled.push('Producto'); }
+    if (parsed.cajas) { setNi_cajas(String(parsed.cajas)); filled.push('Cajas'); }
+    if (parsed.pesoNeto) { setNi_pesoNeto(String(parsed.pesoNeto)); filled.push('Kg Neto'); }
+    if (parsed.pesoBruto) { setNi_pesoBruto(String(parsed.pesoBruto)); filled.push('Kg Bruto'); }
+    if (filled.length > 0) {
+      toast.success(`Campos completados: ${filled.join(', ')}`);
+      setShowMgapImport(false);
+      setMgapPaste('');
+    } else {
+      toast.error('No se pudieron extraer datos. Copia el contenido de la pagina del MGAP (Ctrl+A, Ctrl+C) y pegalo aqui.');
+    }
+  };
+
+  // Process MGAP pasted content for export
+  const processMgapExportImport = () => {
+    const parsed = parseMgapContent(mgapExportPaste);
+    const filled: string[] = [];
+    if (parsed.cote) { setNe_nroCote(parsed.cote); filled.push('COTE'); }
+    if (parsed.tramite) { setNe_nroTramite(String(parsed.tramite)); filled.push('Tramite'); }
+    if (parsed.fecha) { setNe_fecha(parsed.fecha); filled.push('Fecha'); }
+    if (parsed.pais) { setNe_pais(parsed.pais); filled.push('Pais'); }
+    if (parsed.producto) { setNe_producto(parsed.producto); filled.push('Producto'); }
+    if (parsed.corte) { setNe_corte(parsed.corte); filled.push('Corte'); }
+    if (parsed.cajas) { setNe_cajas(String(parsed.cajas)); filled.push('Cajas'); }
+    if (parsed.pesoNeto) { setNe_pesoNeto(String(parsed.pesoNeto)); filled.push('Kg Neto'); }
+    if (filled.length > 0) {
+      toast.success(`Campos completados: ${filled.join(', ')}`);
+      setShowMgapExportImport(false);
+      setMgapExportPaste('');
+    } else {
+      toast.error('No se pudieron extraer datos. Copia el contenido de la pagina del MGAP (Ctrl+A, Ctrl+C) y pegalo aqui.');
+    }
+  };
 
   // Recompute cruce when edits change
   const recomputeCruce = useCallback((editsData: EditsStore) => {
@@ -2049,6 +2208,41 @@ export default function CruceCaliral() {
                       <p className="font-bold mb-1">COTE {ingresoDetailCote} no encontrado en los ingresos a Caliral.</p>
                       <p>Puede ser un COTE que no ingreso a Caliral, o un error en el numero. Crealo manualmente abajo para vincularlo.</p>
                     </div>
+                    {/* MGAP import for not-found COTE */}
+                    <div className="bg-gradient-to-r from-violet-50 to-indigo-50 rounded-lg border border-violet-200 overflow-hidden">
+                      <button
+                        onClick={() => setShowMgapImport(!showMgapImport)}
+                        className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-violet-100/60 transition-colors"
+                      >
+                        <span className="flex items-center gap-2 text-xs font-medium text-violet-800">
+                          <Globe className="h-3.5 w-3.5" />
+                          Importar desde MGAP
+                        </span>
+                        <Sparkles className={`h-3.5 w-3.5 text-violet-500 transition-transform ${showMgapImport ? 'rotate-180' : ''}`} />
+                      </button>
+                      {showMgapImport && (
+                        <div className="px-3 pb-3 space-y-2">
+                          <p className="text-[11px] text-violet-700 leading-relaxed">
+                            Copia el contenido de la pagina del MGAP (<kbd className="bg-violet-100 px-1 rounded text-[10px]">Ctrl+A</kbd> <kbd className="bg-violet-100 px-1 rounded text-[10px]">Ctrl+C</kbd>) y pegalo abajo. Tambien podes pegar solo el URL para extraer el tramite.
+                          </p>
+                          <Textarea
+                            value={mgapPaste}
+                            onChange={e => setMgapPaste(e.target.value)}
+                            placeholder="Pega aqui el contenido de la pagina del MGAP o el URL..."
+                            className="min-h-[80px] text-xs font-mono resize-y"
+                          />
+                          <Button
+                            size="sm"
+                            onClick={processMgapImport}
+                            disabled={!mgapPaste.trim()}
+                            className="w-full bg-violet-600 hover:bg-violet-700 text-white text-xs"
+                          >
+                            <ClipboardPaste className="h-3.5 w-3.5 mr-1.5" />
+                            Procesar y completar campos
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                     <div className="border-2 border-dashed border-emerald-200 rounded-lg p-4 bg-emerald-50/50">
                       <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-3">Crear ingreso manual para {ingresoDetailCote}</p>
                       <div className="grid grid-cols-2 gap-3">
@@ -2413,7 +2607,7 @@ export default function CruceCaliral() {
       </Sheet>
 
       {/* NEW INGRESO SHEET */}
-      <Sheet open={addIngresoOpen} onOpenChange={setAddIngresoOpen}>
+      <Sheet open={addIngresoOpen} onOpenChange={(v) => { setAddIngresoOpen(v); if (!v) { setShowMgapImport(false); setMgapPaste(''); } }}>
         <SheetContent className="sm:max-w-md overflow-y-auto">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
@@ -2422,6 +2616,43 @@ export default function CruceCaliral() {
             </SheetTitle>
           </SheetHeader>
           <div className="mt-6 space-y-4 text-sm">
+            {/* MGAP Import Section */}
+            <div className="bg-gradient-to-r from-violet-50 to-indigo-50 rounded-lg border border-violet-200 overflow-hidden">
+              <button
+                onClick={() => setShowMgapImport(!showMgapImport)}
+                className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-violet-100/60 transition-colors"
+              >
+                <span className="flex items-center gap-2 text-xs font-medium text-violet-800">
+                  <Globe className="h-3.5 w-3.5" />
+                  Importar desde MGAP
+                </span>
+                <Sparkles className={`h-3.5 w-3.5 text-violet-500 transition-transform ${showMgapImport ? 'rotate-180' : ''}`} />
+              </button>
+              {showMgapImport && (
+                <div className="px-3 pb-3 space-y-2">
+                  <p className="text-[11px] text-violet-700 leading-relaxed">
+                    Abri la pagina del COTE en MGAP, copia todo el contenido (<kbd className="bg-violet-100 px-1 rounded text-[10px]">Ctrl+A</kbd> <kbd className="bg-violet-100 px-1 rounded text-[10px]">Ctrl+C</kbd>) y pegalo abajo. Tambien podes pegar solo el URL para extraer el tramite.
+                  </p>
+                  <Textarea
+                    value={mgapPaste}
+                    onChange={e => setMgapPaste(e.target.value)}
+                    placeholder="Pega aqui el contenido de la pagina del MGAP o el URL..."
+                    className="min-h-[100px] text-xs font-mono resize-y"
+                    onPaste={() => setTimeout(() => {}, 0)}
+                  />
+                  <Button
+                    size="sm"
+                    onClick={processMgapImport}
+                    disabled={!mgapPaste.trim()}
+                    className="w-full bg-violet-600 hover:bg-violet-700 text-white text-xs"
+                  >
+                    <ClipboardPaste className="h-3.5 w-3.5 mr-1.5" />
+                    Procesar y completar campos
+                  </Button>
+                </div>
+              )}
+            </div>
+
             <div className="bg-orange-50 rounded-lg p-3 text-xs text-orange-800">
               Agrega un COTE de ingreso/depósito que no existe en los datos originales. Se guardará como edición manual.
             </div>
@@ -2445,7 +2676,7 @@ export default function CruceCaliral() {
       </Sheet>
 
       {/* NEW EXPORT SHEET */}
-      <Sheet open={addExpOpen} onOpenChange={setAddExpOpen}>
+      <Sheet open={addExpOpen} onOpenChange={(v) => { setAddExpOpen(v); if (!v) { setShowMgapExportImport(false); setMgapExportPaste(''); } }}>
         <SheetContent className="sm:max-w-md overflow-y-auto">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
@@ -2454,6 +2685,42 @@ export default function CruceCaliral() {
             </SheetTitle>
           </SheetHeader>
           <div className="mt-6 space-y-4 text-sm">
+            {/* MGAP Import Section */}
+            <div className="bg-gradient-to-r from-violet-50 to-indigo-50 rounded-lg border border-violet-200 overflow-hidden">
+              <button
+                onClick={() => setShowMgapExportImport(!showMgapExportImport)}
+                className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-violet-100/60 transition-colors"
+              >
+                <span className="flex items-center gap-2 text-xs font-medium text-violet-800">
+                  <Globe className="h-3.5 w-3.5" />
+                  Importar desde MGAP
+                </span>
+                <Sparkles className={`h-3.5 w-3.5 text-violet-500 transition-transform ${showMgapExportImport ? 'rotate-180' : ''}`} />
+              </button>
+              {showMgapExportImport && (
+                <div className="px-3 pb-3 space-y-2">
+                  <p className="text-[11px] text-violet-700 leading-relaxed">
+                    Abri la pagina del COTE en MGAP, copia todo el contenido (<kbd className="bg-violet-100 px-1 rounded text-[10px]">Ctrl+A</kbd> <kbd className="bg-violet-100 px-1 rounded text-[10px]">Ctrl+C</kbd>) y pegalo abajo. Tambien podes pegar solo el URL para extraer el tramite.
+                  </p>
+                  <Textarea
+                    value={mgapExportPaste}
+                    onChange={e => setMgapExportPaste(e.target.value)}
+                    placeholder="Pega aqui el contenido de la pagina del MGAP o el URL..."
+                    className="min-h-[100px] text-xs font-mono resize-y"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={processMgapExportImport}
+                    disabled={!mgapExportPaste.trim()}
+                    className="w-full bg-violet-600 hover:bg-violet-700 text-white text-xs"
+                  >
+                    <ClipboardPaste className="h-3.5 w-3.5 mr-1.5" />
+                    Procesar y completar campos
+                  </Button>
+                </div>
+              )}
+            </div>
+
             <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-800">
               Agrega una exportación que no existe en los datos originales. Se guardará como edición manual.
             </div>
