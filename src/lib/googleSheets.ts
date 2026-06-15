@@ -11,6 +11,9 @@ const LAST_SYNC_KEY = 'trazabilidad_last_sync';
 const OLD_SETTINGS_KEY = 'trazabilidad_sheets_url'; // Legacy Google Sheets key
 const SYNC_DEBOUNCE_MS = 3000; // Wait 3s after last change before pushing
 
+// Firebase URL hardcoded — works on any device without configuration
+const HARDCODED_FIREBASE_URL = 'https://trazabilidad-9aa3c-default-rtdb.firebaseio.com';
+
 // Auto-migrate: clear old Google Sheets URL to prevent CORS errors
 if (typeof window !== 'undefined') {
   try {
@@ -47,20 +50,19 @@ let isSyncing = false;
 // --- Settings ---
 
 export function getSheetUrl(): string {
-  if (typeof window === 'undefined') return '';
-  return localStorage.getItem(SETTINGS_KEY) || '';
+  // Always use the hardcoded URL — no configuration needed
+  return HARDCODED_FIREBASE_URL;
 }
 
 export function setSheetUrl(url: string) {
+  // URL is hardcoded, but keep the setting for display purposes
   if (typeof window === 'undefined') return;
-  // Clean trailing slash
   const cleaned = url.trim().replace(/\/+$/, '');
   localStorage.setItem(SETTINGS_KEY, cleaned);
 }
 
 export function isConfigured(): boolean {
-  const url = getSheetUrl();
-  return url.length > 20; // Firebase URLs are long
+  return true; // Always configured — URL is hardcoded
 }
 
 export function getLastSync(): string {
@@ -286,6 +288,7 @@ export function schedulePush() {
 
 /**
  * Initial pull from Firebase on app load.
+ * Dispatches a 'trazabilidad-data-ready' event when done so components can reload.
  */
 export async function initialPull(): Promise<{ count: number; error?: string }> {
   const url = getSheetUrl();
@@ -293,6 +296,12 @@ export async function initialPull(): Promise<{ count: number; error?: string }> 
 
   const result = await pullFromSheets();
   dispatchSyncEvent('initial-pull', result);
+
+  // Notify all components that data is ready (for cache invalidation)
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('trazabilidad-data-ready', { detail: result }));
+  }
+
   return result;
 }
 

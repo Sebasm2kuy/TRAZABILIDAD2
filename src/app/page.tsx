@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import Sidebar from '@/components/Sidebar';
 import Dashboard from '@/components/dashboard/Dashboard';
@@ -12,32 +12,45 @@ import AnalyticsCharts from '@/components/analytics/AnalyticsCharts';
 import ProductoDestino from '@/components/comparativa/ProductoDestino';
 import ImportExportPanel from '@/components/import-export/ImportExportPanel';
 import NewRecordForm from '@/components/new-record/NewRecordForm';
-import { initialPull, isConfigured } from '@/lib/googleSheets';
-import { toast } from 'sonner';
+import { initialPull } from '@/lib/googleSheets';
 
 export default function Home() {
   const { activeTab } = useAppStore();
+  const [ready, setReady] = useState(false);
 
-  // Pull from Firebase on first load
+  // Always pull from Firebase on every page load before rendering
   useEffect(() => {
-    if ((window as unknown as Record<string, number>).__TRZ_RESET) return;
-    if (!isConfigured()) return;
     let mounted = true;
     (async () => {
       try {
-        const result = await initialPull();
-        if (!mounted) return;
-        if (result.error) {
-          console.warn('Firebase pull failed:', result.error);
-        } else if (result.count > 0) {
-          toast.success(`Datos cargados desde la nube: ${result.count} campos`);
+        // Pull with a 5s timeout so we don't block forever offline
+        const result = await Promise.race([
+          initialPull(),
+          new Promise<{ count: number; error?: string }>(resolve =>
+            setTimeout(() => resolve({ count: 0, error: 'timeout' }), 5000)
+          ),
+        ]);
+        if (result.error === 'timeout') {
+          console.warn('Firebase pull timed out, using local data');
         }
       } catch {
-        // Firebase not available, use local data
+        // Firebase not available, continue with local data
       }
+      if (mounted) setReady(true);
     })();
     return () => { mounted = false; };
   }, []);
+
+  if (!ready) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50">
+        <div className="text-center space-y-3">
+          <div className="h-8 w-8 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-slate-500">Cargando datos...</p>
+        </div>
+      </div>
+    );
+  }
 
   const renderContent = () => {
     switch (activeTab) {
