@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import Sidebar from '@/components/Sidebar';
 import Dashboard from '@/components/dashboard/Dashboard';
@@ -12,28 +11,9 @@ import AnalyticsCharts from '@/components/analytics/AnalyticsCharts';
 import ProductoDestino from '@/components/comparativa/ProductoDestino';
 import ImportExportPanel from '@/components/import-export/ImportExportPanel';
 import NewRecordForm from '@/components/new-record/NewRecordForm';
-import { initialPull, isConfigured } from '@/lib/googleSheets';
-import { toast } from 'sonner';
 
 export default function Home() {
   const { activeTab } = useAppStore();
-
-  // Pull from Google Sheets on first load (skip if ?reset=1 was just processed)
-  useEffect(() => {
-    if ((window as unknown as Record<string, number>).__TRZ_RESET) return;
-    if (!isConfigured()) return;
-    let mounted = true;
-    (async () => {
-      const result = await initialPull();
-      if (!mounted) return;
-      if (result.error) {
-        console.warn('Sheets pull failed:', result.error);
-      } else if (result.count > 0) {
-        toast.success(`Datos sincronizados: ${result.count} campos de Google Sheets`);
-      }
-    })();
-    return () => { mounted = false; };
-  }, []);
 
   const renderContent = () => {
     switch (activeTab) {

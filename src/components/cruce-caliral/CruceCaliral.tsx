@@ -1313,7 +1313,11 @@ export default function CruceCaliral() {
 
   useEffect(() => {
     (async () => {
-      await ensureData(true);
+      try {
+        await ensureData(true);
+      } catch (err) {
+        console.error('Error cargando datos de Cruce Caliral:', err);
+      }
       const loadedEdits = loadEdits();
       setEdits(loadedEdits);
       recomputeCruce(loadedEdits);

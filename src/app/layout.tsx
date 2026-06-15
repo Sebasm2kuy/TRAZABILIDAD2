@@ -44,36 +44,8 @@ export default function RootLayout({
                     'trazabilidad_dep_imported','trazabilidad_exp_imported'
                   ];
                   keys.forEach(function(k){ localStorage.removeItem(k); });
-
-                  var sheetUrl = localStorage.getItem('trazabilidad_sheets_url') || '';
-                  if (sheetUrl) {
-                    var done = 0;
-                    var total = keys.length;
-                    keys.forEach(function(k){
-                      fetch(sheetUrl, {
-                        method: 'POST',
-                        headers: {'Content-Type':'text/plain;charset=utf-8'},
-                        body: JSON.stringify({action:'delete',key:k})
-                      }).then(function(){
-                        done++;
-                        if (done >= total) {
-                          localStorage.setItem('trazabilidad_sheets_last_sync', new Date().toISOString());
-                          window.history.replaceState({}, '', window.location.pathname);
-                          window.location.reload();
-                        }
-                      }).catch(function(){
-                        done++;
-                        if (done >= total) {
-                          localStorage.setItem('trazabilidad_sheets_last_sync', new Date().toISOString());
-                          window.history.replaceState({}, '', window.location.pathname);
-                          window.location.reload();
-                        }
-                      });
-                    });
-                  } else {
-                    window.history.replaceState({}, '', window.location.pathname);
-                    window.location.reload();
-                  }
+                  window.history.replaceState({}, '', window.location.pathname);
+                  window.location.reload();
                 }
               } catch(e) {}
             })();`,

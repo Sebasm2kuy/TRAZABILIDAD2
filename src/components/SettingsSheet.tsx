@@ -165,26 +165,7 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
         localStorage.removeItem(key);
       }
 
-      // 2. If Sheets is configured, also delete from remote
-      if (gs.isConfigured()) {
-        const sheetUrl = gs.getSheetUrl();
-        try {
-          // Delete each key from the remote sheet
-          for (const key of ALL_DATA_KEYS) {
-            await fetch(sheetUrl, {
-              method: 'POST',
-              redirect: 'follow',
-              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-              body: JSON.stringify({ action: 'delete', key }),
-            });
-          }
-        } catch (err) {
-          console.warn('Error deleting from Sheets:', err);
-          toast.warning('Datos locales borrados, pero no se pudo borrar de la Sheet. Hacé una sincronización manual.');
-        }
-      }
-
-      // 3. Update last sync time
+      // 2. Update last sync time
       localStorage.setItem('trazabilidad_sheets_last_sync', new Date().toISOString());
 
       setPwStep('idle');
