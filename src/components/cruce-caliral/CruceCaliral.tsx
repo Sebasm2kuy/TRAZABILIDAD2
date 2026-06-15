@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { schedulePush } from '@/lib/googleSheets';
 import type { ExpRecord } from '@/lib/types';
 import type { StockLoad, StockCodigoAgg, StockPallet } from '@/lib/parseStockXls';
-import { buildStockAggMap } from '@/lib/parseStockXls';
+import { buildStockAggMap, SIN_CODIGO_KEY } from '@/lib/parseStockXls';
 
 function fd(d: string | null | undefined) { if (!d) return '-'; return new Date(d).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
 function fmt(n: number) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return Math.round(n).toLocaleString('es-UY'); }
@@ -519,17 +519,90 @@ function SinCruceInlineRow({ row, ingresoMap, stockAggMap, edits, onSaved, onEdi
   );
 }
 
+// --- Pallet Assignment Row (for S/PASE/COTE) ---
+function PalletAssignRow({ pallet, allCodes, onAssign }: {
+  pallet: StockPallet;
+  allCodes: string[];
+  onAssign: (palletId: string, codigo: string, tipo: 'COTE' | 'PASE_SANITARIO') => void;
+}) {
+  const [assigning, setAssigning] = useState(false);
+  const [newCode, setNewCode] = useState('');
+
+  const handleAssign = () => {
+    const code = newCode.trim().toUpperCase();
+    if (!code) return;
+    const tipo: 'COTE' | 'PASE_SANITARIO' = code.startsWith('B') ? 'PASE_SANITARIO' : 'COTE';
+    onAssign(pallet.id, code, tipo);
+    setAssigning(false);
+    setNewCode('');
+  };
+
+  if (assigning) {
+    return (
+      <tr className="border-t bg-violet-50/50">
+        <td className="px-2 py-1 font-mono">{pallet.contenedor || '-'}</td>
+        <td className="px-2 py-1">{pallet.fechaEntrega || '-'}</td>
+        <td className="px-2 py-1 text-right font-mono">{pallet.cajas.toLocaleString('es-UY')}</td>
+        <td className="px-2 py-1 text-right font-mono">{pallet.kilos.toLocaleString('es-UY')}</td>
+        <td className="px-2 py-1 max-w-[200px] truncate" title={pallet.contenido}>{pallet.contenido}</td>
+        <td className="px-2 py-1 font-mono">{pallet.nroLote || '-'}</td>
+        <td className="px-2 py-1">{pallet.fechaVencimiento || '-'}</td>
+        <td className="px-2 py-1">
+          <div className="flex items-center gap-1">
+            <Input
+              className="h-6 w-[120px] text-[11px] font-mono"
+              placeholder="P12345 / B44473"
+              value={newCode}
+              onChange={e => setNewCode(e.target.value.toUpperCase())}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAssign(); } if (e.key === 'Escape') { setAssigning(false); setNewCode(''); } }}
+              autoFocus
+              list={`assign-codes-${pallet.id}`}
+            />
+            <datalist id={`assign-codes-${pallet.id}`}>
+              {allCodes.map(c => <option key={c} value={c} />)}
+            </datalist>
+            <Button size="sm" className="h-6 px-2 text-[10px] bg-emerald-600 hover:bg-emerald-700" onClick={handleAssign} disabled={!newCode.trim()}>
+              <CheckCircle2 className="h-3 w-3 mr-0.5" />OK
+            </Button>
+            <Button size="sm" variant="ghost" className="h-6 px-1" onClick={() => { setAssigning(false); setNewCode(''); }}>
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr className="border-t hover:bg-white/50">
+      <td className="px-2 py-1 font-mono">{pallet.contenedor || '-'}</td>
+      <td className="px-2 py-1">{pallet.fechaEntrega || '-'}</td>
+      <td className="px-2 py-1 text-right font-mono">{pallet.cajas.toLocaleString('es-UY')}</td>
+      <td className="px-2 py-1 text-right font-mono">{pallet.kilos.toLocaleString('es-UY')}</td>
+      <td className="px-2 py-1 max-w-[200px] truncate" title={pallet.contenido}>{pallet.contenido}</td>
+      <td className="px-2 py-1 font-mono">{pallet.nroLote || '-'}</td>
+      <td className="px-2 py-1">{pallet.fechaVencimiento || '-'}</td>
+      <td className="px-2 py-1">
+        <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] text-violet-700 border-violet-300 hover:bg-violet-50" onClick={() => setAssigning(true)}>
+          <ArrowLeftRight className="h-3 w-3 mr-0.5" />Asignar
+        </Button>
+      </td>
+    </tr>
+  );
+}
+
 // --- Stock Table Component ---
-function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits }: {
+function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, onAssignPallet }: {
   stockAggMap: Map<string, StockCodigoAgg>;
   ingresoMap: Map<string, IngresoAgg>;
   cruceRows: CruceRow[];
   sinCruceRows: SinCruceRow[];
   edits: EditsStore;
+  onAssignPallet: (palletId: string, codigo: string, tipo: 'COTE' | 'PASE_SANITARIO') => void;
 }) {
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
   const [stockSearch, setStockSearch] = useState('');
-  const [stockFilter, setStockFilter] = useState<'all' | 'con_ingreso' | 'sin_ingreso' | 'con_diff'>('all');
+  const [stockFilter, setStockFilter] = useState<'all' | 'con_ingreso' | 'sin_ingreso' | 'con_diff' | 'sin_codigo'>('all');
 
   // Build export cajas map: ingreso COTE -> total cajas exported
   // Manual links: use specified cajas per COTE
@@ -571,9 +644,19 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits }:
     return map;
   }, [cruceRows, sinCruceRows, edits, ingresoMap]);
 
-  // Build list from stockAggMap
+  // Separate S/PASE/COTE from the rest
+  const sinCodigoAgg = stockAggMap.get(SIN_CODIGO_KEY);
+  const regularAggMap = useMemo(() => {
+    const m = new Map<string, StockCodigoAgg>();
+    for (const [k, v] of stockAggMap) {
+      if (k !== SIN_CODIGO_KEY) m.set(k, v);
+    }
+    return m;
+  }, [stockAggMap]);
+
+  // Build list from regularAggMap (excluding S/PASE/COTE)
   const stockList = useMemo(() => {
-    let items = [...stockAggMap.values()];
+    let items = [...regularAggMap.values()];
 
     if (stockSearch) {
       const s = stockSearch.toLowerCase();
@@ -600,14 +683,21 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits }:
 
     items.sort((a, b) => b.totalKilos - a.totalKilos);
     return items;
-  }, [stockAggMap, ingresoMap, stockSearch, stockFilter, exportCajasMap]);
+  }, [regularAggMap, ingresoMap, stockSearch, stockFilter, exportCajasMap]);
 
-  const totalConIngreso = [...stockAggMap.values()].filter(a => ingresoMap.has(a.codigo)).length;
-  const totalSinIngreso = stockAggMap.size - totalConIngreso;
+  // All known codes for the datalist in assignment
+  const allKnownCodes = useMemo(() => {
+    return [...ingresoMap.keys(), ...regularAggMap.keys()].sort();
+  }, [ingresoMap, regularAggMap]);
+
+  const totalConIngreso = [...regularAggMap.values()].filter(a => ingresoMap.has(a.codigo)).length;
+  const totalSinIngreso = regularAggMap.size - totalConIngreso;
   const totalCajasStock = [...stockAggMap.values()].reduce((s, a) => s + a.totalCajas, 0);
-  const totalCajasIngreso = [...stockAggMap.values()].reduce((s, a) => { const ing = ingresoMap.get(a.codigo); return s + (ing?.envases || 0); }, 0);
-  const totalCajasExport = [...stockAggMap.values()].reduce((s, a) => s + (exportCajasMap.get(a.codigo) || 0), 0);
+  const totalCajasIngreso = [...regularAggMap.values()].reduce((s, a) => { const ing = ingresoMap.get(a.codigo); return s + (ing?.envases || 0); }, 0);
+  const totalCajasExport = [...regularAggMap.values()].reduce((s, a) => s + (exportCajasMap.get(a.codigo) || 0), 0);
   const totalSaldoTeorico = totalCajasIngreso - totalCajasExport;
+
+  const isSinCodigoFilter = stockFilter === 'sin_codigo';
 
   return (
     <div>
@@ -623,14 +713,15 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits }:
         <Select value={stockFilter} onValueChange={v => setStockFilter(v as typeof stockFilter)}>
           <SelectTrigger className="w-[180px] h-8 text-xs"><SelectValue placeholder="Filtrar" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Todos ({stockAggMap.size})</SelectItem>
+            <SelectItem value="all">Todos ({regularAggMap.size}{sinCodigoAgg ? ` + S/PASE/COTE` : ''})</SelectItem>
+            <SelectItem value="sin_codigo">S/PASE/COTE ({sinCodigoAgg ? sinCodigoAgg.totalPallets : 0} pal.)</SelectItem>
             <SelectItem value="con_ingreso">Con ingreso ({totalConIngreso})</SelectItem>
             <SelectItem value="sin_ingreso">Sin ingreso ({totalSinIngreso})</SelectItem>
             <SelectItem value="con_diff">Con diferencia</SelectItem>
           </SelectContent>
         </Select>
         <div className="text-xs text-slate-500 space-x-2">
-          <span>{stockList.length} codigos</span>
+          <span>{regularAggMap.size + (sinCodigoAgg ? 1 : 0)} codigos</span>
           <span className="text-slate-300">|</span>
           <span>Stock: <b className="text-teal-700">{totalCajasStock.toLocaleString('es-UY')}</b></span>
           <span className="text-slate-300">|</span>
@@ -642,7 +733,62 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits }:
         </div>
       </div>
 
-      {/* Table */}
+      {/* S/PASE/COTE section - show first when filtered or always at top */}
+      {sinCodigoAgg && (isSinCodigoFilter || stockFilter === 'all') && (
+        <div className="mb-3">
+          <div
+            className={`border rounded-lg overflow-hidden ${isSinCodigoFilter ? '' : 'border-amber-200 bg-amber-50/30'}`}
+          >
+            <div
+              className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-amber-50/60 transition-colors ${expandedCode === SIN_CODIGO_KEY ? 'bg-amber-50/60' : ''}`}
+              onClick={() => setExpandedCode(expandedCode === SIN_CODIGO_KEY ? null : SIN_CODIGO_KEY)}
+            >
+              <ChevronRight className={`h-4 w-4 text-amber-600 transition-transform flex-shrink-0 ${expandedCode === SIN_CODIGO_KEY ? 'rotate-90' : ''}`} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-amber-800">S/PASE/COTE</span>
+                  <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-200 text-amber-800">SIN IDENTIFICAR</span>
+                </div>
+                <div className="text-[11px] text-amber-700 mt-0.5">
+                  {sinCodigoAgg.totalPallets} pallets &middot; {sinCodigoAgg.totalCajas.toLocaleString('es-UY')} cajas &middot; {sinCodigoAgg.totalKilos.toLocaleString('es-UY')} kg
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="text-xs text-amber-600">Podes asignar un COTE/PASE a cada pallet expandiendo</span>
+                <ArrowLeftRight className="h-4 w-4 text-amber-500" />
+              </div>
+            </div>
+            {expandedCode === SIN_CODIGO_KEY && (
+              <div className="border-t border-amber-200 bg-white">
+                <div className="max-h-[500px] overflow-y-auto">
+                  <table className="w-full text-[11px]">
+                    <thead className="sticky top-0 bg-amber-100">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left text-amber-800">Contenedor</th>
+                        <th className="px-2 py-1.5 text-left text-amber-800">Fec Ent</th>
+                        <th className="px-2 py-1.5 text-right text-amber-800">Cajas</th>
+                        <th className="px-2 py-1.5 text-right text-amber-800">Kg</th>
+                        <th className="px-2 py-1.5 text-left text-amber-800">Contenido</th>
+                        <th className="px-2 py-1.5 text-left text-amber-800">Lote</th>
+                        <th className="px-2 py-1.5 text-left text-amber-800">Venc.</th>
+                        <th className="px-2 py-1.5 text-center text-amber-800 w-[200px]">Asignar COTE/PASE</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sinCodigoAgg.pallets.map(p => (
+                        <PalletAssignRow key={p.id} pallet={p} allCodes={allKnownCodes} onAssign={onAssignPallet} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Regular stock table (hide when filtering S/PASE/COTE only) */}
+      {!isSinCodigoFilter && (
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -808,6 +954,7 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits }:
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
@@ -821,6 +968,7 @@ export default function CruceCaliral() {
   const [stockData, setStockData] = useState<StockLoad | null>(null);
   const [stockAggMap, setStockAggMap] = useState<Map<string, StockCodigoAgg>>(new Map());
   const [stockLoading, setStockLoading] = useState(false);
+  const [palletAssignments, setPalletAssignments] = useState<Record<string, { codigo: string; tipo: 'COTE' | 'PASE_SANITARIO' }>>({});
 
   const [search, setSearch] = useState('');
   const [pais, setPais] = useState('');
@@ -1017,11 +1165,43 @@ export default function CruceCaliral() {
         if (savedStock) {
           const load = JSON.parse(savedStock) as StockLoad;
           setStockData(load);
-          setStockAggMap(buildStockAggMap(load.pallets));
+        }
+      } catch { /* ignore */ }
+      // Load pallet assignments
+      try {
+        const savedAssign = localStorage.getItem('trazabilidad_stock_assignments');
+        if (savedAssign) {
+          setPalletAssignments(JSON.parse(savedAssign));
         }
       } catch { /* ignore */ }
     })();
   }, [recomputeCruce]);
+
+  // --- Rebuild stock map with assignments applied ---
+  const rebuildStockMap = useCallback((data: StockLoad | null, assignments: Record<string, { codigo: string; tipo: 'COTE' | 'PASE_SANITARIO' }>) => {
+    if (!data) { setStockAggMap(new Map()); return; }
+    const modified = data.pallets.map(p => {
+      const a = assignments[p.id];
+      if (a) return { ...p, codigo: a.codigo, codigoTipo: a.tipo };
+      return p;
+    });
+    setStockAggMap(buildStockAggMap(modified));
+  }, []);
+
+  // Rebuild stock map when stockData or assignments change
+  useEffect(() => {
+    rebuildStockMap(stockData, palletAssignments);
+  }, [stockData, palletAssignments, rebuildStockMap]);
+
+  // --- Handle pallet assignment ---
+  const handleAssignPallet = useCallback((palletId: string, codigo: string, tipo: 'COTE' | 'PASE_SANITARIO') => {
+    setPalletAssignments(prev => {
+      const next = { ...prev, [palletId]: { codigo, tipo } };
+      localStorage.setItem('trazabilidad_stock_assignments', JSON.stringify(next));
+      return next;
+    });
+    toast.success(`Pallet asignado a ${codigo}`);
+  }, []);
 
   // --- Edit handlers ---
   const openExportEdit = (row: CruceRow | SinCruceRow) => {
@@ -1354,9 +1534,10 @@ export default function CruceCaliral() {
         const load = await parseStockXls(file);
         setStockData(load);
         localStorage.setItem('trazabilidad_stock_data', JSON.stringify(load));
-        const aggMap = buildStockAggMap(load.pallets);
-        setStockAggMap(aggMap);
-        toast.success(`Stock cargado: ${load.pallets.length} pallets, ${aggMap.size} codigos (COTEs + Pases)`);
+        // Clear previous assignments when loading new stock
+        setPalletAssignments({});
+        localStorage.removeItem('trazabilidad_stock_assignments');
+        toast.success(`Stock cargado: ${load.pallets.length} pallets`);
         setSubTab('stock');
       } catch (err) {
         toast.error(`Error al cargar stock: ${(err as Error).message}`);
@@ -1427,6 +1608,7 @@ export default function CruceCaliral() {
     'trazabilidad_dep_deleted',
     'cruce_caliral_edits',
     'trazabilidad_stock_data',
+    'trazabilidad_stock_assignments',
   ];
 
   const handleBackup = () => {
@@ -1781,6 +1963,7 @@ export default function CruceCaliral() {
                   cruceRows={cruceRows}
                   sinCruceRows={sinCruceRows}
                   edits={edits}
+                  onAssignPallet={handleAssignPallet}
                 />
               </>) : (
                 <div className="text-center py-16 text-slate-400">

@@ -40,6 +40,9 @@ export interface StockCodigoAgg {
   contenedores: string[];
 }
 
+// Special key for pallets without any COTE or PASE SANITARIO code
+export const SIN_CODIGO_KEY = '__SIN_CODIGO__';
+
 // Regex patterns
 const RE_COTE = /COTE\s+(P\d{4,8})/i;
 const RE_PASE = /PASE\s+SANITARIO\s+(B\d{4,8})/i;
@@ -127,11 +130,12 @@ function extractCodigo(contenido: string): { codigo: string; tipo: 'COTE' | 'PAS
 export function buildStockAggMap(pallets: StockPallet[]): Map<string, StockCodigoAgg> {
   const map = new Map<string, StockCodigoAgg>();
   for (const p of pallets) {
-    if (!p.codigo) continue;
-    if (!map.has(p.codigo)) {
-      map.set(p.codigo, {
-        codigo: p.codigo,
-        tipo: p.codigoTipo,
+    const codigo = p.codigo || SIN_CODIGO_KEY;
+    const tipo = p.codigo ? p.codigoTipo : ('NINGUNO' as 'COTE' | 'PASE_SANITARIO');
+    if (!map.has(codigo)) {
+      map.set(codigo, {
+        codigo: codigo === SIN_CODIGO_KEY ? 'S/PASE/COTE' : p.codigo,
+        tipo: tipo === 'NINGUNO' ? 'COTE' : tipo,
         totalPallets: 0,
         totalCajas: 0,
         totalKilos: 0,
@@ -140,7 +144,7 @@ export function buildStockAggMap(pallets: StockPallet[]): Map<string, StockCodig
         contenedores: [],
       });
     }
-    const agg = map.get(p.codigo)!;
+    const agg = map.get(codigo)!;
     agg.totalPallets += p.pallets;
     agg.totalCajas += p.cajas;
     agg.totalKilos += p.kilos;

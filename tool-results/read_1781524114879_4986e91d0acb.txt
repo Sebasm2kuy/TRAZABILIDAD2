@@ -1,0 +1,860 @@
+  1440→    backup._meta = { version: 1, fecha: new Date().toISOString(), page: 'trazabilidad_backup' };
+  1441→    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+  1442→    const url = URL.createObjectURL(blob);
+  1443→    const a = document.createElement('a');
+  1444→    a.href = url;
+  1445→    a.download = `trazabilidad_backup_${new Date().toISOString().split('T')[0]}.json`;
+  1446→    a.click();
+  1447→    URL.revokeObjectURL(url);
+  1448→    toast.success('Respaldo descargado');
+  1449→  };
+  1450→
+  1451→  const handleRestore = () => {
+  1452→    const input = document.createElement('input');
+  1453→    input.type = 'file';
+  1454→    input.accept = '.json';
+  1455→    input.onchange = (e) => {
+  1456→      const file = (e.target as HTMLInputElement).files?.[0];
+  1457→      if (!file) return;
+  1458→      const reader = new FileReader();
+  1459→      reader.onload = (ev) => {
+  1460→        try {
+  1461→          const data = JSON.parse(ev.target?.result as string);
+  1462→          if (!data._meta || data._meta.page !== 'trazabilidad_backup') {
+  1463→            toast.error('Archivo invalido - no es un respaldo de trazabilidad');
+  1464→            return;
+  1465→          }
+  1466→          let count = 0;
+  1467→          for (const key of ALL_LS_KEYS) {
+  1468→            if (data[key] !== undefined) {
+  1469→              localStorage.setItem(key, JSON.stringify(data[key]));
+  1470→              count++;
+  1471→            }
+  1472→          }
+  1473→          toast.success(`Restaurados ${count} campos. Recargando...`);
+  1474→          setTimeout(() => window.location.reload(), 1000);
+  1475→        } catch {
+  1476→          toast.error('Error al leer el archivo');
+  1477→        }
+  1478→      };
+  1479→      reader.readAsText(file);
+  1480→    };
+  1481→    input.click();
+  1482→  };
+  1483→
+  1484→  function diffBadgeEnvases(diff: number) {
+  1485→    if (diff === 0) return <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full"><CheckCircle2 className="h-3 w-3" />0</span>;
+  1486→    if (diff < 0) {
+  1487→      return <span className="inline-flex items-center gap-1 text-xs font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-full"><PackageMinus className="h-3 w-3" />{diff} cajas</span>;
+  1488→    }
+  1489→    return <span className="inline-flex items-center text-xs font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full">+{diff} cajas</span>;
+  1490→  }
+  1491→
+  1492→  const openIngresoDetail = (cote: string) => {
+  1493→    setIngresoDetailCote(cote);
+  1494→    setDetailOpen(true);
+  1495→  };
+  1496→  const closeIngresoDetail = () => {
+  1497→    setIngresoDetailCote(null);
+  1498→  };
+  1499→  const isEdited = (type: 'export' | 'ingreso', id: string) => type === 'export' ? !!edits.exports[id] : !!edits.ingresos[id];
+  1500→
+  1501→  if (loading) return <div className="p-6 space-y-4"><h2 className="text-2xl font-bold text-slate-800">Cruce Caliral</h2><Skeleton className="h-96" /></div>;
+  1502→
+  1503→  return (
+  1504→    <div className="p-6 space-y-4 max-w-[1600px]">
+  1505→      {/* Header */}
+  1506→      <div className="flex items-center justify-between">
+  1507→        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+  1508→          <ArrowLeftRight className="h-6 w-6 text-orange-600" />
+  1509→          Cruce Caliral
+  1510→          <span className="text-sm font-normal text-slate-400 ml-2">Trazabilidad por cajas (envases)</span>
+  1511→        </h2>
+  1512→        <div className="flex gap-2">
+  1513→          <Button variant="outline" size="sm" onClick={handleBackup} title="Descargar respaldo de todos tus datos">
+  1514→            <Download className="h-4 w-4 mr-2" />Respaldo
+  1515→          </Button>
+  1516→          <Button variant="outline" size="sm" onClick={handleRestore} title="Restaurar datos desde un archivo de respaldo">
+  1517→            <Upload className="h-4 w-4 mr-2" />Restaurar
+  1518→          </Button>
+  1519→          <Button variant="outline" size="sm" onClick={handleExport}>
+  1520→            <Download className="h-4 w-4 mr-2" />Exportar Excel
+  1521→          </Button>
+  1522→          <Button variant="outline" size="sm" onClick={handleLoadStock} disabled={stockLoading}>
+  1523→            <Upload className="h-4 w-4 mr-2" />{stockLoading ? 'Cargando...' : 'Cargar Stock'}
+  1524→          </Button>
+  1525→        </div>
+  1526→      </div>
+  1527→
+  1528→      {/* KPI Cards */}
+  1529→      <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+  1530→        <Card><CardContent className="p-4 flex items-center gap-3">
+  1531→          <div className="p-3 rounded-xl bg-emerald-50"><ArrowLeftRight className="h-5 w-5 text-emerald-600" /></div>
+  1532→          <div><p className="text-[10px] text-slate-500 uppercase">Ingresos Caliral</p><p className="text-lg font-bold">{stats.totalIngresos}</p><p className="text-[10px] text-slate-400">{fmt(stats.totalIngresoEnvases)} cajas</p></div>
+  1533→        </CardContent></Card>
+  1534→        <Card><CardContent className="p-4 flex items-center gap-3">
+  1535→          <div className="p-3 rounded-xl bg-blue-50"><Link2 className="h-5 w-5 text-blue-600" /></div>
+  1536→          <div><p className="text-[10px] text-slate-500 uppercase">COTEs Vinculados</p><p className="text-lg font-bold">{stats.cotesVinculados}</p><p className="text-[10px] text-slate-400">de {stats.totalIngresos} ingresos</p></div>
+  1537→        </CardContent></Card>
+  1538→        <Card><CardContent className="p-4 flex items-center gap-3">
+  1539→          <div className="p-3 rounded-xl bg-sky-50"><CheckCircle2 className="h-5 w-5 text-sky-600" /></div>
+  1540→          <div><p className="text-[10px] text-slate-500 uppercase">Exports con cruce</p><p className="text-lg font-bold">{stats.exportConCruce}</p><p className="text-[10px] text-slate-400">{fmt(stats.totalCruceExpEnvases)} cajas</p></div>
+  1541→        </CardContent></Card>
+  1542→        <Card><CardContent className="p-4 flex items-center gap-3">
+  1543→          <div className="p-3 rounded-xl bg-amber-50"><AlertTriangle className="h-5 w-5 text-amber-600" /></div>
+  1544→          <div><p className="text-[10px] text-slate-500 uppercase">Exports sin COTE</p><p className="text-lg font-bold">{stats.exportSinCruce}</p><p className="text-[10px] text-slate-400">{fmt(stats.totalSinCruceEnvases)} cajas</p></div>
+  1545→        </CardContent></Card>
+  1546→        <Card><CardContent className="p-4 flex items-center gap-3">
+  1547→          <div className="p-3 rounded-xl bg-orange-50"><Unlink className="h-5 w-5 text-orange-600" /></div>
+  1548→          <div><p className="text-[10px] text-slate-500 uppercase">Ingresos pendientes</p><p className="text-lg font-bold">{stats.pendienteCount}</p><p className="text-[10px] text-slate-400">{fmt(stats.pendienteEnvases)} cajas</p></div>
+  1549→        </CardContent></Card>
+  1550→        <Card><CardContent className={`p-4 flex items-center gap-3 ${stats.conProblema > 0 ? 'ring-2 ring-red-200' : ''}`}>
+  1551→          <div className={`p-3 rounded-xl ${stats.conProblema > 0 ? 'bg-red-50' : 'bg-emerald-50'}`}>
+  1552→            {stats.conProblema > 0 ? <PackageMinus className="h-5 w-5 text-red-600" /> : <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
+  1553→          </div>
+  1554→          <div><p className="text-[10px] text-slate-500 uppercase">Con diferencia</p><p className={`text-lg font-bold ${stats.conProblema > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{stats.conProblema}</p><p className="text-[10px] text-slate-400">mas cajas exp. que ing.</p></div>
+  1555→        </CardContent></Card>
+  1556→        <Card><CardContent className="p-4 flex items-center gap-3">
+  1557→          <div className="p-3 rounded-xl bg-violet-50"><span className="text-sm font-bold text-violet-600">%</span></div>
+  1558→          <div><p className="text-[10px] text-slate-500 uppercase">Cobertura cruce</p><p className="text-lg font-bold">
+  1559→            {stats.totalIngresos > 0 ? ((stats.cotesVinculados / stats.totalIngresos) * 100).toFixed(0) : 0}%
+  1560→          </p><p className="text-[10px] text-slate-400">COTEs vinculados</p></div>
+  1561→        </CardContent></Card>
+  1562→      </div>
+  1563→
+  1564→      {/* Info banner */}
+  1565→      <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600">
+  1566→        <p className="font-medium text-slate-700 mb-1">Como funciona el cruce</p>
+  1567→        <p>Se extraen los COTEs de ingreso desde las <b>observaciones</b> de cada exportacion. Se comparan las <b>cajas (envases)</b> exportadas contra los <b>totales de cajas en A Depositos</b> para esos COTEs. La diferencia negativa (roja) indica que se exportaron mas cajas de las que ingresaron, lo cual es un error. La diferencia positiva (azul) es normal: significa que no todas las cajas de esos COTEs fueron en esa exportacion (pueden ir en otra o estar pendientes). Si vinculaste COTEs manualmente, el campo "cajas" indica cuantas de cada COTE se usaron en la exportacion, pero la diferencia se calcula igual contra los totales de depositos. <b>Podes editar cualquier registro haciendo click en el lapiz</b>. Las ediciones se guardan en el navegador.</p>
+  1568→      </div>
+  1569→
+  1570→      {/* Sub-tabs + Filters */}
+  1571→      <Card><CardContent className="p-4 space-y-3">
+  1572→        <div className="flex flex-wrap gap-2 items-center">
+  1573→          <Button variant={subTab === 'cruce' ? 'default' : 'outline'} size="sm" onClick={() => setSubTab('cruce')}>
+  1574→            <Link2 className="h-4 w-4 mr-1.5" />Con cruce ({cruceRows.length})
+  1575→          </Button>
+  1576→          <Button variant={subTab === 'sincruce' ? 'default' : 'outline'} size="sm" onClick={() => setSubTab('sincruce')}>
+  1577→            <Unlink className="h-4 w-4 mr-1.5" />Sin COTE de ingreso ({sinCruceRows.length})
+  1578→          </Button>
+  1579→          <Button variant={subTab === 'pendientes' ? 'default' : 'outline'} size="sm" onClick={() => setSubTab('pendientes')}>
+  1580→            <AlertTriangle className="h-4 w-4 mr-1.5" />Ingresos pendientes ({pendienteRows.length})
+  1581→          </Button>
+  1582→          <Button variant={subTab === 'stock' ? 'default' : 'outline'} size="sm" onClick={() => setSubTab('stock')}>
+  1583→            <Package className="h-4 w-4 mr-1.5" />Stock ({stockAggMap.size})
+  1584→          </Button>
+  1585→          <div className="flex-1" />
+  1586→          {hasFilters && <Button variant="ghost" size="sm" onClick={clearFilters}><X className="h-4 w-4 mr-1" />Limpiar</Button>}
+  1587→        </div>
+  1588→        <div className="flex flex-wrap gap-3 items-center">
+  1589→          <div className="relative flex-1 min-w-[200px]">
+  1590→            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+  1591→            <Input
+  1592→              placeholder={subTab === 'pendientes' ? 'Buscar COTE, tramite, producto...' : 'Buscar tramite, COTE, pais, producto...'}
+  1593→              value={search} onChange={e => setSearch(e.target.value)} className="pl-9"
+  1594→            />
+  1595→          </div>
+  1596→          {subTab !== 'pendientes' && (
+  1597→            <Select value={pais} onValueChange={v => setPais(v)}>
+  1598→              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Pais" /></SelectTrigger>
+  1599→              <SelectContent>{paises.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+  1600→            </Select>
+  1601→          )}
+  1602→          <Select value={filtroProducto} onValueChange={v => setFiltroProducto(v)}>
+  1603→            <SelectTrigger className="w-[220px]"><SelectValue placeholder="Producto" /></SelectTrigger>
+  1604→            <SelectContent>{productos.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+  1605→          </Select>
+  1606→          <Select value={filtroCorte} onValueChange={v => setFiltroCorte(v)}>
+  1607→            <SelectTrigger className="w-[150px]"><SelectValue placeholder="Corte" /></SelectTrigger>
+  1608→            <SelectContent>{cortes.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+  1609→          </Select>
+  1610→          <Input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} className="w-[140px]" />
+  1611→          <Input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} className="w-[140px]" />
+  1612→        </div>
+  1613→      </CardContent></Card>
+  1614→
+  1615→      {/* Table */}
+  1616→      <Card><CardContent className="p-0">
+  1617→        <div className="overflow-x-auto">
+  1618→          {subTab === 'cruce' && (
+  1619→            <table className="w-full text-sm">
+  1620→              <thead>
+  1621→                <tr className="border-b bg-slate-50 text-left text-xs text-slate-500 uppercase">
+  1622→                  <th className="px-3 py-3">COTE Exp.</th>
+  1623→                  <th className="px-3 py-3">Tramite</th>
+  1624→                  <th className="px-3 py-3">Fecha</th>
+  1625→                  <th className="px-3 py-3">Pais</th>
+  1626→                  <th className="px-3 py-3 hidden xl:table-cell">Producto</th>
+  1627→                  <th className="px-3 py-3 text-right">Cajas Exp.</th>
+  1628→                  <th className="px-3 py-3">COTEs de Ingreso</th>
+  1629→                  <th className="px-3 py-3 text-right hidden lg:table-cell">Cajas Ingreso</th>
+  1630→                  <th className="px-3 py-3 w-[100px]">Agregar COTE</th>
+  1631→                  <th className="px-3 py-3 text-right">Diff. Cajas</th>
+  1632→                  <th className="px-3 py-3 w-20"></th>
+  1633→                </tr>
+  1634→              </thead>
+  1635→              <tbody>
+  1636→                {pageData.length === 0 ? (
+  1637→                  <tr><td colSpan={11} className="text-center py-10 text-slate-400">No se encontraron registros</td></tr>
+  1638→                ) : (pageData as CruceRow[]).map(r => (
+  1639→                  <tr key={r.exp.id} className={`border-b cursor-pointer ${r.diffEnvases < 0 ? 'hover:bg-red-50/40' : 'hover:bg-orange-50/40'} ${isEdited('export', r.exp.id) ? 'bg-violet-50/30' : ''}`} onClick={() => { setDetailRow(r); setDetailOpen(true); }}>
+  1640→                    <td className="px-3 py-2.5 text-xs font-mono font-medium text-blue-700">
+  1641→                      <button onClick={(e) => { e.stopPropagation(); setIngresoDetailCote(null); setDetailRow(r); setDetailOpen(true); }} className="hover:underline cursor-pointer">{r.exp.nroCote}</button>
+  1642→                    </td>
+  1643→                    <td className="px-3 py-2.5 text-xs font-mono">{r.exp.nroTramite}</td>
+  1644→                    <td className="px-3 py-2.5 text-xs">{fd(r.exp.fechaTramite)}</td>
+  1645→                    <td className="px-3 py-2.5 text-xs">{r.exp.paisDestino}</td>
+  1646→                    <td className="px-3 py-2.5 text-xs hidden xl:table-cell max-w-[200px] truncate">{r.exp.denominacionMercaderia}</td>
+  1647→                    <td className="px-3 py-2.5 text-xs text-right font-mono font-medium">{r.envasesExp.toLocaleString('es-UY')}</td>
+  1648→                    <td className="px-3 py-2.5 text-xs">
+  1649→                      <div className="flex flex-wrap gap-1">
+  1650→                        {r.isManualLink && <span className="inline-block bg-violet-100 text-violet-800 text-[9px] font-bold px-1 py-0.5 rounded">MANUAL</span>}
+  1651→                        {r.ingresoCotes.map(c => (
+  1652→                          <button key={c} onClick={(e) => { e.stopPropagation(); openIngresoDetail(c); }} className="inline-block bg-emerald-100 text-emerald-800 text-[10px] font-mono px-1.5 py-0.5 rounded hover:bg-emerald-200 hover:underline cursor-pointer transition-colors">{c}</button>
+  1653→                        ))}
+  1654→                        {r.ingresoCotesNotFound.map(c => (
+  1655→                          <button key={c} title="No encontrado en ingresos Caliral" onClick={(e) => { e.stopPropagation(); openIngresoDetail(c); }} className="inline-block bg-red-100 text-red-700 text-[10px] font-mono px-1.5 py-0.5 rounded hover:bg-red-200 hover:underline cursor-pointer transition-colors">{c}</button>
+  1656→                        ))}
+  1657→                      </div>
+  1658→                    </td>
+  1659→                    <td className="px-3 py-2.5 text-xs text-right font-mono hidden lg:table-cell">{r.totalEnvasesIngreso.toLocaleString('es-UY')}</td>
+  1660→                    <td className="px-3 py-2.5 text-center" onClick={e => e.stopPropagation()}>
+  1661→                      <button
+  1662→                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-white bg-violet-600 hover:bg-violet-700 px-2.5 py-1 rounded-md transition-colors"
+  1663→                        onClick={() => openExportEdit(r)}
+  1664→                      >
+  1665→                        <Plus className="h-3 w-3" />Vincular COTE
+  1666→                      </button>
+  1667→                    </td>
+  1668→                    <td className="px-3 py-2.5 text-right">{diffBadgeEnvases(r.diffEnvases)}</td>
+  1669→                    <td className="px-3 py-2.5 text-center" onClick={e => e.stopPropagation()}>
+  1670→                      <div className="flex items-center justify-center gap-1">
+  1671→                        <button className="p-1 rounded hover:bg-slate-100" title="Editar" onClick={() => openExportEdit(r)}>
+  1672→                          <Pencil className={`h-3.5 w-3.5 ${isEdited('export', r.exp.id) ? 'text-violet-600' : 'text-slate-400'}`} />
+  1673→                        </button>
+  1674→                        <button className="p-1 rounded hover:bg-slate-100" title="Ver detalle" onClick={() => { setDetailRow(r); setDetailOpen(true); }}>
+  1675→                          <Eye className="h-3.5 w-3.5 text-slate-400" />
+  1676→                        </button>
+  1677→                      </div>
+  1678→                    </td>
+  1679→                  </tr>
+  1680→                ))}
+  1681→              </tbody>
+  1682→            </table>
+  1683→          )}
+  1684→
+  1685→          {subTab === 'sincruce' && (
+  1686→            <>
+  1687→            <div className="mb-2">
+  1688→              <Button size="sm" className="text-xs" onClick={() => setAddExpOpen(true)}>
+  1689→                <Plus className="h-3.5 w-3.5 mr-1" />Agregar exportacion manual
+  1690→              </Button>
+  1691→            </div>
+  1692→            <table className="w-full text-sm">
+  1693→              <thead>
+  1694→                <tr className="border-b bg-slate-50 text-left text-xs text-slate-500 uppercase">
+  1695→                  <th className="px-3 py-3">COTE Exp.</th>
+  1696→                  <th className="px-3 py-3">Tramite</th>
+  1697→                  <th className="px-3 py-3">Fecha</th>
+  1698→                  <th className="px-3 py-3">Pais</th>
+  1699→                  <th className="px-3 py-3 hidden lg:table-cell">Producto</th>
+  1700→                  <th className="px-3 py-3 text-right">Cajas Exp.</th>
+  1701→                  <th className="px-3 py-3 text-right hidden md:table-cell">Kg</th>
+  1702→                  <th className="px-3 py-3 w-[160px]">Agregar COTE Ingreso</th>
+  1703→                </tr>
+  1704→              </thead>
+  1705→              <tbody>
+  1706→                {pageData.length === 0 ? (
+  1707→                  <tr><td colSpan={8} className="text-center py-10 text-slate-400">No se encontraron registros</td></tr>
+  1708→                ) : (pageData as SinCruceRow[]).map(r => (
+  1709→                  <SinCruceInlineRow key={r.exp.id} row={r} ingresoMap={ingresoMap} stockAggMap={stockAggMap} edits={edits} onSaved={(newEdits) => { setEdits(newEdits); saveEdits(newEdits); recomputeCruce(newEdits); }} onEditFull={() => openExportEdit(r)} onViewDetail={() => { setIngresoDetailCote(null); setDetailRow(r); setDetailOpen(true); }} isEditedFlag={isEdited('export', r.exp.id)} />
+  1710→                ))}
+  1711→              </tbody>
+  1712→            </table>
+  1713→            </>
+  1714→          )}
+  1715→
+  1716→          {subTab === 'pendientes' && (
+  1717→            <>
+  1718→            <div className="mb-2">
+  1719→              <Button size="sm" className="text-xs" onClick={() => setAddIngresoOpen(true)}>
+  1720→                <Plus className="h-3.5 w-3.5 mr-1" />Agregar COTE deposito manual
+  1721→              </Button>
+  1722→            </div>
+  1723→            <table className="w-full text-sm">
+  1724→              <thead>
+  1725→                <tr className="border-b bg-slate-50 text-left text-xs text-slate-500 uppercase">
+  1726→                  <th className="px-3 py-3">COTE</th>
+  1727→                  <th className="px-3 py-3">Tramite</th>
+  1728→                  <th className="px-3 py-3">Fecha</th>
+  1729→                  <th className="px-3 py-3 hidden lg:table-cell">Producto</th>
+  1730→                  <th className="px-3 py-3 hidden md:table-cell">Cortes</th>
+  1731→                  <th className="px-3 py-3 text-right">Cajas</th>
+  1732→                  <th className="px-3 py-3 text-right hidden md:table-cell">Kg</th>
+  1733→                  <th className="px-3 py-3 w-20"></th>
+  1734→                </tr>
+  1735→              </thead>
+  1736→              <tbody>
+  1737→                {pageData.length === 0 ? (
+  1738→                  <tr><td colSpan={8} className="text-center py-10 text-slate-400">No se encontraron registros</td></tr>
+  1739→                ) : (pageData as IngresoPendienteRow[]).map(r => (
+  1740→                  <tr key={r.cote} className={`border-b hover:bg-orange-50/40 cursor-pointer ${isEdited('ingreso', r.cote) ? 'bg-violet-50/30' : ''}`} onClick={() => { setDetailRow(r); setDetailOpen(true); }}>
+  1741→                    <td className="px-3 py-2.5 text-xs font-mono font-medium text-orange-700"><button onClick={(e) => { e.stopPropagation(); setIngresoDetailCote(null); setDetailRow(r); setDetailOpen(true); }} className="hover:underline cursor-pointer">{r.cote}</button></td>
+  1742→                    <td className="px-3 py-2.5 text-xs font-mono">{r.tramite}</td>
+  1743→                    <td className="px-3 py-2.5 text-xs">{fd(r.fecha)}</td>
+  1744→                    <td className="px-3 py-2.5 text-xs hidden lg:table-cell max-w-[200px] truncate">{r.producto}</td>
+  1745→                    <td className="px-3 py-2.5 text-xs hidden md:table-cell max-w-[200px] truncate">{r.cortes.join(', ')}</td>
+  1746→                    <td className="px-3 py-2.5 text-xs text-right font-mono">{r.envases.toLocaleString('es-UY')}</td>
+  1747→                    <td className="px-3 py-2.5 text-xs text-right font-mono hidden md:table-cell">{r.pesoNeto.toLocaleString('es-UY')}</td>
+  1748→                    <td className="px-3 py-2.5 text-center" onClick={e => e.stopPropagation()}>
+  1749→                      <div className="flex items-center justify-center gap-1">
+  1750→                        <button className="p-1 rounded hover:bg-slate-100" title="Editar" onClick={() => openIngresoEdit(r)}>
+  1751→                          <Pencil className={`h-3.5 w-3.5 ${isEdited('ingreso', r.cote) ? 'text-violet-600' : 'text-slate-400'}`} />
+  1752→                        </button>
+  1753→                        <button className="p-1 rounded hover:bg-slate-100" title="Ver detalle" onClick={() => { setDetailRow(r); setDetailOpen(true); }}>
+  1754→                          <Eye className="h-3.5 w-3.5 text-slate-400" />
+  1755→                        </button>
+  1756→                      </div>
+  1757→                    </td>
+  1758→                  </tr>
+  1759→                ))}
+  1760→              </tbody>
+  1761→            </table>
+  1762→            </>
+  1763→          )}
+  1764→
+  1765→          {subTab === 'stock' && (
+  1766→            <>
+  1767→              {stockData ? (<>
+  1768→                {/* Stock summary card */}
+  1769→                <div className="mb-3 p-3 bg-teal-50 border border-teal-200 rounded-lg text-xs text-teal-800">
+  1770→                  <div className="flex flex-wrap items-center gap-4">
+  1771→                    <span className="font-bold">Stock al {stockData.fecha} — {stockData.cliente}</span>
+  1772→                    <span>Total codigos: <b>{stockAggMap.size}</b></span>
+  1773→                    <span>Total pallets: <b>{stockData.pallets.length}</b></span>
+  1774→                    <span>Cajas totales: <b>{[...stockAggMap.values()].reduce((s, a) => s + a.totalCajas, 0).toLocaleString('es-UY')}</b></span>
+  1775→                    <span>Kg totales: <b>{[...stockAggMap.values()].reduce((s, a) => s + a.totalKilos, 0).toLocaleString('es-UY')}</b></span>
+  1776→                  </div>
+  1777→                </div>
+  1778→                <StockTable
+  1779→                  stockAggMap={stockAggMap}
+  1780→                  ingresoMap={ingresoMap}
+  1781→                  cruceRows={cruceRows}
+  1782→                  sinCruceRows={sinCruceRows}
+  1783→                  edits={edits}
+  1784→                />
+  1785→              </>) : (
+  1786→                <div className="text-center py-16 text-slate-400">
+  1787→                  <Package className="h-12 w-12 mx-auto mb-3 opacity-30" />
+  1788→                  <p className="text-sm">No hay datos de stock cargados.</p>
+  1789→                  <p className="text-xs mt-1">Hace click en <b>Cargar Stock</b> para subir un archivo XLS del deposito.</p>
+  1790→                </div>
+  1791→              )}
+  1792→            </>
+  1793→          )}
+  1794→        </div>
+  1795→        {subTab !== 'stock' && (
+  1796→        <div className="flex items-center justify-between p-4 border-t">
+  1797→          <p className="text-sm text-slate-500">{filteredData.length} registros — Pagina {page} de {totalPages || 1}</p>
+  1798→          <div className="flex gap-2">
+  1799→            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+  1800→            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}><ChevronRight className="h-4 w-4" /></Button>
+  1801→          </div>
+  1802→        </div>
+  1803→        )}
+  1804→      </CardContent></Card>
+  1805→
+  1806→      {/* Detail Sheet (read-only) */}
+  1807→      <Sheet open={detailOpen} onOpenChange={(open) => { if (!open) { setDetailOpen(false); setIngresoDetailCote(null); } else { setDetailOpen(true); } }}>
+  1808→        <SheetContent className="sm:max-w-xl overflow-y-auto">
+  1809→          {/* Ingreso COTE detail view */}
+  1810→          {ingresoDetailCote && (() => {
+  1811→            const agg = ingresoMap.get(ingresoDetailCote);
+  1812→            return (<>
+  1813→              <SheetHeader>
+  1814→                <SheetTitle className="flex items-center gap-2">
+  1815→                  <button onClick={closeIngresoDetail} className="p-1 rounded hover:bg-slate-100 mr-1"><ChevronLeft className="h-5 w-5" /></button>
+  1816→                  Ingreso COTE {ingresoDetailCote}
+  1817→                </SheetTitle>
+  1818→              </SheetHeader>
+  1819→              <div className="mt-6 space-y-4 text-sm">
+  1820→                {agg ? (<>
+  1821→                  <div className="bg-emerald-50 rounded-lg p-3 space-y-1">
+  1822→                    {[
+  1823→                      ['COTE', agg.cote], ['Nro. Tramite', String(agg.tramite)],
+  1824→                      ['Fecha', fd(agg.fecha)], ['Producto', agg.producto],
+  1825→                      ['Cortes', agg.cortes.join(', ')], ['Lineas', String(agg.lineCount)],
+  1826→                      ['Cajas (envases)', agg.envases.toLocaleString('es-UY')],
+  1827→                      ['Peso Bruto', agg.pesoBruto.toLocaleString('es-UY') + ' kg'],
+  1828→                      ['Peso Neto', agg.pesoNeto.toLocaleString('es-UY') + ' kg'],
+  1829→                    ].map(([l, v]) => (
+  1830→                      <div key={l} className="flex justify-between gap-4"><span className="text-slate-500 text-xs">{l}</span><span className="text-slate-800 text-xs text-right font-medium break-all">{v}</span></div>
+  1831→                    ))}
+  1832→                  </div>
+  1833→                  {agg.lines.length > 0 && (
+  1834→                    <div>
+  1835→                      <p className="text-[10px] text-slate-500 uppercase mb-1">Lineas del ingreso</p>
+  1836→                      <div className="max-h-[400px] overflow-y-auto border rounded">
+  1837→                        <table className="w-full text-[11px]">
+  1838→                          <thead className="sticky top-0 bg-slate-100"><tr>
+  1839→                            <th className="px-2 py-1 text-left">Linea</th>
+  1840→                            <th className="px-2 py-1 text-left">Corte</th>
+  1841→                            <th className="px-2 py-1 text-right">Cajas</th>
+  1842→                            <th className="px-2 py-1 text-right">Peso Bruto</th>
+  1843→                            <th className="px-2 py-1 text-right">Peso Neto</th>
+  1844→                          </tr></thead>
+  1845→                          <tbody>
+  1846→                            {agg.lines.map((l, i) => (
+  1847→                              <tr key={i} className="border-t">
+  1848→                                <td className="px-2 py-1">{String((l as Record<string, unknown>).idLinea ?? i + 1)}</td>
+  1849→                                <td className="px-2 py-1">{l.corte}</td>
+  1850→                                <td className="px-2 py-1 text-right font-mono">{l.cantidadEnvases ?? '-'}</td>
+  1851→                                <td className="px-2 py-1 text-right font-mono">{l.pesoBruto ? l.pesoBruto.toLocaleString('es-UY') : '-'}</td>
+  1852→                                <td className="px-2 py-1 text-right font-mono">{l.pesoNeto ? l.pesoNeto.toLocaleString('es-UY') : '-'}</td>
+  1853→                              </tr>
+  1854→                            ))}
+  1855→                          </tbody>
+  1856→                        </table>
+  1857→                      </div>
+  1858→                    </div>
+  1859→                  )}
+  1860→                  <button onClick={closeIngresoDetail} className="w-full text-center text-xs text-blue-600 hover:text-blue-800 py-2 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors">
+  1861→                    Volver al detalle de la exportacion
+  1862→                  </button>
+  1863→                </>) : (
+  1864→                  <div className="space-y-4">
+  1865→                    <div className="bg-orange-50 rounded-lg p-4 text-xs text-orange-800">
+  1866→                      <p className="font-bold mb-1">COTE {ingresoDetailCote} no encontrado en los ingresos a Caliral.</p>
+  1867→                      <p>Puede ser un COTE que no ingreso a Caliral, o un error en el numero. Crealo manualmente abajo para vincularlo.</p>
+  1868→                    </div>
+  1869→                    <div className="border-2 border-dashed border-emerald-200 rounded-lg p-4 bg-emerald-50/50">
+  1870→                      <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-3">Crear ingreso manual para {ingresoDetailCote}</p>
+  1871→                      <div className="grid grid-cols-2 gap-3">
+  1872→                        <div><FieldLabel>Tramite</FieldLabel><Input inputMode="numeric" value={ni_tramite} onChange={e => setNi_tramite(e.target.value)} placeholder="19282" className="h-8 text-xs font-mono" /></div>
+  1873→                        <div><FieldLabel>Fecha</FieldLabel><Input type="date" value={ni_fecha} onChange={e => setNi_fecha(e.target.value)} className="h-8 text-xs" /></div>
+  1874→                        <div className="col-span-2"><FieldLabel>Producto</FieldLabel><Input value={ni_producto} onChange={e => setNi_producto(e.target.value)} placeholder="Menudencias bovinas..." className="h-8 text-xs" /></div>
+  1875→                        <div><FieldLabel>Cajas (envases)</FieldLabel><Input inputMode="numeric" value={ni_cajas} onChange={e => setNi_cajas(e.target.value)} placeholder="90" className="h-8 text-xs font-mono" /></div>
+  1876→                        <div><FieldLabel>Kg Neto</FieldLabel><Input inputMode="numeric" value={ni_pesoNeto} onChange={e => setNi_pesoNeto(e.target.value)} placeholder="2500" className="h-8 text-xs font-mono" /></div>
+  1877→                        <div><FieldLabel>Kg Bruto</FieldLabel><Input inputMode="numeric" value={ni_pesoBruto} onChange={e => setNi_pesoBruto(e.target.value)} placeholder="2800" className="h-8 text-xs font-mono" /></div>
+  1878→                      </div>
+  1879→                      <div className="flex gap-2 mt-3">
+  1880→                        <Button size="sm" onClick={() => { saveNewIngreso(ingresoDetailCote, true); }} className="flex-1" disabled={!ni_tramite.trim()}>
+  1881→                          <Save className="h-4 w-4 mr-2" />Crear y vincular
+  1882→                        </Button>
+  1883→                        <Button size="sm" variant="outline" onClick={closeIngresoDetail}>Cancelar</Button>
+  1884→                      </div>
+  1885→                    </div>
+  1886→                    <button onClick={closeIngresoDetail} className="w-full text-center text-xs text-blue-600 hover:text-blue-800 py-2 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors">
+  1887→                      Volver al detalle de la exportacion
+  1888→                    </button>
+  1889→                  </div>
+  1890→                )}
+  1891→              </div>
+  1892→            </>);
+  1893→          })()}
+  1894→
+  1895→          {/* Original detail views (only when no ingreso detail is active) */}
+  1896→          {!ingresoDetailCote && detailRow && detailType === 'cruce' && (() => {
+  1897→            const r = detailRow as CruceRow;
+  1898→            return (<>
+  1899→              <SheetHeader><SheetTitle className="flex items-center gap-2"><ArrowLeftRight className="h-5 w-5 text-orange-600" />Cruce — Exportacion COTE {r.exp.nroCote}</SheetTitle></SheetHeader>
+  1900→              <div className="mt-6 space-y-4 text-sm">
+  1901→                <div>
+  1902→                  <p className="text-xs font-bold text-blue-600 uppercase tracking-wide mb-2">Datos de la Exportacion</p>
+  1903→                  <div className="bg-blue-50/50 rounded-lg p-3 space-y-1">
+  1904→                    {[
+  1905→                      ['COTE Exportacion', r.exp.nroCote],
+  1906→                      ['Nro. Tramite', String(r.exp.nroTramite)],
+  1907→                      ['Fecha', fd(r.exp.fechaTramite)],
+  1908→                      ['Pais', r.exp.paisDestino],
+  1909→                      ['Producto', r.exp.denominacionMercaderia],
+  1910→                      ['Corte', r.exp.corte],
+  1911→                      ['Transporte', r.exp.tipoTransporte || '-'],
+  1912→                      ['Contenedor', (r.exp as Record<string, unknown>).contenedorSerieNro as string || '-'],
+  1913→                      ['Precinto', r.exp.precinto1 || '-'],
+  1914→                      ['Cert. Sanitario', r.exp.nroCertificadoSanitario || '-'],
+  1915→                      ['Estab. Certificador', r.exp.nombreEstablecimientoCertif || '-'],
+  1916→                      ['Cajas (envases)', String(r.envasesExp)],
+  1917→                      ['Peso Bruto', r.exp.pesoBruto ? String(r.exp.pesoBruto) + ' kg' : '-'],
+  1918→                      ['Peso Neto', r.kgExp ? String(r.kgExp) + ' kg' : '-'],
+  1919→                    ].map(([l, v]) => (
+  1920→                      <div key={l} className="flex justify-between gap-4"><span className="text-slate-500 text-xs">{l}</span><span className="text-slate-800 text-xs text-right font-medium break-all">{v}</span></div>
+  1921→                    ))}
+  1922→                  </div>
+  1923→                </div>
+  1924→                {r.isManualLink && (
+  1925→                  <div className="bg-violet-50 border border-violet-200 rounded-lg p-2 text-xs text-violet-800">
+  1926→                    <p className="font-bold">Vinculacion manual de COTEs de ingreso</p>
+  1927→                    {r.manualCajasUsadas !== undefined && r.manualCajasUsadas > 0 && (
+  1928→                      <p className="mt-1">Cajas usadas de estos COTEs en esta exportacion: <b>{r.manualCajasUsadas.toLocaleString('es-UY')}</b> (de {r.totalEnvasesIngreso.toLocaleString('es-UY')} totales en depositos)</p>
+  1929→                    )}
+  1930→                  </div>
+  1931→                )}
+  1932→                <div className={`rounded-lg p-4 ${r.diffEnvases < 0 ? 'bg-red-50 border border-red-200' : 'bg-slate-50'}`}>
+  1933→                  <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-3">Balance por Cajas (Envases)</p>
+  1934→                  <div className="grid grid-cols-3 gap-3 text-center">
+  1935→                    <div><p className="text-[10px] text-slate-400">{r.isManualLink ? 'Cajas en Depositos' : 'Cajas Ingresadas'}</p><p className="text-xl font-bold text-emerald-700">{r.totalEnvasesIngreso.toLocaleString('es-UY')}</p></div>
+  1936→                    <div><p className="text-[10px] text-slate-400">Cajas Exportadas</p><p className="text-xl font-bold text-blue-700">{r.envasesExp.toLocaleString('es-UY')}</p></div>
+  1937→                    <div><p className="text-[10px] text-slate-400">Diferencia</p><div className="flex justify-center">{diffBadgeEnvases(r.diffEnvases)}</div></div>
+  1938→                  </div>
+  1939→                  {r.diffEnvases < 0 && (
+  1940→                    <div className="mt-3 bg-red-100 rounded p-2 text-xs text-red-800">
+  1941→                      <p className="font-bold">ERROR: Se exportaron {Math.abs(r.diffEnvases)} cajas mas de las que ingresaron con los COTEs referenciados.</p>
+  1942→                      <p className="mt-1">Posibles causas: las cajas pueden venir de COTEs de ingreso no declarados en observaciones, o hubo un error de carga.</p>
+  1943→                    </div>
+  1944→                  )}
+  1945→                  {r.diffEnvases > 0 && (
+  1946→                    <p className="text-center text-xs text-sky-600 mt-2">Sobran {r.diffEnvases} cajas de ingreso vs esta exportacion (pueden corresponder a otras exportaciones o estar pendientes).</p>
+  1947→                  )}
+  1948→                </div>
+  1949→                <div className="bg-slate-50/50 rounded-lg p-3">
+  1950→                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Referencia en Kg</p>
+  1951→                  <div className="flex justify-between text-xs">
+  1952→                    <span className="text-slate-500">Kg ingresados: <span className="font-medium text-slate-700">{r.totalKgIngreso.toLocaleString('es-UY')} kg</span></span>
+  1953→                    <span className="text-slate-500">Kg exportados: <span className="font-medium text-slate-700">{r.kgExp.toLocaleString('es-UY')} kg</span></span>
+  1954→                  </div>
+  1955→                </div>
+  1956→                <div>
+  1957→                  <p className="text-xs font-bold text-emerald-600 uppercase tracking-wide mb-2">COTEs de Ingreso ({r.ingresoCotes.length})</p>
+  1958→                  <div className="space-y-2">
+  1959→                    {r.ingresoAgg.map(agg => (
+  1960→                      <div key={agg.cote} className="border rounded-lg p-3 bg-emerald-50/50">
+  1961→                        <div className="flex items-center justify-between mb-1">
+  1962→                          <button onClick={() => openIngresoDetail(agg.cote)} className="font-mono font-bold text-emerald-700 text-sm hover:underline cursor-pointer">{agg.cote}</button>
+  1963→                          <span className="text-xs text-slate-500">Tramite {agg.tramite} — {fd(agg.fecha)}</span>
+  1964→                        </div>
+  1965→                        <div className="text-xs text-slate-600 space-y-0.5">
+  1966→                          <p>Producto: {agg.producto}</p>
+  1967→                          <p>Cortes: {agg.cortes.join(', ')}</p>
+  1968→                          <p><span className="font-medium">Cajas: {agg.envases.toLocaleString('es-UY')}</span> — Peso Neto: {agg.pesoNeto.toLocaleString('es-UY')} kg ({agg.lineCount} lineas)</p>
+  1969→                        </div>
+  1970→                      </div>
+  1971→                    ))}
+  1972→                  </div>
+  1973→                </div>
+  1974→                {r.ingresoCotesNotFound.length > 0 && (
+  1975→                  <div>
+  1976→                    <p className="text-xs font-bold text-red-600 uppercase tracking-wide mb-2">COTEs no encontrados en ingresos Caliral</p>
+  1977→                    <div className="flex flex-wrap gap-1">
+  1978→                      {r.ingresoCotesNotFound.map(c => (
+  1979→                        <span key={c} className="inline-block bg-red-100 text-red-700 text-xs font-mono px-2 py-1 rounded">{c}</span>
+  1980→                      ))}
+  1981→                    </div>
+  1982→                  </div>
+  1983→                )}
+  1984→                {r.exp.observaciones && (
+  1985→                  <div>
+  1986→                    <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">Observaciones</p>
+  1987→                    <p className="text-xs text-slate-600 whitespace-pre-wrap bg-slate-50 rounded-lg p-3">{r.exp.observaciones}</p>
+  1988→                  </div>
+  1989→                )}
+  1990→              </div>
+  1991→            </>);
+  1992→          })()}
+  1993→
+  1994→          {!ingresoDetailCote && detailRow && detailType === 'sincruce' && (() => {
+  1995→            const r = detailRow as SinCruceRow;
+  1996→            return (<>
+  1997→              <SheetHeader><SheetTitle className="flex items-center gap-2"><Unlink className="h-5 w-5 text-amber-600" />Sin COTE de Ingreso — {r.exp.nroCote}</SheetTitle></SheetHeader>
+  1998→              <div className="mt-6 space-y-4 text-sm">
+  1999→                <div className="bg-amber-50 rounded-lg p-3 text-xs text-amber-800">
+  2000→                  <p className="font-bold mb-1">Esta exportacion no tiene COTE de ingreso referenciado.</p>
+  2001→                  <p>Hace click en <b>Editar</b> para agregar los COTEs de ingreso y la cantidad de cajas manualmente.</p>
+  2002→                </div>
+  2003→                <div className="space-y-1">
+  2004→                  {[
+  2005→                    ['COTE', r.exp.nroCote], ['Nro. Tramite', String(r.exp.nroTramite)],
+  2006→                    ['Fecha', fd(r.exp.fechaTramite)], ['Pais', r.exp.paisDestino],
+  2007→                    ['Producto', r.exp.denominacionMercaderia], ['Corte', r.exp.corte],
+  2008→                    ['Contenedor', (r.exp as Record<string, unknown>).contenedorSerieNro as string || '-'],
+  2009→                    ['Cajas (envases)', String(r.exp.cantidadEnvases ?? '-')],
+  2010→                    ['Peso Neto', r.exp.pesoNeto ? String(r.exp.pesoNeto) + ' kg' : '-'],
+  2011→                    ['Estab. Certificador', r.exp.nombreEstablecimientoCertif || '-'],
+  2012→                  ].map(([l, v]) => (
+  2013→                    <div key={l} className="flex justify-between gap-4"><span className="text-slate-500 text-xs">{l}</span><span className="text-slate-800 text-xs text-right font-medium break-all">{v}</span></div>
+  2014→                  ))}
+  2015→                </div>
+  2016→                {r.exp.observaciones && (
+  2017→                  <div>
+  2018→                    <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">Observaciones actuales</p>
+  2019→                    <p className="text-xs text-slate-600 whitespace-pre-wrap bg-slate-50 rounded-lg p-3">{r.exp.observaciones}</p>
+  2020→                  </div>
+  2021→                )}
+  2022→              </div>
+  2023→            </>);
+  2024→          })()}
+  2025→
+  2026→          {!ingresoDetailCote && detailRow && detailType === 'pendiente' && (() => {
+  2027→            const r = detailRow as IngresoPendienteRow;
+  2028→            const agg = ingresoMap.get(r.cote);
+  2029→            return (<>
+  2030→              <SheetHeader><SheetTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-orange-600" />Ingreso Pendiente — {r.cote}</SheetTitle></SheetHeader>
+  2031→              <div className="mt-6 space-y-4 text-sm">
+  2032→                <div className="bg-orange-50 rounded-lg p-3 text-xs text-orange-800">
+  2033→                  <p className="font-bold mb-1">Este ingreso a Caliral no esta vinculado a ninguna exportacion.</p>
+  2034→                  <p>Esto puede deberse a que aun no se exporto la mercaderia, o a que el COTE de ingreso no fue registrado en las observaciones del tramite de exportacion.</p>
+  2035→                </div>
+  2036→                {agg && (
+  2037→                  <div>
+  2038→                    <p className="text-xs font-bold text-emerald-600 uppercase tracking-wide mb-2">Detalle del Ingreso</p>
+  2039→                    <div className="space-y-1">
+  2040→                      {[
+  2041→                        ['COTE', agg.cote], ['Nro. Tramite', String(agg.tramite)],
+  2042→                        ['Fecha', fd(agg.fecha)], ['Producto', agg.producto],
+  2043→                        ['Cortes', agg.cortes.join(', ')], ['Lineas', String(agg.lineCount)],
+  2044→                        ['Cajas (envases)', agg.envases.toLocaleString('es-UY')],
+  2045→                        ['Peso Bruto', agg.pesoBruto.toLocaleString('es-UY') + ' kg'],
+  2046→                        ['Peso Neto', agg.pesoNeto.toLocaleString('es-UY') + ' kg'],
+  2047→                      ].map(([l, v]) => (
+  2048→                        <div key={l} className="flex justify-between gap-4"><span className="text-slate-500 text-xs">{l}</span><span className="text-slate-800 text-xs text-right font-medium break-all">{v}</span></div>
+  2049→                      ))}
+  2050→                    </div>
+  2051→                    {agg.lines.length > 0 && (
+  2052→                      <div className="mt-3">
+  2053→                        <p className="text-[10px] text-slate-500 uppercase mb-1">Lineas del ingreso</p>
+  2054→                        <div className="max-h-[300px] overflow-y-auto border rounded">
+  2055→                          <table className="w-full text-[11px]">
+  2056→                            <thead className="sticky top-0 bg-slate-100"><tr>
+  2057→                              <th className="px-2 py-1 text-left">Linea</th>
+  2058→                              <th className="px-2 py-1 text-left">Corte</th>
+  2059→                              <th className="px-2 py-1 text-right">Cajas</th>
+  2060→                              <th className="px-2 py-1 text-right">Peso Neto</th>
+  2061→                            </tr></thead>
+  2062→                            <tbody>
+  2063→                              {agg.lines.map((l, i) => (
+  2064→                                <tr key={i} className="border-t">
+  2065→                                  <td className="px-2 py-1">{String((l as Record<string, unknown>).idLinea ?? i + 1)}</td>
+  2066→                                  <td className="px-2 py-1">{l.corte}</td>
+  2067→                                  <td className="px-2 py-1 text-right font-mono">{l.cantidadEnvases ?? '-'}</td>
+  2068→                                  <td className="px-2 py-1 text-right font-mono">{l.pesoNeto ? l.pesoNeto.toLocaleString('es-UY') : '-'}</td>
+  2069→                                </tr>
+  2070→                              ))}
+  2071→                            </tbody>
+  2072→                          </table>
+  2073→                        </div>
+  2074→                      </div>
+  2075→                    )}
+  2076→                  </div>
+  2077→                )}
+  2078→              </div>
+  2079→            </>);
+  2080→          })()}
+  2081→        </SheetContent>
+  2082→      </Sheet>
+  2083→
+  2084→      {/* EDIT SHEET */}
+  2085→      <Sheet open={editOpen} onOpenChange={setEditOpen}>
+  2086→        <SheetContent className="sm:max-w-xl overflow-y-auto">
+  2087→          {editTarget?.type === 'export' && (
+  2088→            <>
+  2089→              <SheetHeader>
+  2090→                <SheetTitle className="flex items-center gap-2">
+  2091→                  <Pencil className="h-5 w-5 text-violet-600" />
+  2092→                  Editar Exportacion — {(editTarget.row as CruceRow | SinCruceRow).exp.nroCote}
+  2093→                </SheetTitle>
+  2094→              </SheetHeader>
+  2095→              <div className="mt-6 space-y-4 text-sm">
+  2096→                {/* Datos generales */}
+  2097→                <div>
+  2098→                  <p className="text-xs font-bold text-blue-600 uppercase tracking-wide mb-2">Datos de la Exportacion</p>
+  2099→                  <div className="grid grid-cols-2 gap-3">
+  2100→                    <div><FieldLabel>COTE</FieldLabel><Input value={ef_nroCote} onChange={e => setEf_nroCote(e.target.value)} className="h-8 text-xs" /></div>
+  2101→                    <div><FieldLabel>Tramite</FieldLabel><Input type="number" value={ef_nroTramite} onChange={e => setEf_nroTramite(e.target.value)} className="h-8 text-xs" /></div>
+  2102→                    <div><FieldLabel>Pais</FieldLabel><Input value={ef_pais} onChange={e => setEf_pais(e.target.value)} className="h-8 text-xs" /></div>
+  2103→                    <div><FieldLabel>Producto</FieldLabel><Input value={ef_producto} onChange={e => setEf_producto(e.target.value)} className="h-8 text-xs" /></div>
+  2104→                    <div><FieldLabel>Corte</FieldLabel><Input value={ef_corte} onChange={e => setEf_corte(e.target.value)} className="h-8 text-xs" /></div>
+  2105→                    <div><FieldLabel>Cajas (envases)</FieldLabel><Input type="number" value={ef_cajas} onChange={e => setEf_cajas(e.target.value)} className="h-8 text-xs font-mono" /></div>
+  2106→                    <div><FieldLabel>Peso Neto (kg)</FieldLabel><Input type="number" value={ef_pesoNeto} onChange={e => setEf_pesoNeto(e.target.value)} className="h-8 text-xs font-mono" /></div>
+  2107→                    <div><FieldLabel>Peso Bruto (kg)</FieldLabel><Input type="number" value={ef_pesoBruto} onChange={e => setEf_pesoBruto(e.target.value)} className="h-8 text-xs font-mono" /></div>
+  2108→                  </div>
+  2109→                </div>
+  2110→
+  2111→                {/* Logistica */}
+  2112→                <div>
+  2113→                  <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">Logistica</p>
+  2114→                  <div className="grid grid-cols-2 gap-3">
+  2115→                    <div><FieldLabel>Transporte</FieldLabel><Input value={ef_transporte} onChange={e => setEf_transporte(e.target.value)} className="h-8 text-xs" /></div>
+  2116→                    <div><FieldLabel>Contenedor</FieldLabel><Input value={ef_contenedor} onChange={e => setEf_contenedor(e.target.value)} className="h-8 text-xs" /></div>
+  2117→                    <div><FieldLabel>Precinto</FieldLabel><Input value={ef_precinto} onChange={e => setEf_precinto(e.target.value)} className="h-8 text-xs" /></div>
+  2118→                    <div><FieldLabel>Matricula Camion</FieldLabel><Input value={ef_matricula} onChange={e => setEf_matricula(e.target.value)} className="h-8 text-xs" /></div>
+  2119→                    <div><FieldLabel>Cert. Sanitario</FieldLabel><Input value={ef_certSanitario} onChange={e => setEf_certSanitario(e.target.value)} className="h-8 text-xs" /></div>
+  2120→                    <div><FieldLabel>Estab. Certificador</FieldLabel><Input value={ef_estabCertif} onChange={e => setEf_estabCertif(e.target.value)} className="h-8 text-xs" /></div>
+  2121→                  </div>
+  2122→                </div>
+  2123→
+  2124→                {/* Observaciones */}
+  2125→                <div>
+  2126→                  <FieldLabel>Observaciones</FieldLabel>
+  2127→                  <textarea value={ef_observaciones} onChange={e => setEf_observaciones(e.target.value)} className="w-full min-h-[80px] text-xs border rounded-md p-2 font-mono resize-y" placeholder="Escribir observaciones... los COTEs de ingreso se detectan automaticamente (formato P12345)" />
+  2128→                </div>
+  2129→
+  2130→                {/* COTEs de Ingreso MANUALES */}
+  2131→                <div className="border-2 border-violet-200 rounded-lg p-4 bg-violet-50/50">
+  2132→                  <p className="text-xs font-bold text-violet-700 uppercase tracking-wide mb-2">
+  2133→                    COTEs de Ingreso (vinculacion manual)
+  2134→                  </p>
+  2135→                  <p className="text-[11px] text-slate-500 mb-3">Agrega los COTEs de ingreso y la cantidad de cajas de cada uno que se usaron en esta exportacion. La diferencia se calcula contra los totales de A Depositos.</p>
+  2136→
+  2137→                  {ef_manualCotes.length > 0 && (
+  2138→                    <div className="space-y-2 mb-3">
+  2139→                      {ef_manualCotes.map(mc => {
+  2140→                        const depTotal = ingresoMap.get(mc.cote)?.envases || 0;
+  2141→                        return (
+  2142→                        <div key={mc.cote} className="flex items-center gap-2 bg-white border rounded-md px-3 py-2">
+  2143→                          <span className="font-mono text-sm font-bold text-emerald-700 flex-1">{mc.cote}</span>
+  2144→                          <span className="text-[10px] text-slate-400">depósito:{depTotal}</span>
+  2145→                          <span className="text-xs text-slate-500">usadas:</span>
+  2146→                          <Input type="number" value={mc.cajas} onChange={e => {
+  2147→                            const val = parseInt(e.target.value) || 0;
+  2148→                            setEf_manualCotes(prev => prev.map(c => c.cote === mc.cote ? { ...c, cajas: val } : c));
+  2149→                          }} className="w-20 h-7 text-xs text-right font-mono" />
+  2150→                          <button onClick={() => removeManualCote(mc.cote)} className="p-1 rounded hover:bg-red-100"><Trash2 className="h-3.5 w-3.5 text-red-500" /></button>
+  2151→                        </div>
+  2152→                        );
+  2153→                      })}
+  2154→                      <div className="text-xs text-right text-slate-500 space-y-0.5">
+  2155→                        <div>Usadas en esta exp.: <span className="font-bold text-violet-700">{ef_manualCotes.reduce((s, c) => s + c.cajas, 0).toLocaleString('es-UY')}</span></div>
+  2156→                        <div>Total en depósitos: <span className="font-bold text-emerald-700">{ef_manualCotes.reduce((s, c) => s + (ingresoMap.get(c.cote)?.envases || 0), 0).toLocaleString('es-UY')}</span></div>
+  2157→                        {ef_cajas && (
+  2158→                          <div>Exportadas: <span className="font-bold text-blue-700">{parseInt(ef_cajas || '0').toLocaleString('es-UY')}</span>
+  2159→                          {' — diff depósitos: '}<span className={ef_manualCotes.reduce((s, c) => s + (ingresoMap.get(c.cote)?.envases || 0), 0) - parseInt(ef_cajas || '0') < 0 ? 'text-red-600 font-bold' : 'text-emerald-600'}>{(ef_manualCotes.reduce((s, c) => s + (ingresoMap.get(c.cote)?.envases || 0), 0) - parseInt(ef_cajas || '0')).toLocaleString('es-UY')}</span></div>
+  2160→                        )}
+  2161→                      </div>
+  2162→                    </div>
+  2163→                  )}
+  2164→
+  2165→                  <div className="flex gap-2 items-end">
+  2166→                    <div className="flex-1">
+  2167→                      <FieldLabel>COTE de ingreso</FieldLabel>
+  2168→                      <Input value={ef_newCote} onChange={e => setEf_newCote(e.target.value.toUpperCase())} placeholder="P12345" className="h-8 text-xs font-mono" onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addManualCote(); } }} />
+  2169→                    </div>
+  2170→                    <div className="w-24">
+  2171→                      <FieldLabel>Cajas</FieldLabel>
+  2172→                      <Input type="number" value={ef_newCoteCajas} onChange={e => setEf_newCoteCajas(e.target.value)} placeholder="0" className="h-8 text-xs font-mono text-right" onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addManualCote(); } }} />
+  2173→                    </div>
+  2174→                    <Button size="sm" variant="outline" onClick={addManualCote} className="h-8 mb-0.5" disabled={!ef_newCote.trim()}>
+  2175→                      <Plus className="h-3.5 w-3.5 mr-1" />Agregar
+  2176→                    </Button>
+  2177→                  </div>
+  2178→                </div>
+  2179→
+  2180→                {/* Actions */}
+  2181→                <div className="flex gap-2 pt-2 border-t">
+  2182→                  <Button size="sm" onClick={saveExportEdit} className="flex-1">
+  2183→                    <Save className="h-4 w-4 mr-2" />Guardar cambios
+  2184→                  </Button>
+  2185→                  {isEdited('export', editTarget.id) && (
+  2186→                    <Button size="sm" variant="outline" onClick={clearExportEdit} className="text-red-600 border-red-200 hover:bg-red-50">
+  2187→                      <RotateCcw className="h-4 w-4 mr-1" />Revertir
+  2188→                    </Button>
+  2189→                  )}
+  2190→                </div>
+  2191→              </div>
+  2192→            </>
+  2193→          )}
+  2194→
+  2195→          {editTarget?.type === 'ingreso' && (
+  2196→            <>
+  2197→              <SheetHeader>
+  2198→                <SheetTitle className="flex items-center gap-2">
+  2199→                  <Pencil className="h-5 w-5 text-violet-600" />
+  2200→                  Editar Ingreso — {editTarget.id}
+  2201→                </SheetTitle>
+  2202→              </SheetHeader>
+  2203→              <div className="mt-6 space-y-4 text-sm">
+  2204→                <div>
+  2205→                  <p className="text-xs font-bold text-emerald-600 uppercase tracking-wide mb-2">Datos del Ingreso</p>
+  2206→                  <div className="grid grid-cols-2 gap-3">
+  2207→                    <div><FieldLabel>Cajas (envases)</FieldLabel><Input type="number" value={ei_cajas} onChange={e => setEi_cajas(e.target.value)} className="h-8 text-xs font-mono" /></div>
+  2208→                    <div><FieldLabel>Peso Neto (kg)</FieldLabel><Input type="number" value={ei_pesoNeto} onChange={e => setEi_pesoNeto(e.target.value)} className="h-8 text-xs font-mono" /></div>
+  2209→                    <div><FieldLabel>Peso Bruto (kg)</FieldLabel><Input type="number" value={ei_pesoBruto} onChange={e => setEi_pesoBruto(e.target.value)} className="h-8 text-xs font-mono" /></div>
+  2210→                    <div><FieldLabel>Producto</FieldLabel><Input value={ei_producto} onChange={e => setEi_producto(e.target.value)} className="h-8 text-xs" /></div>
+  2211→                  </div>
+  2212→                </div>
+  2213→                <div className="bg-amber-50 rounded-lg p-2 text-[11px] text-amber-800">
+  2214→                  Se editan los valores agregados del COTE. Las lineas individuales del JSON original no se modifican.
+  2215→                </div>
+  2216→                <div className="flex gap-2 pt-2 border-t">
+  2217→                  <Button size="sm" onClick={saveIngresoEdit} className="flex-1">
+  2218→                    <Save className="h-4 w-4 mr-2" />Guardar cambios
+  2219→                  </Button>
+  2220→                  {isEdited('ingreso', editTarget.id) && (
+  2221→                    <Button size="sm" variant="outline" onClick={clearIngresoEdit} className="text-red-600 border-red-200 hover:bg-red-50">
+  2222→                      <RotateCcw className="h-4 w-4 mr-1" />Revertir
+  2223→                    </Button>
+  2224→                  )}
+  2225→                </div>
+  2226→              </div>
+  2227→            </>
+  2228→          )}
+  2229→        </SheetContent>
+  2230→      </Sheet>
+  2231→
+  2232→      {/* NEW INGRESO SHEET */}
+  2233→      <Sheet open={addIngresoOpen} onOpenChange={setAddIngresoOpen}>
+  2234→        <SheetContent className="sm:max-w-md overflow-y-auto">
+  2235→          <SheetHeader>
+  2236→            <SheetTitle className="flex items-center gap-2">
+  2237→              <Plus className="h-5 w-5 text-emerald-600" />
+  2238→              Agregar COTE deposito manual
+  2239→            </SheetTitle>
+  2240→          </SheetHeader>
+  2241→          <div className="mt-6 space-y-4 text-sm">
+  2242→            <div className="bg-orange-50 rounded-lg p-3 text-xs text-orange-800">
+  2243→              Agrega un COTE de ingreso/depósito que no existe en los datos originales. Se guardará como edición manual.
+  2244→            </div>
+  2245→            <div className="grid grid-cols-2 gap-3">
+  2246→              <div><FieldLabel>COTE</FieldLabel><Input value={ni_cote} onChange={e => setNi_cote(e.target.value.toUpperCase())} placeholder="P12345" className="h-8 text-xs font-mono" /></div>
+  2247→              <div><FieldLabel>Tramite</FieldLabel><Input inputMode="numeric" value={ni_tramite} onChange={e => setNi_tramite(e.target.value)} className="h-8 text-xs font-mono" /></div>
+  2248→              <div><FieldLabel>Fecha</FieldLabel><Input type="date" value={ni_fecha} onChange={e => setNi_fecha(e.target.value)} className="h-8 text-xs" /></div>
+  2249→              <div><FieldLabel>Producto</FieldLabel><Input value={ni_producto} onChange={e => setNi_producto(e.target.value)} className="h-8 text-xs" /></div>
+  2250→              <div><FieldLabel>Cajas (envases)</FieldLabel><Input inputMode="numeric" value={ni_cajas} onChange={e => setNi_cajas(e.target.value)} className="h-8 text-xs font-mono" /></div>
+  2251→              <div><FieldLabel>Kg Neto</FieldLabel><Input inputMode="numeric" value={ni_pesoNeto} onChange={e => setNi_pesoNeto(e.target.value)} className="h-8 text-xs font-mono" /></div>
+  2252→              <div><FieldLabel>Kg Bruto</FieldLabel><Input inputMode="numeric" value={ni_pesoBruto} onChange={e => setNi_pesoBruto(e.target.value)} className="h-8 text-xs font-mono" /></div>
+  2253→            </div>
+  2254→            <div className="flex gap-2 pt-2 border-t">
+  2255→              <Button size="sm" onClick={saveNewIngreso} className="flex-1" disabled={!ni_cote.trim() || !ni_tramite.trim()}>
+  2256→                <Save className="h-4 w-4 mr-2" />Guardar
+  2257→              </Button>
+  2258→              <Button size="sm" variant="outline" onClick={() => setAddIngresoOpen(false)}>Cancelar</Button>
+  2259→            </div>
+  2260→          </div>
+  2261→        </SheetContent>
+  2262→      </Sheet>
+  2263→
+  2264→      {/* NEW EXPORT SHEET */}
+  2265→      <Sheet open={addExpOpen} onOpenChange={setAddExpOpen}>
+  2266→        <SheetContent className="sm:max-w-md overflow-y-auto">
+  2267→          <SheetHeader>
+  2268→            <SheetTitle className="flex items-center gap-2">
+  2269→              <Plus className="h-5 w-5 text-blue-600" />
+  2270→              Agregar exportacion manual
+  2271→            </SheetTitle>
+  2272→          </SheetHeader>
+  2273→          <div className="mt-6 space-y-4 text-sm">
+  2274→            <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-800">
+  2275→              Agrega una exportación que no existe en los datos originales. Se guardará como edición manual.
+  2276→            </div>
+  2277→            <div className="grid grid-cols-2 gap-3">
+  2278→              <div><FieldLabel>COTE Exportacion</FieldLabel><Input value={ne_nroCote} onChange={e => setNe_nroCote(e.target.value.toUpperCase())} placeholder="E12345" className="h-8 text-xs font-mono" /></div>
+  2279→              <div><FieldLabel>Tramite</FieldLabel><Input type="number" value={ne_nroTramite} onChange={e => setNe_nroTramite(e.target.value)} className="h-8 text-xs font-mono" /></div>
+  2280→              <div><FieldLabel>Fecha</FieldLabel><Input type="date" value={ne_fecha} onChange={e => setNe_fecha(e.target.value)} className="h-8 text-xs" /></div>
+  2281→              <div><FieldLabel>Pais</FieldLabel><Input value={ne_pais} onChange={e => setNe_pais(e.target.value)} className="h-8 text-xs" /></div>
+  2282→              <div><FieldLabel>Producto</FieldLabel><Input value={ne_producto} onChange={e => setNe_producto(e.target.value)} className="h-8 text-xs" /></div>
+  2283→              <div><FieldLabel>Corte</FieldLabel><Input value={ne_corte} onChange={e => setNe_corte(e.target.value)} className="h-8 text-xs" /></div>
+  2284→              <div><FieldLabel>Cajas (envases)</FieldLabel><Input type="number" value={ne_cajas} onChange={e => setNe_cajas(e.target.value)} className="h-8 text-xs font-mono" /></div>
+  2285→              <div><FieldLabel>Kg Neto</FieldLabel><Input type="number" value={ne_pesoNeto} onChange={e => setNe_pesoNeto(e.target.value)} className="h-8 text-xs font-mono" /></div>
+  2286→            </div>
+  2287→            <div className="flex gap-2 pt-2 border-t">
+  2288→              <Button size="sm" onClick={saveNewExp} className="flex-1" disabled={!ne_nroCote.trim()}>
+  2289→                <Save className="h-4 w-4 mr-2" />Guardar
+  2290→              </Button>
+  2291→              <Button size="sm" variant="outline" onClick={() => setAddExpOpen(false)}>Cancelar</Button>
+  2292→            </div>
+  2293→          </div>
+  2294→        </SheetContent>
+  2295→      </Sheet>
+  2296→    </div>
+  2297→  );
+  2298→}
+  2299→

@@ -1,0 +1,2002 @@
+     1→     1→'use client';
+     2→     2→import React, { useEffect, useState, useMemo, useCallback } from 'react';
+     3→     3→import { Card, CardContent } from '@/components/ui/card';
+     4→     4→import { Input } from '@/components/ui/input';
+     5→     5→import { Button } from '@/components/ui/button';
+     6→     6→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+     7→     7→import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+     8→     8→import { Skeleton } from '@/components/ui/skeleton';
+     9→     9→import { Search, X, ChevronLeft, ChevronRight, Eye, Download, ArrowLeftRight, AlertTriangle, CheckCircle2, Link2, Unlink, PackageMinus, Package, Pencil, Save, Plus, Trash2, RotateCcw, Upload } from 'lucide-react';
+    10→    10→import { toast } from 'sonner';
+    11→    11→import { schedulePush } from '@/lib/googleSheets';
+    12→    12→import type { ExpRecord } from '@/lib/types';
+    13→    13→import type { StockLoad, StockCodigoAgg, StockPallet } from '@/lib/parseStockXls';
+    14→    14→import { buildStockAggMap } from '@/lib/parseStockXls';
+    15→    15→
+    16→    16→function fd(d: string | null | undefined) { if (!d) return '-'; return new Date(d).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
+    17→    17→function fmt(n: number) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return Math.round(n).toLocaleString('es-UY'); }
+    18→    18→
+    19→    19→// --- Types ---
+    20→    20→interface IngresoLine {
+    21→    21→  id: string;
+    22→    22→  nroTramite: number;
+    23→    23→  fechaTramite: string;
+    24→    24→  nroCote: string;
+    25→    25→  denominacionMercaderia: string;
+    26→    26→  corte: string;
+    27→    27→  pesoNeto: number | null;
+    28→    28→  pesoBruto: number | null;
+    29→    29→  cantidadEnvases: number | null;
+    30→    30→  paisDestino: string;
+    31→    31→  [key: string]: unknown;
+    32→    32→}
+    33→    33→
+    34→    34→interface IngresoAgg {
+    35→    35→  cote: string;
+    36→    36→  tramite: number;
+    37→    37→  fecha: string;
+    38→    38→  producto: string;
+    39→    39→  cortes: string[];
+    40→    40→  pesoNeto: number;
+    41→    41→  pesoBruto: number;
+    42→    42→  envases: number;
+    43→    43→  lineCount: number;
+    44→    44→  lines: IngresoLine[];
+    45→    45→}
+    46→    46→
+    47→    47→interface CruceRow {
+    48→    48→  exp: ExpRecord;
+    49→    49→  ingresoCotes: string[];
+    50→    50→  ingresoCotesNotFound: string[];
+    51→    51→  ingresoAgg: IngresoAgg[];
+    52→    52→  totalEnvasesIngreso: number;
+    53→    53→  totalKgIngreso: number;
+    54→    54→  envasesExp: number;
+    55→    55→  kgExp: number;
+    56→    56→  diffEnvases: number;
+    57→    57→  isManualLink?: boolean;
+    58→    58→  manualCajasUsadas?: number;
+    59→    59→}
+    60→    60→
+    61→    61→interface SinCruceRow {
+    62→    62→  exp: ExpRecord;
+    63→    63→  obsPreview: string;
+    64→    64→}
+    65→    65→
+    66→    66→interface IngresoPendienteRow {
+    67→    67→  cote: string;
+    68→    68→  tramite: number;
+    69→    69→  fecha: string;
+    70→    70→  producto: string;
+    71→    71→  pesoNeto: number;
+    72→    72→  pesoBruto: number;
+    73→    73→  envases: number;
+    74→    74→  cortes: string[];
+    75→    75→}
+    76→    76→
+    77→    77→// --- Edit types ---
+    78→    78→interface ManualCoteLink { cote: string; cajas: number; }
+    79→    79→
+    80→    80→interface ExportEdit {
+    81→    81→  nroCote?: string;
+    82→    82→  nroTramite?: number;
+    83→    83→  fechaTramite?: string;
+    84→    84→  paisDestino?: string;
+    85→    85→  denominacionMercaderia?: string;
+    86→    86→  corte?: string;
+    87→    87→  pesoNeto?: number | null;
+    88→    88→  pesoBruto?: number | null;
+    89→    89→  cantidadEnvases?: number | null;
+    90→    90→  contenedorSerieNro?: string;
+    91→    91→  nroCertificadoSanitario?: string;
+    92→    92→  observaciones?: string;
+    93→    93→  tipoTransporte?: string;
+    94→    94→  nombreEstablecimientoCertif?: string;
+    95→    95→  precinto1?: string;
+    96→    96→  matriculaCamion?: string;
+    97→    97→  manualCotes?: ManualCoteLink[];
+    98→    98→}
+    99→    99→
+   100→   100→interface IngresoEdit {
+   101→   101→  envases?: number;
+   102→   102→  pesoNeto?: number;
+   103→   103→  pesoBruto?: number;
+   104→   104→  producto?: string;
+   105→   105→}
+   106→   106→
+   107→   107→interface ManualIngreso {
+   108→   108→  cote: string;
+   109→   109→  tramite: number;
+   110→   110→  fecha: string;
+   111→   111→  producto: string;
+   112→   112→  cortes: string[];
+   113→   113→  pesoNeto: number;
+   114→   114→  pesoBruto: number;
+   115→   115→  envases: number;
+   116→   116→}
+   117→   117→
+   118→   118→interface ManualExportacion {
+   119→   119→  id: string;
+   120→   120→  nroTramite: number;
+   121→   121→  fechaTramite: string;
+   122→   122→  nroCote: string;
+   123→   123→  paisDestino: string;
+   124→   124→  denominacionMercaderia: string;
+   125→   125→  corte: string;
+   126→   126→  pesoNeto: number | null;
+   127→   127→  pesoBruto: number | null;
+   128→   128→  cantidadEnvases: number | null;
+   129→   129→  observaciones: string | null;
+   130→   130→}
+   131→   131→
+   132→   132→interface EditsStore {
+   133→   133→  exports: Record<string, ExportEdit>;
+   134→   134→  ingresos: Record<string, IngresoEdit>;
+   135→   135→  ingresosManuales: ManualIngreso[];
+   136→   136→  exportacionesManuales: ManualExportacion[];
+   137→   137→}
+   138→   138→
+   139→   139→const EDITS_KEY = 'cruce_caliral_edits';
+   140→   140→
+   141→   141→function loadEdits(): EditsStore {
+   142→   142→  const def: EditsStore = { exports: {}, ingresos: {}, ingresosManuales: [], exportacionesManuales: [] };
+   143→   143→  if (typeof window === 'undefined') return def;
+   144→   144→  try {
+   145→   145→    const raw = localStorage.getItem(EDITS_KEY);
+   146→   146→    if (raw) return { ...def, ...JSON.parse(raw) };
+   147→   147→  } catch { /* ignore */ }
+   148→   148→  return def;
+   149→   149→}
+   150→   150→
+   151→   151→function saveEdits(edits: EditsStore) {
+   152→   152→  if (typeof window === 'undefined') return;
+   153→   153→  localStorage.setItem(EDITS_KEY, JSON.stringify(edits));
+   154→   154→  schedulePush();
+   155→   155→}
+   156→   156→
+   157→   157→// --- Data loading ---
+   158→   158→const cache: { shipments: IngresoLine[]; exportsRaw: ExpRecord[]; exports: ExpRecord[]; loaded: boolean } = { shipments: [], exportsRaw: [], exports: [], loaded: false };
+   159→   159→
+   160→   160→function loadExpEdits(): Record<string, Partial<ExpRecord>> {
+   161→   161→  try { const r = localStorage.getItem('trazabilidad_exp_edits'); return r ? JSON.parse(r) : {}; } catch { return {}; }
+   162→   162→}
+   163→   163→
+   164→   164→function applyExpEdits(data: ExpRecord[], edits: Record<string, Partial<ExpRecord>>): ExpRecord[] {
+   165→   165→  if (Object.keys(edits).length === 0) return data;
+   166→   166→  return data.map(s => edits[s.id] ? { ...s, ...edits[s.id] } : s);
+   167→   167→}
+   168→   168→
+   169→   169→async function ensureData(forceReload = false) {
+   170→   170→  if (!cache.loaded || forceReload) {
+   171→   171→    const [sR, eR] = await Promise.all([
+   172→   172→      fetch('data/shipments.json?t=' + Date.now()),
+   173→   173→      fetch('data/exportaciones.json?t=' + Date.now()),
+   174→   174→    ]);
+   175→   175→    const allShipments: IngresoLine[] = await sR.json();
+   176→   176→    const allExports: ExpRecord[] = await eR.json();
+   177→   177→
+   178→   178→    // Merge: imported Excel data takes priority if static JSON is empty
+   179→   179→    // Read from trazabilidad_dep_imported (Excel import in Depositos tab)
+   180→   180→    let importedShipments: IngresoLine[] = [];
+   181→   181→    try {
+   182→   182→      const depImpRaw = localStorage.getItem('trazabilidad_dep_imported');
+   183→   183→      if (depImpRaw) importedShipments = JSON.parse(depImpRaw);
+   184→   184→    } catch { /* ignore */ }
+   185→   185→
+   186→   186→    // If static JSON is empty but imported data exists, use imported data as base
+   187→   187→    let baseShipments = allShipments;
+   188→   188→    if (baseShipments.length === 0 && importedShipments.length > 0) {
+   189→   189→      baseShipments = importedShipments;
+   190→   190→    }
+   191→   191→
+   192→   192→    // Filter to Caliral-bound shipments
+   193→   193→    let caliralShipments = baseShipments.filter(s => (s.nombreEstablecimientoDestino || '').toLowerCase().includes('caliral'));
+   194→   194→
+   195→   195→    // Also include imported records that are not already in base (for non-caliral merge)
+   196→   196→    if (baseShipments === allShipments && importedShipments.length > 0) {
+   197→   197→      const existingIds = new Set(caliralShipments.map(s => s.id));
+   198→   198→      for (const nr of importedShipments) {
+   199→   199→        if (!existingIds.has(nr.id)) {
+   200→   200→          caliralShipments.push(nr);
+   201→   201→        }
+   202→   202→      }
+   203→   203→    }
+   204→   204→
+   205→   205→    // Also include new deposit records from Depositos page (manual creates)
+   206→   206→    try {
+   207→   207→      const depNewRaw = localStorage.getItem('trazabilidad_dep_new_records');
+   208→   208→      if (depNewRaw) {
+   209→   209→        const depNew: IngresoLine[] = JSON.parse(depNewRaw);
+   210→   210→        const existingIds = new Set(caliralShipments.map(s => s.id));
+   211→   211→        for (const nr of depNew) {
+   212→   212→          if (!existingIds.has(nr.id)) {
+   213→   213→            caliralShipments.push(nr);
+   214→   214→          }
+   215→   215→        }
+   216→   216→      }
+   217→   217→    } catch { /* ignore */ }
+   218→   218→
+   219→   219→    // Apply deposit edits from Depositos page
+   220→   220→    try {
+   221→   221→      const depEditsRaw = localStorage.getItem('trazabilidad_dep_edits');
+   222→   222→      if (depEditsRaw) {
+   223→   223→        const depEdits: Record<string, Partial<IngresoLine>> = JSON.parse(depEditsRaw);
+   224→   224→        caliralShipments = caliralShipments.map(s => depEdits[s.id] ? { ...s, ...depEdits[s.id] } : s);
+   225→   225→      }
+   226→   226→    } catch { /* ignore */ }
+   227→   227→
+   228→   228→    // Remove deleted deposits
+   229→   229→    try {
+   230→   230→      const depDelRaw = localStorage.getItem('trazabilidad_dep_deleted');
+   231→   231→      if (depDelRaw) {
+   232→   232→        const depDeleted: Set<string> = new Set(JSON.parse(depDelRaw));
+   233→   233→        caliralShipments = caliralShipments.filter(s => !depDeleted.has(s.id));
+   234→   234→      }
+   235→   235→    } catch { /* ignore */ }
+   236→   236→
+   237→   237→    cache.shipments = caliralShipments;
+   238→   238→    cache.exportsRaw = allExports;
+   239→   239→    cache.loaded = true;
+   240→   240→  }
+   241→   241→
+   242→   242→  // Build full export list: static JSON + imported Excel + new PDF uploads (always re-read localStorage)
+   243→   243→  const allExportsList = [...cache.exportsRaw];
+   244→   244→
+   245→   245→  // Read from trazabilidad_exp_imported (Excel import in Exportaciones tab)
+   246→   246→  try {
+   247→   247→    const expImpRaw = localStorage.getItem('trazabilidad_exp_imported');
+   248→   248→    if (expImpRaw) {
+   249→   249→      const expImported: ExpRecord[] = JSON.parse(expImpRaw);
+   250→   250→      // If static JSON is empty, use imported as base
+   251→   251→      if (allExportsList.length === 0) {
+   252→   252→        allExportsList.push(...expImported);
+   253→   253→      } else {
+   254→   254→        const existingIds = new Set(allExportsList.map(e => e.id));
+   255→   255→        for (const nr of expImported) {
+   256→   256→          if (!existingIds.has(nr.id)) allExportsList.push(nr);
+   257→   257→        }
+   258→   258→      }
+   259→   259→    }
+   260→   260→  } catch { /* ignore */ }
+   261→   261→
+   262→   262→  // Also include new records from PDF uploads
+   263→   263→  try {
+   264→   264→    const raw = localStorage.getItem('trazabilidad_new_records');
+   265→   265→    if (raw) {
+   266→   266→      const newRecs: ExpRecord[] = JSON.parse(raw);
+   267→   267→      const existingIds = new Set(allExportsList.map(e => e.id));
+   268→   268→      for (const nr of newRecs) {
+   269→   269→        if (nr.tipo === 'EXPORTACION' && !existingIds.has(nr.id)) {
+   270→   270→          allExportsList.push(nr);
+   271→   271→        }
+   272→   272→      }
+   273→   273→    }
+   274→   274→  } catch { /* ignore */ }
+   275→   275→
+   276→   276→  // Apply edits from Exportaciones page to ALL exports (including PDF uploads)
+   277→   277→  const expEdits = loadExpEdits();
+   278→   278→  cache.exports = applyExpEdits(allExportsList, expEdits);
+   279→   279→}
+   280→   280→
+   281→   281→function extractIngresoCotes(obs: string | null | undefined, exportCote: string): string[] {
+   282→   282→  if (!obs) return [];
+   283→   283→  const allP = obs.match(/P\d{4,8}/gi) || [];
+   284→   284→  const allB = obs.match(/B\d{4,8}/gi) || [];
+   285→   285→  const all = [...allP, ...allB];
+   286→   286→  const exportUpper = exportCote.toUpperCase();
+   287→   287→  return all.map(c => c.toUpperCase()).filter(c => c !== exportUpper);
+   288→   288→}
+   289→   289→
+   290→   290→function aggregateByCote(lines: IngresoLine[]): Map<string, IngresoAgg> {
+   291→   291→  const map = new Map<string, IngresoAgg>();
+   292→   292→  for (const l of lines) {
+   293→   293→    const cote = l.nroCote?.trim();
+   294→   294→    if (!cote) continue;
+   295→   295→    if (!map.has(cote)) {
+   296→   296→      map.set(cote, {
+   297→   297→        cote, tramite: l.nroTramite, fecha: l.fechaTramite,
+   298→   298→        producto: l.denominacionMercaderia, cortes: [],
+   299→   299→        pesoNeto: 0, pesoBruto: 0, envases: 0, lineCount: 0, lines: [],
+   300→   300→      });
+   301→   301→    }
+   302→   302→    const agg = map.get(cote)!;
+   303→   303→    agg.lines.push(l);
+   304→   304→    agg.lineCount++;
+   305→   305→    agg.pesoNeto += l.pesoNeto || 0;
+   306→   306→    agg.pesoBruto += l.pesoBruto || 0;
+   307→   307→    agg.envases += l.cantidadEnvases || 0;
+   308→   308→    if (!agg.cortes.includes(l.corte)) agg.cortes.push(l.corte);
+   309→   309→  }
+   310→   310→  return map;
+   311→   311→}
+   312→   312→
+   313→   313→// Apply edits to raw data
+   314→   314→function applyExportEdit(exp: ExpRecord, edit: ExportEdit): ExpRecord {
+   315→   315→  const e = { ...exp };
+   316→   316→  if (edit.nroCote !== undefined) e.nroCote = edit.nroCote;
+   317→   317→  if (edit.nroTramite !== undefined) e.nroTramite = edit.nroTramite;
+   318→   318→  if (edit.fechaTramite !== undefined) e.fechaTramite = edit.fechaTramite;
+   319→   319→  if (edit.paisDestino !== undefined) e.paisDestino = edit.paisDestino;
+   320→   320→  if (edit.denominacionMercaderia !== undefined) e.denominacionMercaderia = edit.denominacionMercaderia;
+   321→   321→  if (edit.corte !== undefined) e.corte = edit.corte;
+   322→   322→  if (edit.pesoNeto !== undefined) e.pesoNeto = edit.pesoNeto;
+   323→   323→  if (edit.pesoBruto !== undefined) e.pesoBruto = edit.pesoBruto;
+   324→   324→  if (edit.cantidadEnvases !== undefined) e.cantidadEnvases = edit.cantidadEnvases;
+   325→   325→  if (edit.contenedorSerieNro !== undefined) e.contenedorSerieNro = edit.contenedorSerieNro;
+   326→   326→  if (edit.nroCertificadoSanitario !== undefined) e.nroCertificadoSanitario = edit.nroCertificadoSanitario;
+   327→   327→  if (edit.observaciones !== undefined) e.observaciones = edit.observaciones;
+   328→   328→  if (edit.tipoTransporte !== undefined) e.tipoTransporte = edit.tipoTransporte;
+   329→   329→  if (edit.nombreEstablecimientoCertif !== undefined) e.nombreEstablecimientoCertif = edit.nombreEstablecimientoCertif;
+   330→   330→  if (edit.precinto1 !== undefined) e.precinto1 = edit.precinto1;
+   331→   331→  if (edit.matriculaCamion !== undefined) e.matriculaCamion = edit.matriculaCamion;
+   332→   332→  return e;
+   333→   333→}
+   334→   334→
+   335→   335→function applyIngresoEdit(agg: IngresoAgg, edit: IngresoEdit): IngresoAgg {
+   336→   336→  const a = { ...agg };
+   337→   337→  if (edit.envases !== undefined) a.envases = edit.envases;
+   338→   338→  if (edit.pesoNeto !== undefined) a.pesoNeto = edit.pesoNeto;
+   339→   339→  if (edit.pesoBruto !== undefined) a.pesoBruto = edit.pesoBruto;
+   340→   340→  if (edit.producto !== undefined) a.producto = edit.producto;
+   341→   341→  return a;
+   342→   342→}
+   343→   343→
+   344→   344→// --- Label component for edit form ---
+   345→   345→function FieldLabel({ children }: { children: React.ReactNode }) {
+   346→   346→  return <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">{children}</label>;
+   347→   347→}
+   348→   348→
+   349→   349→// --- Inline row for SinCruce with quick COTE linking ---
+   350→   350→function SinCruceInlineRow({ row, ingresoMap, stockAggMap, edits, onSaved, onEditFull, onViewDetail, isEditedFlag }: {
+   351→   351→  row: SinCruceRow;
+   352→   352→  ingresoMap: Map<string, IngresoAgg>;
+   353→   353→  stockAggMap: Map<string, StockCodigoAgg>;
+   354→   354→  edits: EditsStore;
+   355→   355→  onSaved: (edits: EditsStore) => void;
+   356→   356→  onEditFull: () => void;
+   357→   357→  onViewDetail: () => void;
+   358→   358→  isEditedFlag: boolean;
+   359→   359→}) {
+   360→   360→  const [expanding, setExpanding] = useState(false);
+   361→   361→  const [newCote, setNewCote] = useState('');
+   362→   362→  const [newCajas, setNewCajas] = useState('');
+   363→   363→
+   364→   364→  const currentManualCotes = edits.exports[row.exp.id]?.manualCotes || [];
+   365→   365→
+   366→   366→  const existingCotesInCaliral = [...ingresoMap.keys(), ...stockAggMap.keys()].sort();
+   367→   367→
+   368→   368→  const handleQuickAdd = () => {
+   369→   369→    const cote = newCote.trim().toUpperCase();
+   370→   370→    if (!cote) return;
+   371→   371→    let cajas = parseInt(newCajas) || 0;
+   372→   372→    if (cajas <= 0 && ingresoMap.has(cote)) {
+   373→   373→      cajas = ingresoMap.get(cote)!.envases;
+   374→   374→    }
+   375→   375→    if (cajas <= 0) {
+   376→   376→      toast.error('Ingresá la cantidad de cajas');
+   377→   377→      return;
+   378→   378→    }
+   379→   379→    const existingIdx = currentManualCotes.findIndex(c => c.cote === cote);
+   380→   380→    let updated: ManualCoteLink[];
+   381→   381→    if (existingIdx >= 0) {
+   382→   382→      updated = currentManualCotes.map((c, i) => i === existingIdx ? { ...c, cajas } : c);
+   383→   383→      toast.success(`${cote} actualizado: ${cajas} cajas`);
+   384→   384→    } else {
+   385→   385→      updated = [...currentManualCotes, { cote, cajas }];
+   386→   386→      toast.success(`${cote} agregado`);
+   387→   387→    }
+   388→   388→    const newEdits: EditsStore = {
+   389→   389→      ...edits,
+   390→   390→      exports: {
+   391→   391→        ...edits.exports,
+   392→   392→        [row.exp.id]: { ...edits.exports[row.exp.id], manualCotes: updated },
+   393→   393→      },
+   394→   394→    };
+   395→   395→    onSaved(newEdits);
+   396→   396→    setNewCote('');
+   397→   397→    setNewCajas('');
+   398→   398→  };
+   399→   399→
+   400→   400→  const handleRemoveCote = (cote: string) => {
+   401→   401→    const updated = currentManualCotes.filter(c => c.cote !== cote);
+   402→   402→    const newEdits: EditsStore = { ...edits };
+   403→   403→    if (updated.length > 0) {
+   404→   404→      newEdits.exports = { ...newEdits.exports, [row.exp.id]: { ...newEdits.exports[row.exp.id], manualCotes: updated } };
+   405→   405→    } else {
+   406→   406→      const existing = { ...newEdits.exports[row.exp.id] };
+   407→   407→      delete existing.manualCotes;
+   408→   408→      if (Object.keys(existing).length > 0) {
+   409→   409→        newEdits.exports = { ...newEdits.exports, [row.exp.id]: existing };
+   410→   410→      } else {
+   411→   411→        const { [row.exp.id]: _, ...rest } = newEdits.exports;
+   412→   412→        newEdits.exports = rest;
+   413→   413→      }
+   414→   414→    }
+   415→   415→    onSaved(newEdits);
+   416→   416→  };
+   417→   417→
+   418→   418→  return (
+   419→   419→    <>
+   420→   420→      <tr className={`border-b hover:bg-amber-50/40 ${isEditedFlag ? 'bg-violet-50/30' : ''}`}>
+   421→   421→        <td className="px-3 py-2.5 text-xs font-mono font-medium text-amber-700"><button onClick={(e) => { e.stopPropagation(); onViewDetail(); }} className="hover:underline cursor-pointer">{row.exp.nroCote}</button></td>
+   422→   422→        <td className="px-3 py-2.5 text-xs font-mono">{row.exp.nroTramite}</td>
+   423→   423→        <td className="px-3 py-2.5 text-xs">{fd(row.exp.fechaTramite)}</td>
+   424→   424→        <td className="px-3 py-2.5 text-xs">{row.exp.paisDestino}</td>
+   425→   425→        <td className="px-3 py-2.5 text-xs hidden lg:table-cell max-w-[200px] truncate">{row.exp.denominacionMercaderia}</td>
+   426→   426→        <td className="px-3 py-2.5 text-xs text-right font-mono font-medium">{(row.exp.cantidadEnvases || 0).toLocaleString('es-UY')}</td>
+   427→   427→        <td className="px-3 py-2.5 text-xs text-right font-mono hidden md:table-cell">{(row.exp.pesoNeto || 0).toLocaleString('es-UY')}</td>
+   428→   428→        <td className="px-3 py-2.5 text-center">
+   429→   429→          {currentManualCotes.length > 0 ? (
+   430→   430→            <div className="flex flex-wrap gap-1 justify-center">
+   431→   431→              {currentManualCotes.map(mc => {
+   432→   432→                const found = ingresoMap.get(mc.cote);
+   433→   433→                return (
+   434→   434→                  <span key={mc.cote} className={`inline-flex items-center gap-0.5 text-[10px] font-mono px-1.5 py-0.5 rounded ${found ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
+   435→   435→                    {mc.cote} <span className="opacity-60">({mc.cajas})</span>
+   436→   436→                    <button className="ml-0.5 hover:text-red-600" onClick={() => handleRemoveCote(mc.cote)}><X className="h-2.5 w-2.5" /></button>
+   437→   437→                  </span>
+   438→   438→                );
+   439→   439→              })}
+   440→   440→              <button className="text-[10px] text-blue-600 hover:text-blue-800 font-medium px-1" onClick={() => setExpanding(!expanding)}>
+   441→   441→                {expanding ? 'cerrar' : '+ mas'}
+   442→   442→              </button>
+   443→   443→            </div>
+   444→   444→          ) : (
+   445→   445→            <button
+   446→   446→              className="inline-flex items-center gap-1 text-[11px] font-semibold text-white bg-violet-600 hover:bg-violet-700 px-2.5 py-1 rounded-md transition-colors"
+   447→   447→              onClick={() => setExpanding(!expanding)}
+   448→   448→            >
+   449→   449→              <Plus className="h-3 w-3" />Vincular COTE
+   450→   450→            </button>
+   451→   451→          )}
+   452→   452→        </td>
+   453→   453→      </tr>
+   454→   454→      {expanding && (
+   455→   455→        <tr className="border-b bg-violet-50/50">
+   456→   456→          <td colSpan={8} className="px-3 py-3">
+   457→   457→            <div className="flex flex-wrap items-end gap-2">
+   458→   458→              <div className="flex-1 min-w-[140px]">
+   459→   459→                <FieldLabel>COTE de Ingreso</FieldLabel>
+   460→   460→                <Input
+   461→   461→                  placeholder="Ej: P12345"
+   462→   462→                  value={newCote}
+   463→   463→                  onChange={e => setNewCote(e.target.value.toUpperCase())}
+   464→   464→                  className="h-8 text-xs font-mono"
+   465→   465→                  list={`cote-sug-${row.exp.id}`}
+   466→   466→                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleQuickAdd(); } }}
+   467→   467→                />
+   468→   468→                <datalist id={`cote-sug-${row.exp.id}`}>
+   469→   469→                  {existingCotesInCaliral.filter(c => !currentManualCotes.some(mc => mc.cote === c)).map(c => {
+   470→   470→                    const ing = ingresoMap.get(c);
+   471→   471→                    const stk = stockAggMap.get(c);
+   472→   472→                    return (
+   473→   473→                      <option key={c} value={c}>
+   474→   474→                        {c} — {ing?.producto || stk?.producto || ''} ({ing?.envases || stk?.totalCajas || 0} cajas) {stk?.tipo === 'PASE_SANITARIO' ? '[PASE]' : ''}
+   475→   475→                      </option>
+   476→   476→                    );
+   477→   477→                  })}
+   478→   478→                </datalist>
+   479→   479→              </div>
+   480→   480→              <div className="w-[90px]">
+   481→   481→                <FieldLabel>Cajas</FieldLabel>
+   482→   482→                <Input
+   483→   483→                  type="number"
+   484→   484→                  min="1"
+   485→   485→                  placeholder="0"
+   486→   486→                  value={newCajas}
+   487→   487→                  onChange={e => setNewCajas(e.target.value)}
+   488→   488→                  className="h-8 text-xs font-mono"
+   489→   489→                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleQuickAdd(); } }}
+   490→   490→                />
+   491→   491→              </div>
+   492→   492→              <Button size="sm" className="h-8 text-xs" onClick={handleQuickAdd} disabled={!newCote.trim()}>
+   493→   493→                <Plus className="h-3 w-3 mr-1" />Agregar
+   494→   494→              </Button>
+   495→   495→              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onEditFull}>
+   496→   496→                <Pencil className="h-3 w-3 mr-1" />Editar todo
+   497→   497→              </Button>
+   498→   498→              <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setExpanding(false)}>
+   499→   499→                <X className="h-3 w-3" />
+   500→   500→              </Button>
+   501→   501→            </div>
+   502→   502→            {currentManualCotes.length > 0 && (
+   503→   503→              <div className="mt-2 space-y-0.5">
+   504→   504→                <div className="flex items-center gap-2 text-[11px] text-slate-600">
+   505→   505→                  <span>Usadas: <b className="text-violet-700">{currentManualCotes.reduce((s, c) => s + c.cajas, 0)}</b></span>
+   506→   506→                  <span className="text-slate-300">|</span>
+   507→   507→                  <span>En depositos: <b className="text-emerald-700">{currentManualCotes.reduce((s, c) => s + (ingresoMap.get(c.cote)?.envases || 0), 0)}</b></span>
+   508→   508→                  <span className="text-slate-300">|</span>
+   509→   509→                  <span>Exp.: <b>{row.exp.cantidadEnvases || 0}</b></span>
+   510→   510→                  <span className="text-slate-300">|</span>
+   511→   511→                  <span>Diff depositos: <b className={currentManualCotes.reduce((s, c) => s + (ingresoMap.get(c.cote)?.envases || 0), 0) - (row.exp.cantidadEnvases || 0) < 0 ? 'text-red-600' : 'text-emerald-600'}>{(currentManualCotes.reduce((s, c) => s + (ingresoMap.get(c.cote)?.envases || 0), 0) - (row.exp.cantidadEnvases || 0)).toLocaleString('es-UY')}</b></span>
+   512→   512→                </div>
+   513→   513→              </div>
+   514→   514→            )}
+   515→   515→          </td>
+   516→   516→        </tr>
+   517→   517→      )}
+   518→   518→    </>
+   519→   519→  );
+   520→   520→}
+   521→   521→
+   522→   522→// --- Stock Table Component ---
+   523→   523→function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits }: {
+   524→   524→  stockAggMap: Map<string, StockCodigoAgg>;
+   525→   525→  ingresoMap: Map<string, IngresoAgg>;
+   526→   526→  cruceRows: CruceRow[];
+   527→   527→  sinCruceRows: SinCruceRow[];
+   528→   528→  edits: EditsStore;
+   529→   529→}) {
+   530→   530→  const [expandedCode, setExpandedCode] = useState<string | null>(null);
+   531→   531→  const [stockSearch, setStockSearch] = useState('');
+   532→   532→  const [stockFilter, setStockFilter] = useState<'all' | 'con_ingreso' | 'sin_ingreso' | 'con_diff'>('all');
+   533→   533→
+   534→   534→  // Build export cajas map: ingreso COTE -> total cajas exported
+   535→   535→  // Manual links: use specified cajas per COTE
+   536→   536→  // Automatic links: distribute export cajas proportionally by ingreso cajas
+   537→   537→  const exportCajasMap = useMemo(() => {
+   538→   538→    const map = new Map<string, number>();
+   539→   539→    // From cruceRows (exports matched to ingreso COTEs)
+   540→   540→    for (const r of cruceRows) {
+   541→   541→      if (r.isManualLink && edits.exports[r.exp.id]?.manualCotes) {
+   542→   542→        // Manual: use exact cajas per COTE
+   543→   543→        for (const mc of edits.exports[r.exp.id].manualCotes!) {
+   544→   544→          map.set(mc.cote, (map.get(mc.cote) || 0) + mc.cajas);
+   545→   545→        }
+   546→   546→      } else if (r.ingresoCotes.length > 0) {
+   547→   547→        // Automatic: distribute export cajas proportionally by ingreso envases
+   548→   548→        const totalIngCajas = r.ingresoCotes.reduce((s, c) => s + (ingresoMap.get(c)?.envases || 0), 0);
+   549→   549→        for (const c of r.ingresoCotes) {
+   550→   550→          let share: number;
+   551→   551→          if (totalIngCajas > 0) {
+   552→   552→            const ingCajas = ingresoMap.get(c)?.envases || 0;
+   553→   553→            share = Math.round(r.envasesExp * ingCajas / totalIngCajas);
+   554→   554→          } else {
+   555→   555→            // No ingreso cajas info — split evenly
+   556→   556→            share = Math.floor(r.envasesExp / r.ingresoCotes.length);
+   557→   557→          }
+   558→   558→          map.set(c, (map.get(c) || 0) + share);
+   559→   559→        }
+   560→   560→      }
+   561→   561→    }
+   562→   562→    // From sinCruceRows with manual cotes
+   563→   563→    for (const r of sinCruceRows) {
+   564→   564→      const mc = edits.exports[r.exp.id]?.manualCotes;
+   565→   565→      if (mc) {
+   566→   566→        for (const link of mc) {
+   567→   567→          map.set(link.cote, (map.get(link.cote) || 0) + link.cajas);
+   568→   568→        }
+   569→   569→      }
+   570→   570→    }
+   571→   571→    return map;
+   572→   572→  }, [cruceRows, sinCruceRows, edits, ingresoMap]);
+   573→   573→
+   574→   574→  // Build list from stockAggMap
+   575→   575→  const stockList = useMemo(() => {
+   576→   576→    let items = [...stockAggMap.values()];
+   577→   577→
+   578→   578→    if (stockSearch) {
+   579→   579→      const s = stockSearch.toLowerCase();
+   580→   580→      items = items.filter(a =>
+   581→   581→        a.codigo.toLowerCase().includes(s) ||
+   582→   582→        a.producto.toLowerCase().includes(s) ||
+   583→   583→        a.contenedores.some(c => c.toLowerCase().includes(s))
+   584→   584→      );
+   585→   585→    }
+   586→   586→
+   587→   587→    if (stockFilter === 'con_ingreso') {
+   588→   588→      items = items.filter(a => ingresoMap.has(a.codigo));
+   589→   589→    } else if (stockFilter === 'sin_ingreso') {
+   590→   590→      items = items.filter(a => !ingresoMap.has(a.codigo));
+   591→   591→    } else if (stockFilter === 'con_diff') {
+   592→   592→      items = items.filter(a => {
+   593→   593→        const ing = ingresoMap.get(a.codigo);
+   594→   594→        if (!ing) return false;
+   595→   595→        const expCajas = exportCajasMap.get(a.codigo) || 0;
+   596→   596→        const saldo = ing.envases - expCajas;
+   597→   597→        return Math.abs(a.totalCajas - saldo) > 0;
+   598→   598→      });
+   599→   599→    }
+   600→   600→
+   601→   601→    items.sort((a, b) => b.totalKilos - a.totalKilos);
+   602→   602→    return items;
+   603→   603→  }, [stockAggMap, ingresoMap, stockSearch, stockFilter, exportCajasMap]);
+   604→   604→
+   605→   605→  const totalConIngreso = [...stockAggMap.values()].filter(a => ingresoMap.has(a.codigo)).length;
+   606→   606→  const totalSinIngreso = stockAggMap.size - totalConIngreso;
+   607→   607→  const totalCajasStock = [...stockAggMap.values()].reduce((s, a) => s + a.totalCajas, 0);
+   608→   608→  const totalCajasIngreso = [...stockAggMap.values()].reduce((s, a) => { const ing = ingresoMap.get(a.codigo); return s + (ing?.envases || 0); }, 0);
+   609→   609→  const totalCajasExport = [...stockAggMap.values()].reduce((s, a) => s + (exportCajasMap.get(a.codigo) || 0), 0);
+   610→   610→  const totalSaldoTeorico = totalCajasIngreso - totalCajasExport;
+   611→   611→
+   612→   612→  return (
+   613→   613→    <div>
+   614→   614→      {/* Filter bar */}
+   615→   615→      <div className="flex flex-wrap gap-2 items-center mb-3">
+   616→   616→        <div className="relative flex-1 min-w-[180px]">
+   617→   617→          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+   618→   618→          <Input
+   619→   619→            placeholder="Buscar codigo, producto, contenedor..."
+   620→   620→            value={stockSearch} onChange={e => setStockSearch(e.target.value)} className="pl-8 h-8 text-xs"
+   621→   621→          />
+   622→   622→        </div>
+   623→   623→        <Select value={stockFilter} onValueChange={v => setStockFilter(v as typeof stockFilter)}>
+   624→   624→          <SelectTrigger className="w-[180px] h-8 text-xs"><SelectValue placeholder="Filtrar" /></SelectTrigger>
+   625→   625→          <SelectContent>
+   626→   626→            <SelectItem value="all">Todos ({stockAggMap.size})</SelectItem>
+   627→   627→            <SelectItem value="con_ingreso">Con ingreso ({totalConIngreso})</SelectItem>
+   628→   628→            <SelectItem value="sin_ingreso">Sin ingreso ({totalSinIngreso})</SelectItem>
+   629→   629→            <SelectItem value="con_diff">Con diferencia</SelectItem>
+   630→   630→          </SelectContent>
+   631→   631→        </Select>
+   632→   632→        <div className="text-xs text-slate-500 space-x-2">
+   633→   633→          <span>{stockList.length} codigos</span>
+   634→   634→          <span className="text-slate-300">|</span>
+   635→   635→          <span>Stock: <b className="text-teal-700">{totalCajasStock.toLocaleString('es-UY')}</b></span>
+   636→   636→          <span className="text-slate-300">|</span>
+   637→   637→          <span>Ingreso: <b className="text-emerald-700">{totalCajasIngreso.toLocaleString('es-UY')}</b></span>
+   638→   638→          <span className="text-slate-300">|</span>
+   639→   639→          <span>Export: <b className="text-blue-700">{totalCajasExport.toLocaleString('es-UY')}</b></span>
+   640→   640→          <span className="text-slate-300">|</span>
+   641→   641→          <span>Saldo teorico: <b className={totalSaldoTeorico < 0 ? 'text-red-600' : 'text-violet-700'}>{totalSaldoTeorico.toLocaleString('es-UY')}</b></span>
+   642→   642→        </div>
+   643→   643→      </div>
+   644→   644→
+   645→   645→      {/* Table */}
+   646→   646→      <div className="overflow-x-auto">
+   647→   647→        <table className="w-full text-sm">
+   648→   648→          <thead>
+   649→   649→            <tr className="border-b bg-slate-50 text-left text-xs text-slate-500 uppercase">
+   650→   650→              <th className="px-3 py-2.5">Codigo</th>
+   651→   651→              <th className="px-3 py-2.5">Tipo</th>
+   652→   652→              <th className="px-3 py-2.5 hidden lg:table-cell">Producto</th>
+   653→   653→              <th className="px-3 py-2.5 hidden xl:table-cell">Contenedores</th>
+   654→   654→              <th className="px-3 py-2.5 text-right">Pallets</th>
+   655→   655→              <th className="px-3 py-2.5 text-right">Cajas Ingreso</th>
+   656→   656→              <th className="px-3 py-2.5 text-right">Cajas Export.</th>
+   657→   657→              <th className="px-3 py-2.5 text-right">Saldo Teorico</th>
+   658→   658→              <th className="px-3 py-2.5 text-right">Cajas Stock</th>
+   659→   659→              <th className="px-3 py-2.5 text-right">Diff Stock/Saldo</th>
+   660→   660→              <th className="px-3 py-2.5 w-8"></th>
+   661→   661→            </tr>
+   662→   662→          </thead>
+   663→   663→          <tbody>
+   664→   664→            {stockList.length === 0 ? (
+   665→   665→              <tr><td colSpan={12} className="text-center py-10 text-slate-400">No se encontraron codigos</td></tr>
+   666→   666→            ) : stockList.map(agg => {
+   667→   667→              const ing = ingresoMap.get(agg.codigo);
+   668→   668→              const expCajas = exportCajasMap.get(agg.codigo) || 0;
+   669→   669→              const saldoTeorico = ing ? ing.envases - expCajas : null;
+   670→   670→              const diffStockSaldo = saldoTeorico !== null ? agg.totalCajas - saldoTeorico : null;
+   671→   671→
+   672→   672→              return (
+   673→   673→                <React.Fragment key={agg.codigo}>
+   674→   674→                  <tr className={`border-b hover:bg-teal-50/40 ${expandedCode === agg.codigo ? 'bg-teal-50/60' : ''}`}>
+   675→   675→                    <td className="px-3 py-2.5 text-xs font-mono font-medium text-teal-700">{agg.codigo}</td>
+   676→   676→                    <td className="px-3 py-2.5">
+   677→   677→                      <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded ${agg.tipo === 'COTE' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+   678→   678→                        {agg.tipo === 'COTE' ? 'COTE' : 'PASE'}
+   679→   679→                      </span>
+   680→   680→                    </td>
+   681→   681→                    <td className="px-3 py-2.5 text-xs hidden lg:table-cell max-w-[200px] truncate" title={agg.producto}>{agg.producto}</td>
+   682→   682→                    <td className="px-3 py-2.5 text-xs hidden xl:table-cell max-w-[150px] truncate">{agg.contenedores.join(', ') || '-'}</td>
+   683→   683→                    <td className="px-3 py-2.5 text-xs text-right font-mono">{agg.totalPallets}</td>
+   684→   684→                    <td className="px-3 py-2.5 text-xs text-right font-mono">
+   685→   685→                      {ing ? (
+   686→   686→                        <span className="text-emerald-700">{ing.envases.toLocaleString('es-UY')}</span>
+   687→   687→                      ) : (
+   688→   688→                        <span className="text-slate-300">—</span>
+   689→   689→                      )}
+   690→   690→                    </td>
+   691→   691→                    <td className="px-3 py-2.5 text-xs text-right font-mono">
+   692→   692→                      {expCajas > 0 ? (
+   693→   693→                        <span className="text-blue-700">{expCajas.toLocaleString('es-UY')}</span>
+   694→   694→                      ) : (
+   695→   695→                        <span className="text-slate-300">—</span>
+   696→   696→                      )}
+   697→   697→                    </td>
+   698→   698→                    <td className="px-3 py-2.5 text-xs text-right font-mono">
+   699→   699→                      {saldoTeorico !== null ? (
+   700→   700→                        <span className={saldoTeorico < 0 ? 'text-red-600 font-medium' : 'text-violet-700 font-medium'}>
+   701→   701→                          {saldoTeorico.toLocaleString('es-UY')}
+   702→   702→                        </span>
+   703→   703→                      ) : (
+   704→   704→                        <span className="text-slate-300">—</span>
+   705→   705→                      )}
+   706→   706→                    </td>
+   707→   707→                    <td className="px-3 py-2.5 text-xs text-right font-mono font-medium text-teal-700">{agg.totalCajas.toLocaleString('es-UY')}</td>
+   708→   708→                    <td className="px-3 py-2.5 text-right">
+   709→   709→                      {diffStockSaldo !== null ? (
+   710→   710→                        <span className={`inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+   711→   711→                          Math.abs(diffStockSaldo) === 0 ? 'bg-emerald-50 text-emerald-700' :
+   712→   712→                          diffStockSaldo < 0 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'
+   713→   713→                        }`}>
+   714→   714→                          {Math.abs(diffStockSaldo) === 0 ? '0' : (diffStockSaldo > 0 ? '+' : '') + diffStockSaldo}
+   715→   715→                        </span>
+   716→   716→                      ) : (
+   717→   717→                        <span className="text-[10px] text-slate-300">—</span>
+   718→   718→                      )}
+   719→   719→                    </td>
+   720→   720→                    <td className="px-3 py-2.5 text-center">
+   721→   721→                      <button
+   722→   722→                        className="p-1 rounded hover:bg-slate-100"
+   723→   723→                        onClick={() => setExpandedCode(expandedCode === agg.codigo ? null : agg.codigo)}
+   724→   724→                      >
+   725→   725→                        <ChevronRight className={`h-3.5 w-3.5 text-slate-400 transition-transform ${expandedCode === agg.codigo ? 'rotate-90' : ''}`} />
+   726→   726→                      </button>
+   727→   727→                    </td>
+   728→   728→                  </tr>
+   729→   729→                  {expandedCode === agg.codigo && (
+   730→   730→                    <tr className="border-b bg-teal-50/30">
+   731→   731→                      <td colSpan={11} className="px-4 py-3">
+   732→   732→                        <div className="space-y-3">
+   733→   733→                          {/* Resumen saldo */}
+   734→   734→                          {ing && (
+   735→   735→                            <div className="bg-violet-50 rounded-lg p-3">
+   736→   736→                              <p className="text-[10px] text-violet-600 uppercase font-bold mb-2">Resumen de saldo</p>
+   737→   737→                              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+   738→   738→                                <div><span className="text-slate-500">Cajas Stock:</span> <span className="font-mono font-medium text-teal-700">{agg.totalCajas.toLocaleString('es-UY')}</span></div>
+   739→   739→                                <div><span className="text-slate-500">Cajas Ingreso:</span> <span className="font-mono font-medium text-emerald-700">{ing.envases.toLocaleString('es-UY')}</span></div>
+   740→   740→                                <div><span className="text-slate-500">Cajas Export.:</span> <span className="font-mono font-medium text-blue-700">{expCajas.toLocaleString('es-UY')}</span></div>
+   741→   741→                                <div><span className="text-slate-500">Saldo Teorico:</span> <span className={`font-mono font-bold ${saldoTeorico! < 0 ? 'text-red-600' : 'text-violet-700'}`}>{(ing.envases - expCajas).toLocaleString('es-UY')}</span></div>
+   742→   742→                                <div><span className="text-slate-500">Diff:</span> <span className={`font-mono font-bold ${Math.abs(diffStockSaldo!) === 0 ? 'text-emerald-600' : diffStockSaldo! < 0 ? 'text-red-600' : 'text-amber-600'}`}>{diffStockSaldo === 0 ? '0' : (diffStockSaldo! > 0 ? '+' : '') + diffStockSaldo}</span></div>
+   743→   743→                              </div>
+   744→   744→                            </div>
+   745→   745→                          )}
+   746→   746→
+   747→   747→                          {/* Ingreso info if found */}
+   748→   748→                          {ing && (
+   749→   749→                            <div className="bg-emerald-50 rounded-lg p-3">
+   750→   750→                              <p className="text-[10px] text-emerald-600 uppercase font-bold mb-1">Ingreso vinculado</p>
+   751→   751→                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+   752→   752→                                <div><span className="text-slate-500">Tramite:</span> <span className="font-mono">{ing.tramite}</span></div>
+   753→   753→                                <div><span className="text-slate-500">Fecha:</span> <span>{fd(ing.fecha)}</span></div>
+   754→   754→                                <div><span className="text-slate-500">Cajas:</span> <span className="font-mono font-medium text-emerald-700">{ing.envases.toLocaleString('es-UY')}</span></div>
+   755→   755→                                <div><span className="text-slate-500">Kg Neto:</span> <span className="font-mono">{ing.pesoNeto.toLocaleString('es-UY')}</span></div>
+   756→   756→                              </div>
+   757→   757→                              <div className="text-[11px] text-slate-600 mt-1">
+   758→   758→                                <span className="text-slate-500">Producto:</span> {ing.producto}
+   759→   759→                                {ing.cortes.length > 0 && <span className="text-slate-500 ml-3">Cortes: {ing.cortes.join(', ')}</span>}
+   760→   760→                              </div>
+   761→   761→                            </div>
+   762→   762→                          )}
+   763→   763→                          {!ing && (
+   764→   764→                            <div className="bg-amber-50 rounded-lg p-2 text-[11px] text-amber-700">
+   765→   765→                              Este codigo no tiene un ingreso registrado en los depositos de Caliral.
+   766→   766→                            </div>
+   767→   767→                          )}
+   768→   768→
+   769→   769→                          {/* Pallet details */}
+   770→   770→                          <div>
+   771→   771→                            <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Pallets en stock ({agg.pallets.length})</p>
+   772→   772→                            <div className="max-h-64 overflow-y-auto border rounded">
+   773→   773→                              <table className="w-full text-[11px]">
+   774→   774→                                <thead className="sticky top-0 bg-slate-100">
+   775→   775→                                  <tr>
+   776→   776→                                    <th className="px-2 py-1 text-left">Contenedor</th>
+   777→   777→                                    <th className="px-2 py-1 text-left">Fec Ent</th>
+   778→   778→                                    <th className="px-2 py-1 text-right">Cajas</th>
+   779→   779→                                    <th className="px-2 py-1 text-right">Kg</th>
+   780→   780→                                    <th className="px-2 py-1 text-left">Contenido</th>
+   781→   781→                                    <th className="px-2 py-1 text-left">Lote</th>
+   782→   782→                                    <th className="px-2 py-1 text-left">Venc.</th>
+   783→   783→                                  </tr>
+   784→   784→                                </thead>
+   785→   785→                                <tbody>
+   786→   786→                                  {agg.pallets.map(p => (
+   787→   787→                                    <tr key={p.id} className="border-t hover:bg-white/50">
+   788→   788→                                      <td className="px-2 py-1 font-mono">{p.contenedor || '-'}</td>
+   789→   789→                                      <td className="px-2 py-1">{p.fechaEntrega || '-'}</td>
+   790→   790→                                      <td className="px-2 py-1 text-right font-mono">{p.cajas.toLocaleString('es-UY')}</td>
+   791→   791→                                      <td className="px-2 py-1 text-right font-mono">{p.kilos.toLocaleString('es-UY')}</td>
+   792→   792→                                      <td className="px-2 py-1 max-w-[300px] truncate" title={p.contenido}>{p.contenido}</td>
+   793→   793→                                      <td className="px-2 py-1 font-mono">{p.nroLote || '-'}</td>
+   794→   794→                                      <td className="px-2 py-1">{p.fechaVencimiento || '-'}</td>
+   795→   795→                                    </tr>
+   796→   796→                                  ))}
+   797→   797→                                </tbody>
+   798→   798→                              </table>
+   799→   799→                            </div>
+   800→   800→                          </div>
+   801→   801→                        </div>
+   802→   802→                      </td>
+   803→   803→                    </tr>
+   804→   804→                  )}
+   805→   805→                </React.Fragment>
+   806→   806→              );
+   807→   807→            })}
+   808→   808→          </tbody>
+   809→   809→        </table>
+   810→   810→      </div>
+   811→   811→    </div>
+   812→   812→  );
+   813→   813→}
+   814→   814→
+   815→   815→// --- Component ---
+   816→   816→export default function CruceCaliral() {
+   817→   817→  const [loading, setLoading] = useState(true);
+   818→   818→  const [subTab, setSubTab] = useState<'cruce' | 'sincruce' | 'pendientes' | 'stock'>('cruce');
+   819→   819→
+   820→   820→  // Stock state
+   821→   821→  const [stockData, setStockData] = useState<StockLoad | null>(null);
+   822→   822→  const [stockAggMap, setStockAggMap] = useState<Map<string, StockCodigoAgg>>(new Map());
+   823→   823→  const [stockLoading, setStockLoading] = useState(false);
+   824→   824→
+   825→   825→  const [search, setSearch] = useState('');
+   826→   826→  const [pais, setPais] = useState('');
+   827→   827→  const [fechaDesde, setFechaDesde] = useState('');
+   828→   828→  const [fechaHasta, setFechaHasta] = useState('');
+   829→   829→  const [filtroProducto, setFiltroProducto] = useState('');
+   830→   830→  const [filtroCorte, setFiltroCorte] = useState('');
+   831→   831→
+   832→   832→  const [page, setPage] = useState(1);
+   833→   833→  const limit = 20;
+   834→   834→
+   835→   835→  const [detailOpen, setDetailOpen] = useState(false);
+   836→   836→  const [detailRow, setDetailRow] = useState<CruceRow | SinCruceRow | IngresoPendienteRow | null>(null);
+   837→   837→  const [ingresoDetailCote, setIngresoDetailCote] = useState<string | null>(null);
+   838→   838→
+   839→   839→  const [paises, setPaises] = useState<string[]>([]);
+   840→   840→  const [productos, setProductos] = useState<string[]>([]);
+   841→   841→  const [cortes, setCortes] = useState<string[]>([]);
+   842→   842→
+   843→   843→  const [ingresoMap, setIngresoMap] = useState<Map<string, IngresoAgg>>(new Map());
+   844→   844→  const [cruceRows, setCruceRows] = useState<CruceRow[]>([]);
+   845→   845→  const [sinCruceRows, setSinCruceRows] = useState<SinCruceRow[]>([]);
+   846→   846→  const [pendienteRows, setPendienteRows] = useState<IngresoPendienteRow[]>([]);
+   847→   847→
+   848→   848→  // --- Edit state ---
+   849→   849→  const [edits, setEdits] = useState<EditsStore>({ exports: {}, ingresos: {}, ingresosManuales: [], exportacionesManuales: [] });
+   850→   850→  const [editOpen, setEditOpen] = useState(false);
+   851→   851→  const [editTarget, setEditTarget] = useState<{ type: 'export' | 'ingreso'; id: string; row?: CruceRow | SinCruceRow | IngresoPendienteRow } | null>(null);
+   852→   852→
+   853→   853→  // Export edit form state
+   854→   854→  const [ef_nroCote, setEf_nroCote] = useState('');
+   855→   855→  const [ef_nroTramite, setEf_nroTramite] = useState('');
+   856→   856→  const [ef_pais, setEf_pais] = useState('');
+   857→   857→  const [ef_producto, setEf_producto] = useState('');
+   858→   858→  const [ef_corte, setEf_corte] = useState('');
+   859→   859→  const [ef_cajas, setEf_cajas] = useState('');
+   860→   860→  const [ef_pesoNeto, setEf_pesoNeto] = useState('');
+   861→   861→  const [ef_pesoBruto, setEf_pesoBruto] = useState('');
+   862→   862→  const [ef_contenedor, setEf_contenedor] = useState('');
+   863→   863→  const [ef_certSanitario, setEf_certSanitario] = useState('');
+   864→   864→  const [ef_observaciones, setEf_observaciones] = useState('');
+   865→   865→  const [ef_transporte, setEf_transporte] = useState('');
+   866→   866→  const [ef_estabCertif, setEf_estabCertif] = useState('');
+   867→   867→  const [ef_precinto, setEf_precinto] = useState('');
+   868→   868→  const [ef_matricula, setEf_matricula] = useState('');
+   869→   869→  const [ef_manualCotes, setEf_manualCotes] = useState<ManualCoteLink[]>([]);
+   870→   870→  const [ef_newCote, setEf_newCote] = useState('');
+   871→   871→  const [ef_newCoteCajas, setEf_newCoteCajas] = useState('');
+   872→   872→
+   873→   873→  // Ingreso edit form state
+   874→   874→  const [ei_cajas, setEi_cajas] = useState('');
+   875→   875→  const [ei_pesoNeto, setEi_pesoNeto] = useState('');
+   876→   876→  const [ei_pesoBruto, setEi_pesoBruto] = useState('');
+   877→   877→  const [ei_producto, setEi_producto] = useState('');
+   878→   878→
+   879→   879→  // New manual ingreso form state
+   880→   880→  const [addIngresoOpen, setAddIngresoOpen] = useState(false);
+   881→   881→  const [ni_cote, setNi_cote] = useState('');
+   882→   882→  const [ni_tramite, setNi_tramite] = useState('');
+   883→   883→  const [ni_fecha, setNi_fecha] = useState('');
+   884→   884→  const [ni_producto, setNi_producto] = useState('');
+   885→   885→  const [ni_cajas, setNi_cajas] = useState('');
+   886→   886→  const [ni_pesoNeto, setNi_pesoNeto] = useState('');
+   887→   887→  const [ni_pesoBruto, setNi_pesoBruto] = useState('');
+   888→   888→
+   889→   889→  // New manual export form state
+   890→   890→  const [addExpOpen, setAddExpOpen] = useState(false);
+   891→   891→  const [ne_nroCote, setNe_nroCote] = useState('');
+   892→   892→  const [ne_nroTramite, setNe_nroTramite] = useState('');
+   893→   893→  const [ne_fecha, setNe_fecha] = useState('');
+   894→   894→  const [ne_pais, setNe_pais] = useState('');
+   895→   895→  const [ne_producto, setNe_producto] = useState('');
+   896→   896→  const [ne_corte, setNe_corte] = useState('');
+   897→   897→  const [ne_cajas, setNe_cajas] = useState('');
+   898→   898→  const [ne_pesoNeto, setNe_pesoNeto] = useState('');
+   899→   899→
+   900→   900→  // Recompute cruce when edits change
+   901→   901→  const recomputeCruce = useCallback((editsData: EditsStore) => {
+   902→   902→    if (!cache.loaded) return;
+   903→   903→    const iMap = aggregateByCote(cache.shipments);
+   904→   904→    // Apply ingreso edits
+   905→   905→    for (const [cote, edit] of Object.entries(editsData.ingresos)) {
+   906→   906→      const agg = iMap.get(cote);
+   907→   907→      if (agg) iMap.set(cote, applyIngresoEdit(agg, edit));
+   908→   908→    }
+   909→   909→    // Add manual ingresos
+   910→   910→    for (const mi of editsData.ingresosManuales || []) {
+   911→   911→      if (!iMap.has(mi.cote)) {
+   912→   912→        iMap.set(mi.cote, {
+   913→   913→          cote: mi.cote, tramite: mi.tramite, fecha: mi.fecha,
+   914→   914→          producto: mi.producto, cortes: mi.cortes || [],
+   915→   915→          pesoNeto: mi.pesoNeto, pesoBruto: mi.pesoBruto, envases: mi.envases,
+   916→   916→          lineCount: 1, lines: [],
+   917→   917→        });
+   918→   918→      }
+   919→   919→    }
+   920→   920→    setIngresoMap(iMap);
+   921→   921→
+   922→   922→    // Apply export edits to cache exports + manual exportaciones
+   923→   923→    const manualExps = (editsData.exportacionesManuales || []).map(me => ({
+   924→   924→      ...me,
+   925→   925→      id: me.id || `manual-${me.nroCote}`,
+   926→   926→      tipoTransporte: null, contenedorSerieNro: null, nroCertificadoSanitario: null,
+   927→   927→      nombreEstablecimientoCertif: null, precinto1: null, matriculaCamion: null,
+   928→   928→      fechaEmitidoCote: null, fechaInicioProduccion: null, fechaFinProduccion: null,
+   929→   929→      fechaInicioCongelacion: null, fechaFinCongelacion: null,
+   930→   930→    }));
+   931→   931→    const editedExports = [...cache.exports.map(e => {
+   932→   932→      const edit = editsData.exports[e.id];
+   933→   933→      return edit ? applyExportEdit(e, edit) : e;
+   934→   934→    }), ...manualExps];
+   935→   935→
+   936→   936→    const cruces: CruceRow[] = [];
+   937→   937→    const sinCruce: SinCruceRow[] = [];
+   938→   938→    const referencedCotes = new Set<string>();
+   939→   939→
+   940→   940→    for (const exp of editedExports) {
+   941→   941→      const exportEdit = editsData.exports[exp.id];
+   942→   942→      const obs = exp.observaciones || '';
+   943→   943→
+   944→   944→      // Determine ingreso COTEs: manual links override observaciones extraction
+   945→   945→      let cotesWithCajas: ManualCoteLink[] = [];
+   946→   946→      let isManual = false;
+   947→   947→
+   948→   948→      if (exportEdit?.manualCotes && exportEdit.manualCotes.length > 0) {
+   949→   949→        cotesWithCajas = exportEdit.manualCotes;
+   950→   950→        isManual = true;
+   951→   951→      } else {
+   952→   952→        const refs = extractIngresoCotes(obs, exp.nroCote);
+   953→   953→        cotesWithCajas = refs.map(c => ({ cote: c, cajas: 0 })); // cajas=0 means use aggregate
+   954→   954→      }
+   955→   955→
+   956→   956→      const foundInCaliral = cotesWithCajas.filter(c => iMap.has(c.cote));
+   957→   957→      const notInCaliral = cotesWithCajas.filter(c => !iMap.has(c.cote));
+   958→   958→
+   959→   959→      if (foundInCaliral.length > 0) {
+   960→   960→        const aggs = foundInCaliral.map(c => iMap.get(c.cote)!);
+   961→   961→        const totalEnvasesIngreso = aggs.reduce((s, a) => s + a.envases, 0);
+   962→   962→        const manualCajasUsadas = isManual
+   963→   963→          ? foundInCaliral.reduce((s, c) => s + (c.cajas > 0 ? c.cajas : 0), 0)
+   964→   964→          : 0;
+   965→   965→        const totalKgIngreso = aggs.reduce((s, a) => s + a.pesoNeto, 0);
+   966→   966→        const envasesExp = exp.cantidadEnvases || 0;
+   967→   967→        const kgExp = exp.pesoNeto || 0;
+   968→   968→        cruces.push({
+   969→   969→          exp,
+   970→   970→          ingresoCotes: foundInCaliral.map(c => c.cote),
+   971→   971→          ingresoCotesNotFound: notInCaliral.map(c => c.cote),
+   972→   972→          ingresoAgg: aggs,
+   973→   973→          totalEnvasesIngreso,
+   974→   974→          totalKgIngreso,
+   975→   975→          envasesExp,
+   976→   976→          kgExp,
+   977→   977→          diffEnvases: totalEnvasesIngreso - envasesExp,
+   978→   978→          isManualLink: isManual,
+   979→   979→          manualCajasUsadas: isManual ? manualCajasUsadas : undefined,
+   980→   980→        });
+   981→   981→        foundInCaliral.forEach(c => referencedCotes.add(c.cote));
+   982→   982→      } else {
+   983→   983→        const obsPreview = obs ? obs.substring(0, 120) : '';
+   984→   984→        sinCruce.push({ exp, obsPreview });
+   985→   985→      }
+   986→   986→    }
+   987→   987→
+   988→   988→    const pendientes: IngresoPendienteRow[] = [];
+   989→   989→    for (const [cote, agg] of iMap) {
+   990→   990→      if (!referencedCotes.has(cote)) {
+   991→   991→        pendientes.push({
+   992→   992→          cote, tramite: agg.tramite, fecha: agg.fecha,
+   993→   993→          producto: agg.producto, pesoNeto: agg.pesoNeto,
+   994→   994→          pesoBruto: agg.pesoBruto, envases: agg.envases, cortes: agg.cortes,
+   995→   995→        });
+   996→   996→      }
+   997→   997→    }
+   998→   998→
+   999→   999→    setCruceRows(cruces.sort((a, b) => b.exp.fechaTramite.localeCompare(a.exp.fechaTramite)));
+  1000→  1000→    setSinCruceRows(sinCruce.sort((a, b) => b.exp.fechaTramite.localeCompare(a.exp.fechaTramite)));
+  1001→  1001→    setPendienteRows(pendientes.sort((a, b) => b.fecha.localeCompare(a.fecha)));
+  1002→  1002→    setPaises([...new Set(editedExports.map(e => e.paisDestino).filter(Boolean))].sort());
+  1003→  1003→    setProductos([...new Set(editedExports.map(e => e.denominacionMercaderia).filter(Boolean))].sort());
+  1004→  1004→    setCortes([...new Set(editedExports.map(e => e.corte).filter(Boolean))].sort());
+  1005→  1005→  }, []);
+  1006→  1006→
+  1007→  1007→  useEffect(() => {
+  1008→  1008→    (async () => {
+  1009→  1009→      await ensureData(true);
+  1010→  1010→      const loadedEdits = loadEdits();
+  1011→  1011→      setEdits(loadedEdits);
+  1012→  1012→      recomputeCruce(loadedEdits);
+  1013→  1013→      setLoading(false);
+  1014→  1014→      // Load saved stock data
+  1015→  1015→      try {
+  1016→  1016→        const savedStock = localStorage.getItem('trazabilidad_stock_data');
+  1017→  1017→        if (savedStock) {
+  1018→  1018→          const load = JSON.parse(savedStock) as StockLoad;
+  1019→  1019→          setStockData(load);
+  1020→  1020→          setStockAggMap(buildStockAggMap(load.pallets));
+  1021→  1021→        }
+  1022→  1022→      } catch { /* ignore */ }
+  1023→  1023→    })();
+  1024→  1024→  }, [recomputeCruce]);
+  1025→  1025→
+  1026→  1026→  // --- Edit handlers ---
+  1027→  1027→  const openExportEdit = (row: CruceRow | SinCruceRow) => {
+  1028→  1028→    const exp = row.exp;
+  1029→  1029→    const edit = edits.exports[exp.id];
+  1030→  1030→    setEditTarget({ type: 'export', id: exp.id, row });
+  1031→  1031→    setEf_nroCote(exp.nroCote || '');
+  1032→  1032→    setEf_nroTramite(String(exp.nroTramite || ''));
+  1033→  1033→    setEf_pais(exp.paisDestino || '');
+  1034→  1034→    setEf_producto(exp.denominacionMercaderia || '');
+  1035→  1035→    setEf_corte(exp.corte || '');
+  1036→  1036→    setEf_cajas(exp.cantidadEnvases != null ? String(exp.cantidadEnvases) : '');
+  1037→  1037→    setEf_pesoNeto(exp.pesoNeto != null ? String(exp.pesoNeto) : '');
+  1038→  1038→    setEf_pesoBruto(exp.pesoBruto != null ? String(exp.pesoBruto) : '');
+  1039→  1039→    setEf_contenedor(exp.contenedorSerieNro || '');
+  1040→  1040→    setEf_certSanitario(exp.nroCertificadoSanitario || '');
+  1041→  1041→    setEf_observaciones(exp.observaciones || '');
+  1042→  1042→    setEf_transporte(exp.tipoTransporte || '');
+  1043→  1043→    setEf_estabCertif(exp.nombreEstablecimientoCertif || '');
+  1044→  1044→    setEf_precinto(exp.precinto1 || '');
+  1045→  1045→    setEf_matricula(exp.matriculaCamion || '');
+  1046→  1046→    setEf_newCote('');
+  1047→  1047→    setEf_newCoteCajas('');
+  1048→  1048→
+  1049→  1049→    if (edit?.manualCotes && edit.manualCotes.length > 0) {
+  1050→  1050→      setEf_manualCotes([...edit.manualCotes]);
+  1051→  1051→    } else {
+  1052→  1052→      setEf_manualCotes([]);
+  1053→  1053→    }
+  1054→  1054→    setEditOpen(true);
+  1055→  1055→  };
+  1056→  1056→
+  1057→  1057→  const openIngresoEdit = (row: IngresoPendienteRow) => {
+  1058→  1058→    const edit = edits.ingresos[row.cote];
+  1059→  1059→    setEditTarget({ type: 'ingreso', id: row.cote, row });
+  1060→  1060→    setEi_cajas(edit?.envases !== undefined ? String(edit.envases) : String(row.envases));
+  1061→  1061→    setEi_pesoNeto(edit?.pesoNeto !== undefined ? String(edit.pesoNeto) : String(row.pesoNeto));
+  1062→  1062→    setEi_pesoBruto(edit?.pesoBruto !== undefined ? String(edit.pesoBruto) : String(row.pesoBruto));
+  1063→  1063→    setEi_producto(edit?.producto !== undefined ? edit.producto : row.producto);
+  1064→  1064→    setEditOpen(true);
+  1065→  1065→  };
+  1066→  1066→
+  1067→  1067→  const addManualCote = () => {
+  1068→  1068→    const cote = ef_newCote.trim().toUpperCase();
+  1069→  1069→    if (!cote) return;
+  1070→  1070→    let cajas = parseInt(ef_newCoteCajas) || 0;
+  1071→  1071→    if (cajas <= 0 && ingresoMap.has(cote)) {
+  1072→  1072→      cajas = ingresoMap.get(cote)!.envases;
+  1073→  1073→    }
+  1074→  1074→    if (cajas <= 0) {
+  1075→  1075→      toast.error('Ingresá la cantidad de cajas');
+  1076→  1076→      return;
+  1077→  1077→    }
+  1078→  1078→    const existingIdx = ef_manualCotes.findIndex(c => c.cote === cote);
+  1079→  1079→    if (existingIdx >= 0) {
+  1080→  1080→      setEf_manualCotes(prev => prev.map((c, i) => i === existingIdx ? { ...c, cajas } : c));
+  1081→  1081→      toast.success(`${cote} actualizado: ${cajas} cajas`);
+  1082→  1082→    } else {
+  1083→  1083→      setEf_manualCotes(prev => [...prev, { cote, cajas }]);
+  1084→  1084→      toast.success(`${cote} agregado`);
+  1085→  1085→    }
+  1086→  1086→    setEf_newCote('');
+  1087→  1087→    setEf_newCoteCajas('');
+  1088→  1088→  };
+  1089→  1089→
+  1090→  1090→  const removeManualCote = (cote: string) => {
+  1091→  1091→    setEf_manualCotes(prev => prev.filter(c => c.cote !== cote));
+  1092→  1092→  };
+  1093→  1093→
+  1094→  1094→  const saveExportEdit = () => {
+  1095→  1095→    if (!editTarget || editTarget.type !== 'export') return;
+  1096→  1096→    const exp = (editTarget.row as CruceRow | SinCruceRow).exp;
+  1097→  1097→    const newEdit: ExportEdit = {};
+  1098→  1098→    // Only save fields that differ from original
+  1099→  1099→    if (ef_nroCote !== exp.nroCote) newEdit.nroCote = ef_nroCote;
+  1100→  1100→    if (parseInt(ef_nroTramite) !== exp.nroTramite) newEdit.nroTramite = parseInt(ef_nroTramite) || exp.nroTramite;
+  1101→  1101→    if (ef_pais !== exp.paisDestino) newEdit.paisDestino = ef_pais;
+  1102→  1102→    if (ef_producto !== exp.denominacionMercaderia) newEdit.denominacionMercaderia = ef_producto;
+  1103→  1103→    if (ef_corte !== exp.corte) newEdit.corte = ef_corte;
+  1104→  1104→    const cajasVal = ef_cajas ? parseInt(ef_cajas) : null;
+  1105→  1105→    if (cajasVal !== exp.cantidadEnvases) newEdit.cantidadEnvases = cajasVal;
+  1106→  1106→    const pnVal = ef_pesoNeto ? parseFloat(ef_pesoNeto) : null;
+  1107→  1107→    if (pnVal !== exp.pesoNeto) newEdit.pesoNeto = pnVal;
+  1108→  1108→    const pbVal = ef_pesoBruto ? parseFloat(ef_pesoBruto) : null;
+  1109→  1109→    if (pbVal !== exp.pesoBruto) newEdit.pesoBruto = pbVal;
+  1110→  1110→    if (ef_contenedor !== (exp.contenedorSerieNro || '')) newEdit.contenedorSerieNro = ef_contenedor;
+  1111→  1111→    if (ef_certSanitario !== (exp.nroCertificadoSanitario || '')) newEdit.nroCertificadoSanitario = ef_certSanitario;
+  1112→  1112→    if (ef_observaciones !== (exp.observaciones || '')) newEdit.observaciones = ef_observaciones;
+  1113→  1113→    if (ef_transporte !== (exp.tipoTransporte || '')) newEdit.tipoTransporte = ef_transporte;
+  1114→  1114→    if (ef_estabCertif !== (exp.nombreEstablecimientoCertif || '')) newEdit.nombreEstablecimientoCertif = ef_estabCertif;
+  1115→  1115→    if (ef_precinto !== (exp.precinto1 || '')) newEdit.precinto1 = ef_precinto;
+  1116→  1116→    if (ef_matricula !== (exp.matriculaCamion || '')) newEdit.matriculaCamion = ef_matricula;
+  1117→  1117→    if (ef_manualCotes.length > 0) newEdit.manualCotes = ef_manualCotes;
+  1118→  1118→
+  1119→  1119→    const newEdits = { ...edits };
+  1120→  1120→    if (Object.keys(newEdit).length > 0) {
+  1121→  1121→      newEdits.exports = { ...newEdits.exports, [exp.id]: newEdit };
+  1122→  1122→    } else {
+  1123→  1123→      const { [exp.id]: _, ...rest } = newEdits.exports;
+  1124→  1124→      newEdits.exports = rest;
+  1125→  1125→    }
+  1126→  1126→    setEdits(newEdits);
+  1127→  1127→    saveEdits(newEdits);
+  1128→  1128→    recomputeCruce(newEdits);
+  1129→  1129→    setEditOpen(false);
+  1130→  1130→  };
+  1131→  1131→
+  1132→  1132→  const saveIngresoEdit = () => {
+  1133→  1133→    if (!editTarget || editTarget.type !== 'ingreso') return;
+  1134→  1134→    const row = editTarget.row as IngresoPendienteRow;
+  1135→  1135→    const agg = ingresoMap.get(row.cote);
+  1136→  1136→    if (!agg) return;
+  1137→  1137→    const newEdit: IngresoEdit = {};
+  1138→  1138→    const cajasVal = parseInt(ei_cajas) || 0;
+  1139→  1139→    if (cajasVal !== agg.envases) newEdit.envases = cajasVal;
+  1140→  1140→    const pnVal = parseFloat(ei_pesoNeto) || 0;
+  1141→  1141→    if (pnVal !== agg.pesoNeto) newEdit.pesoNeto = pnVal;
+  1142→  1142→    const pbVal = parseFloat(ei_pesoBruto) || 0;
+  1143→  1143→    if (pbVal !== agg.pesoBruto) newEdit.pesoBruto = pbVal;
+  1144→  1144→    if (ei_producto !== agg.producto) newEdit.producto = ei_producto;
+  1145→  1145→
+  1146→  1146→    const newEdits = { ...edits };
+  1147→  1147→    if (Object.keys(newEdit).length > 0) {
+  1148→  1148→      newEdits.ingresos = { ...newEdits.ingresos, [row.cote]: newEdit };
+  1149→  1149→    } else {
+  1150→  1150→      const { [row.cote]: _, ...rest } = newEdits.ingresos;
+  1151→  1151→      newEdits.ingresos = rest;
+  1152→  1152→    }
+  1153→  1153→    setEdits(newEdits);
+  1154→  1154→    saveEdits(newEdits);
+  1155→  1155→    recomputeCruce(newEdits);
+  1156→  1156→    setEditOpen(false);
+  1157→  1157→  };
+  1158→  1158→
+  1159→  1159→  const clearExportEdit = () => {
+  1160→  1160→    if (!editTarget || editTarget.type !== 'export') return;
+  1161→  1161→    const exp = (editTarget.row as CruceRow | SinCruceRow).exp;
+  1162→  1162→    const newEdits = { ...edits };
+  1163→  1163→    const { [exp.id]: _, ...rest } = newEdits.exports;
+  1164→  1164→    newEdits.exports = rest;
+  1165→  1165→    setEdits(newEdits);
+  1166→  1166→    saveEdits(newEdits);
+  1167→  1167→    recomputeCruce(newEdits);
+  1168→  1168→    setEditOpen(false);
+  1169→  1169→  };
+  1170→  1170→
+  1171→  1171→  const clearIngresoEdit = () => {
+  1172→  1172→    if (!editTarget || editTarget.type !== 'ingreso') return;
+  1173→  1173→    const cote = editTarget.id;
+  1174→  1174→    const newEdits = { ...edits };
+  1175→  1175→    const { [cote]: _, ...rest } = newEdits.ingresos;
+  1176→  1176→    newEdits.ingresos = rest;
+  1177→  1177→    setEdits(newEdits);
+  1178→  1178→    saveEdits(newEdits);
+  1179→  1179→    recomputeCruce(newEdits);
+  1180→  1180→    setEditOpen(false);
+  1181→  1181→  };
+  1182→  1182→
+  1183→  1183→  const saveNewIngreso = (overrideCote?: string, fromNotFoundView = false) => {
+  1184→  1184→    const cote = (overrideCote || ni_cote).trim().toUpperCase();
+  1185→  1185→    if (!cote) return;
+  1186→  1186→    // Check if already exists in ingresoMap or in manual ingresos
+  1187→  1187→    if (ingresoMap.has(cote) || (edits.ingresosManuales || []).some(m => m.cote === cote)) {
+  1188→  1188→      toast.error(`${cote} ya existe en los ingresos`);
+  1189→  1189→      if (fromNotFoundView) {
+  1190→  1190→        // Force recompute to make sure ingresoMap is fresh
+  1191→  1191→        recomputeCruce(edits);
+  1192→  1192→      }
+  1193→  1193→      return;
+  1194→  1194→    }
+  1195→  1195→    const tramiteVal = parseInt(String(ni_tramite).replace(/[^0-9]/g, '')) || 0;
+  1196→  1196→    if (tramiteVal <= 0) {
+  1197→  1197→      toast.error('Ingresa el numero de tramite');
+  1198→  1198→      return;
+  1199→  1199→    }
+  1200→  1200→    const newIngreso: ManualIngreso = {
+  1201→  1201→      cote,
+  1202→  1202→      tramite: tramiteVal,
+  1203→  1203→      fecha: ni_fecha ? new Date(ni_fecha).toISOString() : new Date().toISOString(),
+  1204→  1204→      producto: ni_producto,
+  1205→  1205→      cortes: [],
+  1206→  1206→      envases: parseInt(String(ni_cajas).replace(/[^0-9]/g, '')) || 0,
+  1207→  1207→      pesoNeto: parseFloat(String(ni_pesoNeto).replace(/[^0-9.,]/g, '')) || 0,
+  1208→  1208→      pesoBruto: parseFloat(String(ni_pesoBruto).replace(/[^0-9.,]/g, '')) || 0,
+  1209→  1209→    };
+  1210→  1210→    const newEdits: EditsStore = {
+  1211→  1211→      ...edits,
+  1212→  1212→      ingresosManuales: [...(edits.ingresosManuales || []), newIngreso],
+  1213→  1213→    };
+  1214→  1214→    setEdits(newEdits);
+  1215→  1215→    saveEdits(newEdits);
+  1216→  1216→    recomputeCruce(newEdits);
+  1217→  1217→    if (fromNotFoundView) {
+  1218→  1218→      // Keep the detail sheet open — ingresoMap will update and the detail will show the new data
+  1219→  1219→      toast.success(`${cote} creado y vinculado al cruce`);
+  1220→  1220→    } else {
+  1221→  1221→      setAddIngresoOpen(false);
+  1222→  1222→    }
+  1223→  1223→    setNi_cote(''); setNi_tramite(''); setNi_fecha('');
+  1224→  1224→    setNi_producto(''); setNi_cajas(''); setNi_pesoNeto(''); setNi_pesoBruto('');
+  1225→  1225→  };
+  1226→  1226→
+  1227→  1227→  const saveNewExp = () => {
+  1228→  1228→    const cote = ne_nroCote.trim().toUpperCase();
+  1229→  1229→    if (!cote) return;
+  1230→  1230→    const newExp: ManualExportacion = {
+  1231→  1231→      id: `manual-${cote}-${Date.now()}`,
+  1232→  1232→      nroTramite: parseInt(String(ne_nroTramite).replace(/[^0-9]/g, '')) || 0,
+  1233→  1233→      fechaTramite: ne_fecha ? new Date(ne_fecha).toISOString() : new Date().toISOString(),
+  1234→  1234→      nroCote: cote,
+  1235→  1235→      paisDestino: ne_pais,
+  1236→  1236→      denominacionMercaderia: ne_producto,
+  1237→  1237→      corte: ne_corte,
+  1238→  1238→      pesoNeto: ne_pesoNeto ? parseFloat(String(ne_pesoNeto).replace(/[^0-9.,]/g, '')) : null,
+  1239→  1239→      pesoBruto: null,
+  1240→  1240→      cantidadEnvases: ne_cajas ? parseInt(String(ne_cajas).replace(/[^0-9]/g, '')) : null,
+  1241→  1241→      observaciones: null,
+  1242→  1242→    };
+  1243→  1243→    const newEdits: EditsStore = {
+  1244→  1244→      ...edits,
+  1245→  1245→      exportacionesManuales: [...(edits.exportacionesManuales || []), newExp],
+  1246→  1246→    };
+  1247→  1247→    setEdits(newEdits);
+  1248→  1248→    saveEdits(newEdits);
+  1249→  1249→    recomputeCruce(newEdits);
+  1250→  1250→    setAddExpOpen(false);
+  1251→  1251→    setNe_nroCote(''); setNe_nroTramite(''); setNe_fecha('');
+  1252→  1252→    setNe_pais(''); setNe_producto(''); setNe_corte('');
+  1253→  1253→    setNe_cajas(''); setNe_pesoNeto('');
+  1254→  1254→  };
+  1255→  1255→
+  1256→  1256→  const hasEditsCount = Object.keys(edits.exports).length + Object.keys(edits.ingresos).length + (edits.ingresosManuales?.length || 0) + (edits.exportacionesManuales?.length || 0);
+  1257→  1257→
+  1258→  1258→  const filteredData = useMemo(() => {
+  1259→  1259→    let rows: (CruceRow | SinCruceRow | IngresoPendienteRow)[] = [];
+  1260→  1260→    if (subTab === 'cruce') rows = cruceRows;
+  1261→  1261→    else if (subTab === 'sincruce') rows = sinCruceRows;
+  1262→  1262→    else rows = pendienteRows;
+  1263→  1263→
+  1264→  1264→    if (search) {
+  1265→  1265→      const s = search.toLowerCase();
+  1266→  1266→      rows = rows.filter(r => {
+  1267→  1267→        if ('exp' in r) {
+  1268→  1268→          const e = (r as CruceRow | SinCruceRow).exp;
+  1269→  1269→          return String(e.nroTramite).includes(s) ||
+  1270→  1270→            e.nroCote?.toLowerCase().includes(s) ||
+  1271→  1271→            e.paisDestino?.toLowerCase().includes(s) ||
+  1272→  1272→            e.denominacionMercaderia?.toLowerCase().includes(s);
+  1273→  1273→        }
+  1274→  1274→        const p = r as IngresoPendienteRow;
+  1275→  1275→        return p.cote.toLowerCase().includes(s) ||
+  1276→  1276→          p.producto.toLowerCase().includes(s) ||
+  1277→  1277→          String(p.tramite).includes(s);
+  1278→  1278→      });
+  1279→  1279→    }
+  1280→  1280→    if (pais && subTab !== 'pendientes') {
+  1281→  1281→      rows = rows.filter(r => 'exp' in r && ((r as CruceRow | SinCruceRow).exp.paisDestino || '').includes(pais));
+  1282→  1282→    }
+  1283→  1283→    if (fechaDesde) {
+  1284→  1284→      rows = rows.filter(r => {
+  1285→  1285→        const d = 'exp' in r ? (r as CruceRow | SinCruceRow).exp.fechaTramite : (r as IngresoPendienteRow).fecha;
+  1286→  1286→        return d >= new Date(fechaDesde).toISOString();
+  1287→  1287→      });
+  1288→  1288→    }
+  1289→  1289→    if (fechaHasta) {
+  1290→  1290→      rows = rows.filter(r => {
+  1291→  1291→        const d = 'exp' in r ? (r as CruceRow | SinCruceRow).exp.fechaTramite : (r as IngresoPendienteRow).fecha;
+  1292→  1292→        return d <= new Date(fechaHasta + 'T23:59:59').toISOString();
+  1293→  1293→      });
+  1294→  1294→    }
+  1295→  1295→    if (filtroProducto) {
+  1296→  1296→      rows = rows.filter(r => {
+  1297→  1297→        if ('exp' in r) {
+  1298→  1298→          return ((r as CruceRow | SinCruceRow).exp.denominacionMercaderia || '').toLowerCase().includes(filtroProducto.toLowerCase());
+  1299→  1299→        }
+  1300→  1300→        return (r as IngresoPendienteRow).producto.toLowerCase().includes(filtroProducto.toLowerCase());
+  1301→  1301→      });
+  1302→  1302→    }
+  1303→  1303→    if (filtroCorte) {
+  1304→  1304→      rows = rows.filter(r => {
+  1305→  1305→        if ('exp' in r) {
+  1306→  1306→          return ((r as CruceRow | SinCruceRow).exp.corte || '').toLowerCase().includes(filtroCorte.toLowerCase());
+  1307→  1307→        }
+  1308→  1308→        return (r as IngresoPendienteRow).cortes.some(c => c.toLowerCase().includes(filtroCorte.toLowerCase()));
+  1309→  1309→      });
+  1310→  1310→    }
+  1311→  1311→    return rows;
+  1312→  1312→  }, [cruceRows, sinCruceRows, pendienteRows, subTab, search, pais, fechaDesde, fechaHasta, filtroProducto, filtroCorte]);
+  1313→  1313→
+  1314→  1314→  useEffect(() => { setPage(1); }, [subTab, search, pais, fechaDesde, fechaHasta, filtroProducto, filtroCorte]);
+  1315→  1315→
+  1316→  1316→  const pageData = filteredData.slice((page - 1) * limit, page * limit);
+  1317→  1317→  const totalPages = Math.ceil(filteredData.length / limit);
+  1318→  1318→
+  1319→  1319→  const stats = useMemo(() => {
+  1320→  1320→    const totalIngresoEnvases = [...ingresoMap.values()].reduce((s, a) => s + a.envases, 0);
+  1321→  1321→    const totalIngresoKg = [...ingresoMap.values()].reduce((s, a) => s + a.pesoNeto, 0);
+  1322→  1322→    const totalCruceExpEnvases = cruceRows.reduce((s, r) => s + r.envasesExp, 0);
+  1323→  1323→    const totalCruceIngresoEnvases = cruceRows.reduce((s, r) => s + r.totalEnvasesIngreso, 0);
+  1324→  1324→    const totalSinCruceEnvases = sinCruceRows.reduce((s, r) => s + (r.exp.cantidadEnvases || 0), 0);
+  1325→  1325→    const pendienteEnvases = pendienteRows.reduce((s, r) => s + r.envases, 0);
+  1326→  1326→    const conProblema = cruceRows.filter(r => r.diffEnvases < 0).length;
+  1327→  1327→    return {
+  1328→  1328→      totalIngresoEnvases, totalIngresoKg,
+  1329→  1329→      totalIngresos: ingresoMap.size,
+  1330→  1330→      exportConCruce: cruceRows.length,
+  1331→  1331→      exportSinCruce: sinCruceRows.length,
+  1332→  1332→      totalCruceExpEnvases, totalCruceIngresoEnvases, totalSinCruceEnvases,
+  1333→  1333→      pendienteCount: pendienteRows.length, pendienteEnvases,
+  1334→  1334→      cotesVinculados: new Set(cruceRows.flatMap(r => r.ingresoCotes)).size,
+  1335→  1335→      conProblema,
+  1336→  1336→    };
+  1337→  1337→  }, [ingresoMap, cruceRows, sinCruceRows, pendienteRows]);
+  1338→  1338→
+  1339→  1339→  const clearFilters = useCallback(() => { setSearch(''); setPais(''); setFechaDesde(''); setFechaHasta(''); setFiltroProducto(''); setFiltroCorte(''); }, []);
+  1340→  1340→  const hasFilters = search || pais || fechaDesde || fechaHasta || filtroProducto || filtroCorte;
+  1341→  1341→  const detailType = detailRow ? ('exp' in detailRow ? ('ingresoCotes' in detailRow ? 'cruce' : 'sincruce') : 'pendiente') : null;
+  1342→  1342→
+  1343→  1343→  // Stock file handler
+  1344→  1344→  const handleLoadStock = () => {
+  1345→  1345→    const input = document.createElement('input');
+  1346→  1346→    input.type = 'file';
+  1347→  1347→    input.accept = '.xls,.xlsx';
+  1348→  1348→    input.onchange = async (e) => {
+  1349→  1349→      const file = (e.target as HTMLInputElement).files?.[0];
+  1350→  1350→      if (!file) return;
+  1351→  1351→      setStockLoading(true);
+  1352→  1352→      try {
+  1353→  1353→        const { parseStockXls } = await import('@/lib/parseStockXls');
+  1354→  1354→        const load = await parseStockXls(file);
+  1355→  1355→        setStockData(load);
+  1356→  1356→        localStorage.setItem('trazabilidad_stock_data', JSON.stringify(load));
+  1357→  1357→        const aggMap = buildStockAggMap(load.pallets);
+  1358→  1358→        setStockAggMap(aggMap);
+  1359→  1359→        toast.success(`Stock cargado: ${load.pallets.length} pallets, ${aggMap.size} codigos (COTEs + Pases)`);
+  1360→  1360→        setSubTab('stock');
+  1361→  1361→      } catch (err) {
+  1362→  1362→        toast.error(`Error al cargar stock: ${(err as Error).message}`);
+  1363→  1363→      } finally {
+  1364→  1364→        setStockLoading(false);
+  1365→  1365→      }
+  1366→  1366→    };
+  1367→  1367→    input.click();
+  1368→  1368→  };
+  1369→  1369→
+  1370→  1370→  const handleExport = async () => {
+  1371→  1371→    const XLSX = await import('xlsx');
+  1372→  1372→    const wb = XLSX.utils.book_new();
+  1373→  1373→
+  1374→  1374→    const cruceSheet = cruceRows.map(r => ({
+  1375→  1375→      'COTE Export': r.exp.nroCote,
+  1376→  1376→      'Tramite Export': r.exp.nroTramite,
+  1377→  1377→      'Fecha Export': r.exp.fechaTramite?.split('T')[0] || '',
+  1378→  1378→      'Pais': r.exp.paisDestino,
+  1379→  1379→      'Producto Export': r.exp.denominacionMercaderia,
+  1380→  1380→      'Cajas Exportadas': r.envasesExp,
+  1381→  1381→      'Kg Exportados': r.kgExp,
+  1382→  1382→      'COTEs de Ingreso': r.ingresoCotes.join(', '),
+  1383→  1383→      'Tramites Ingreso': r.ingresoAgg.map(a => a.tramite).join(', '),
+  1384→  1384→      'Cortes Ingreso': r.ingresoAgg.flatMap(a => a.cortes).filter((v, i, a) => a.indexOf(v) === i).join(', '),
+  1385→  1385→      'Cajas Ingresadas': r.totalEnvasesIngreso,
+  1386→  1386→      'Kg Ingresados': r.totalKgIngreso,
+  1387→  1387→      'Diferencia Cajas': r.diffEnvases,
+  1388→  1388→      'Vinculacion': r.isManualLink ? 'Manual' : 'Automatica (observaciones)',
+  1389→  1389→      'Estado': r.diffEnvases < 0 ? 'ERROR: mas cajas exportadas que ingresadas' : r.diffEnvases === 0 ? 'OK' : 'Sobran cajas ingresadas (normal)',
+  1390→  1390→    }));
+  1391→  1391→    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cruceSheet), 'Con Cruce');
+  1392→  1392→
+  1393→  1393→    const sinSheet = sinCruceRows.map(r => ({
+  1394→  1394→      'COTE': r.exp.nroCote,
+  1395→  1395→      'Tramite': r.exp.nroTramite,
+  1396→  1396→      'Fecha': r.exp.fechaTramite?.split('T')[0] || '',
+  1397→  1397→      'Pais': r.exp.paisDestino,
+  1398→  1398→      'Producto': r.exp.denominacionMercaderia,
+  1399→  1399→      'Cajas': r.exp.cantidadEnvases || 0,
+  1400→  1400→      'Kg': r.exp.pesoNeto || 0,
+  1401→  1401→      'Observaciones': r.obsPreview,
+  1402→  1402→    }));
+  1403→  1403→    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sinSheet), 'Sin Cruce');
+  1404→  1404→
+  1405→  1405→    const pendSheet = pendienteRows.map(r => ({
+  1406→  1406→      'COTE': r.cote,
+  1407→  1407→      'Tramite': r.tramite,
+  1408→  1408→      'Fecha': r.fecha?.split('T')[0] || '',
+  1409→  1409→      'Producto': r.producto,
+  1410→  1410→      'Cajas': r.envases,
+  1411→  1411→      'Kg Neto': r.pesoNeto,
+  1412→  1412→      'Kg Bruto': r.pesoBruto,
+  1413→  1413→      'Cortes': r.cortes.join(', '),
+  1414→  1414→    }));
+  1415→  1415→    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pendSheet), 'Pendientes');
+  1416→  1416→
+  1417→  1417→    XLSX.writeFile(wb, `cruce_caliral_${new Date().toISOString().split('T')[0]}.xlsx`);
+  1418→  1418→  };
+  1419→  1419→
+  1420→  1420→  const ALL_LS_KEYS = [
+  1421→  1421→    'trazabilidad_new_records',
+  1422→  1422→    'trazabilidad_exp_edits',
+  1423→  1423→    'trazabilidad_exp_deleted',
+  1424→  1424→    'trazabilidad_exp_ingresos',
+  1425→  1425→    'trazabilidad_dep_edits',
+  1426→  1426→    'trazabilidad_dep_new_records',
+  1427→  1427→    'trazabilidad_dep_deleted',
+  1428→  1428→    'cruce_caliral_edits',
+  1429→  1429→    'trazabilidad_stock_data',
+  1430→  1430→  ];
+  1431→  1431→
+  1432→  1432→  const handleBackup = () => {
+  1433→  1433→    const backup: Record<string, unknown> = {};
+  1434→  1434→    for (const key of ALL_LS_KEYS) {
+  1435→  1435→      try {
+  1436→  1436→        const val = localStorage.getItem(key);
+  1437→  1437→        if (val) backup[key] = JSON.parse(val);
+  1438→  1438→      } catch { /* skip */ }
+  1439→  1439→    }
+  1440→  1440→    backup._meta = { version: 1, fecha: new Date().toISOString(), page: 'trazabilidad_backup' };
+  1441→  1441→    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+  1442→  1442→    const url = URL.createObjectURL(blob);
+  1443→  1443→    const a = document.createElement('a');
+  1444→  1444→    a.href = url;
+  1445→  1445→    a.download = `trazabilidad_backup_${new Date().toISOString().split('T')[0]}.json`;
+  1446→  1446→    a.click();
+  1447→  1447→    URL.revokeObjectURL(url);
+  1448→  1448→    toast.success('Respaldo descargado');
+  1449→  1449→  };
+  1450→  1450→
+  1451→  1451→  const handleRestore = () => {
+  1452→  1452→    const input = document.createElement('input');
+  1453→  1453→    input.type = 'file';
+  1454→  1454→    input.accept = '.json';
+  1455→  1455→    input.onchange = (e) => {
+  1456→  1456→      const file = (e.target as HTMLInputElement).files?.[0];
+  1457→  1457→      if (!file) return;
+  1458→  1458→      const reader = new FileReader();
+  1459→  1459→      reader.onload = (ev) => {
+  1460→  1460→        try {
+  1461→  1461→          const data = JSON.parse(ev.target?.result as string);
+  1462→  1462→          if (!data._meta || data._meta.page !== 'trazabilidad_backup') {
+  1463→  1463→            toast.error('Archivo invalido - no es un respaldo de trazabilidad');
+  1464→  1464→            return;
+  1465→  1465→          }
+  1466→  1466→          let count = 0;
+  1467→  1467→          for (const key of ALL_LS_KEYS) {
+  1468→  1468→            if (data[key] !== undefined) {
+  1469→  1469→              localStorage.setItem(key, JSON.stringify(data[key]));
+  1470→  1470→              count++;
+  1471→  1471→            }
+  1472→  1472→          }
+  1473→  1473→          toast.success(`Restaurados ${count} campos. Recargando...`);
+  1474→  1474→          setTimeout(() => window.location.reload(), 1000);
+  1475→  1475→        } catch {
+  1476→  1476→          toast.error('Error al leer el archivo');
+  1477→  1477→        }
+  1478→  1478→      };
+  1479→  1479→      reader.readAsText(file);
+  1480→  1480→    };
+  1481→  1481→    input.click();
+  1482→  1482→  };
+  1483→  1483→
+  1484→  1484→  function diffBadgeEnvases(diff: number) {
+  1485→  1485→    if (diff === 0) return <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full"><CheckCircle2 className="h-3 w-3" />0</span>;
+  1486→  1486→    if (diff < 0) {
+  1487→  1487→      return <span className="inline-flex items-center gap-1 text-xs font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-full"><PackageMinus className="h-3 w-3" />{diff} cajas</span>;
+  1488→  1488→    }
+  1489→  1489→    return <span className="inline-flex items-center text-xs font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full">+{diff} cajas</span>;
+  1490→  1490→  }
+  1491→  1491→
+  1492→  1492→  const openIngresoDetail = (cote: string) => {
+  1493→  1493→    setIngresoDetailCote(cote);
+  1494→  1494→    setDetailOpen(true);
+  1495→  1495→  };
+  1496→  1496→  const closeIngresoDetail = () => {
+  1497→  1497→    setIngresoDetailCote(null);
+  1498→  1498→  };
+  1499→  1499→  const isEdited = (type: 'export' | 'ingreso', id: string) => type === 'export' ? !!edits.exports[id] : !!edits.ingresos[id];
+  1500→  1500→
+  1501→  1501→  if (loading) return <div className="p-6 space-y-4"><h2 className="text-2xl font-bold text-slate-800">Cruce Caliral</h2><Skeleton className="h-96" /></div>;
+  1502→  1502→
+  1503→  1503→  return (
+  1504→  1504→    <div className="p-6 space-y-4 max-w-[1600px]">
+  1505→  1505→      {/* Header */}
+  1506→  1506→      <div className="flex items-center justify-between">
+  1507→  1507→        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+  1508→  1508→          <ArrowLeftRight className="h-6 w-6 text-orange-600" />
+  1509→  1509→          Cruce Caliral
+  1510→  1510→          <span className="text-sm font-normal text-slate-400 ml-2">Trazabilidad por cajas (envases)</span>
+  1511→  1511→        </h2>
+  1512→  1512→        <div className="flex gap-2">
+  1513→  1513→          <Button variant="outline" size="sm" onClick={handleBackup} title="Descargar respaldo de todos tus datos">
+  1514→  1514→            <Download className="h-4 w-4 mr-2" />Respaldo
+  1515→  1515→          </Button>
+  1516→  1516→          <Button variant="outline" size="sm" onClick={handleRestore} title="Restaurar datos desde un archivo de respaldo">
+  1517→  1517→            <Upload className="h-4 w-4 mr-2" />Restaurar
+  1518→  1518→          </Button>
+  1519→  1519→          <Button variant="outline" size="sm" onClick={handleExport}>
+  1520→  1520→            <Download className="h-4 w-4 mr-2" />Exportar Excel
+  1521→  1521→          </Button>
+  1522→  1522→          <Button variant="outline" size="sm" onClick={handleLoadStock} disabled={stockLoading}>
+  1523→  1523→            <Upload className="h-4 w-4 mr-2" />{stockLoading ? 'Cargando...' : 'Cargar Stock'}
+  1524→  1524→          </Button>
+  1525→  1525→        </div>
+  1526→  1526→      </div>
+  1527→  1527→
+  1528→  1528→      {/* KPI Cards */}
+  1529→  1529→      <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+  1530→  1530→        <Card><CardContent className="p-4 flex items-center gap-3">
+  1531→  1531→          <div className="p-3 rounded-xl bg-emerald-50"><ArrowLeftRight className="h-5 w-5 text-emerald-600" /></div>
+  1532→  1532→          <div><p className="text-[10px] text-slate-500 uppercase">Ingresos Caliral</p><p className="text-lg font-bold">{stats.totalIngresos}</p><p className="text-[10px] text-slate-400">{fmt(stats.totalIngresoEnvases)} cajas</p></div>
+  1533→  1533→        </CardContent></Card>
+  1534→  1534→        <Card><CardContent className="p-4 flex items-center gap-3">
+  1535→  1535→          <div className="p-3 rounded-xl bg-blue-50"><Link2 className="h-5 w-5 text-blue-600" /></div>
+  1536→  1536→          <div><p className="text-[10px] text-slate-500 uppercase">COTEs Vinculados</p><p className="text-lg font-bold">{stats.cotesVinculados}</p><p className="text-[10px] text-slate-400">de {stats.totalIngresos} ingresos</p></div>
+  1537→  1537→        </CardContent></Card>
+  1538→  1538→        <Card><CardContent className="p-4 flex items-center gap-3">
+  1539→  1539→          <div className="p-3 rounded-xl bg-sky-50"><CheckCircle2 className="h-5 w-5 text-sky-600" /></div>
+  1540→  1540→          <div><p className="text-[10px] text-slate-500 uppercase">Exports con cruce</p><p className="text-lg font-bold">{stats.exportConCruce}</p><p className="text-[10px] text-slate-400">{fmt(stats.totalCruceExpEnvases)} cajas</p></div>
+  1541→  1541→        </CardContent></Card>
+  1542→  1542→        <Card><CardContent className="p-4 flex items-center gap-3">
+  1543→  1543→          <div className="p-3 rounded-xl bg-amber-50"><AlertTriangle className="h-5 w-5 text-amber-600" /></div>
+  1544→  1544→          <div><p className="text-[10px] text-slate-500 uppercase">Exports sin COTE</p><p className="text-lg font-bold">{stats.exportSinCruce}</p><p className="text-[10px] text-slate-400">{fmt(stats.totalSinCruceEnvases)} cajas</p></div>
+  1545→  1545→        </CardContent></Card>
+  1546→  1546→        <Card><CardContent className="p-4 flex items-center gap-3">
+  1547→  1547→          <div className="p-3 rounded-xl bg-orange-50"><Unlink className="h-5 w-5 text-orange-600" /></div>
+  1548→  1548→          <div><p className="text-[10px] text-slate-500 uppercase">Ingresos pendientes</p><p className="text-lg font-bold">{stats.pendienteCount}</p><p className="text-[10px] text-slate-400">{fmt(stats.pendienteEnvases)} cajas</p></div>
+  1549→  1549→        </CardContent></Card>
+  1550→  1550→        <Card><CardContent className={`p-4 flex items-center gap-3 ${stats.conProblema > 0 ? 'ring-2 ring-red-200' : ''}`}>
+  1551→  1551→          <div className={`p-3 rounded-xl ${stats.conProblema > 0 ? 'bg-red-50' : 'bg-emerald-50'}`}>
+  1552→  1552→            {stats.conProblema > 0 ? <PackageMinus className="h-5 w-5 text-red-600" /> : <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
+  1553→  1553→          </div>
+  1554→  1554→          <div><p className="text-[10px] text-slate-500 uppercase">Con diferencia</p><p className={`text-lg font-bold ${stats.conProblema > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{stats.conProblema}</p><p className="text-[10px] text-slate-400">mas cajas exp. que ing.</p></div>
+  1555→  1555→        </CardContent></Card>
+  1556→  1556→        <Card><CardContent className="p-4 flex items-center gap-3">
+  1557→  1557→          <div className="p-3 rounded-xl bg-violet-50"><span className="text-sm font-bold text-violet-600">%</span></div>
+  1558→  1558→          <div><p className="text-[10px] text-slate-500 uppercase">Cobertura cruce</p><p className="text-lg font-bold">
+  1559→  1559→            {stats.totalIngresos > 0 ? ((stats.cotesVinculados / stats.totalIngresos) * 100).toFixed(0) : 0}%
+  1560→  1560→          </p><p className="text-[10px] text-slate-400">COTEs vinculados</p></div>
+  1561→  1561→        </CardContent></Card>
+  1562→  1562→      </div>
+  1563→  1563→
+  1564→  1564→      {/* Info banner */}
+  1565→  1565→      <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600">
+  1566→  1566→        <p className="font-medium text-slate-700 mb-1">Como funciona el cruce</p>
+  1567→  1567→        <p>Se extraen los COTEs de ingreso desde las <b>observaciones</b> de cada exportacion. Se comparan las <b>cajas (envases)</b> exportadas contra los <b>totales de cajas en A Depositos</b> para esos COTEs. La diferencia negativa (roja) indica que se exportaron mas cajas de las que ingresaron, lo cual es un error. La diferencia positiva (azul) es normal: significa que no todas las cajas de esos COTEs fueron en esa exportacion (pueden ir en otra o estar pendientes). Si vinculaste COTEs manualmente, el campo "cajas" indica cuantas de cada COTE se usaron en la exportacion, pero la diferencia se calcula igual contra los totales de depositos. <b>Podes editar cualquier registro haciendo click en el lapiz</b>. Las ediciones se guardan en el navegador.</p>
+  1568→  1568→      </div>
+  1569→  1569→
+  1570→  1570→      {/* Sub-tabs + Filters */}
+  1571→  1571→      <Card><CardContent className="p-4 space-y-3">
+  1572→  1572→        <div className="flex flex-wrap gap-2 items-center">
+  1573→  1573→          <Button variant={subTab === 'cruce' ? 'default' : 'outline'} size="sm" onClick={() => setSubTab('cruce')}>
+  1574→  1574→            <Link2 className="h-4 w-4 mr-1.5" />Con cruce ({cruceRows.length})
+  1575→  1575→          </Button>
+  1576→  1576→          <Button variant={subTab === 'sincruce' ? 'default' : 'outline'} size="sm" onClick={() => setSubTab('sincruce')}>
+  1577→  1577→            <Unlink className="h-4 w-4 mr-1.5" />Sin COTE de ingreso ({sinCruceRows.length})
+  1578→  1578→          </Button>
+  1579→  1579→          <Button variant={subTab === 'pendientes' ? 'default' : 'outline'} size="sm" onClick={() => setSubTab('pendientes')}>
+  1580→  1580→            <AlertTriangle className="h-4 w-4 mr-1.5" />Ingresos pendientes ({pendienteRows.length})
+  1581→  1581→          </Button>
+  1582→  1582→          <Button variant={subTab === 'stock' ? 'default' : 'outline'} size="sm" onClick={() => setSubTab('stock')}>
+  1583→  1583→            <Package className="h-4 w-4 mr-1.5" />Stock ({stockAggMap.size})
+  1584→  1584→          </Button>
+  1585→  1585→          <div className="flex-1" />
+  1586→  1586→          {hasFilters && <Button variant="ghost" size="sm" onClick={clearFilters}><X className="h-4 w-4 mr-1" />Limpiar</Button>}
+  1587→  1587→        </div>
+  1588→  1588→        <div className="flex flex-wrap gap-3 items-center">
+  1589→  1589→          <div className="relative flex-1 min-w-[200px]">
+  1590→  1590→            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+  1591→  1591→            <Input
+  1592→  1592→              placeholder={subTab === 'pendientes' ? 'Buscar COTE, tramite, producto...' : 'Buscar tramite, COTE, pais, producto...'}
+  1593→  1593→              value={search} onChange={e => setSearch(e.target.value)} className="pl-9"
+  1594→  1594→            />
+  1595→  1595→          </div>
+  1596→  1596→          {subTab !== 'pendientes' && (
+  1597→  1597→            <Select value={pais} onValueChange={v => setPais(v)}>
+  1598→  1598→              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Pais" /></SelectTrigger>
+  1599→  1599→              <SelectContent>{paises.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+  1600→  1600→            </Select>
+  1601→  1601→          )}
+  1602→  1602→          <Select value={filtroProducto} onValueChange={v => setFiltroProducto(v)}>
+  1603→  1603→            <SelectTrigger className="w-[220px]"><SelectValue placeholder="Producto" /></SelectTrigger>
+  1604→  1604→            <SelectContent>{productos.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+  1605→  1605→          </Select>
+  1606→  1606→          <Select value={filtroCorte} onValueChange={v => setFiltroCorte(v)}>
+  1607→  1607→            <SelectTrigger className="w-[150px]"><SelectValue placeholder="Corte" /></SelectTrigger>
+  1608→  1608→            <SelectContent>{cortes.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+  1609→  1609→          </Select>
+  1610→  1610→          <Input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} className="w-[140px]" />
+  1611→  1611→          <Input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} className="w-[140px]" />
+  1612→  1612→        </div>
+  1613→  1613→      </CardContent></Card>
+  1614→  1614→
+  1615→  1615→      {/* Table */}
+  1616→  1616→      <Card><CardContent className="p-0">
+  1617→  1617→        <div className="overflow-x-auto">
+  1618→  1618→          {subTab === 'cruce' && (
+  1619→  1619→            <table className="w-full text-sm">
+  1620→  1620→              <thead>
+  1621→  1621→                <tr className="border-b bg-slate-50 text-left text-xs text-slate-500 uppercase">
+  1622→  1622→                  <th className="px-3 py-3">COTE Exp.</th>
+  1623→  1623→                  <th className="px-3 py-3">Tramite</th>
+  1624→  1624→                  <th className="px-3 py-3">Fecha</th>
+  1625→  1625→                  <th className="px-3 py-3">Pais</th>
+  1626→  1626→                  <th className="px-3 py-3 hidden xl:table-cell">Producto</th>
+  1627→  1627→                  <th className="px-3 py-3 text-right">Cajas Exp.</th>
+  1628→  1628→                  <th className="px-3 py-3">COTEs de Ingreso</th>
+  1629→  1629→                  <th className="px-3 py-3 text-right hidden lg:table-cell">Cajas Ingreso</th>
+  1630→  1630→                  <th className="px-3 py-3 w-[100px]">Agregar COTE</th>
+  1631→  1631→                  <th className="px-3 py-3 text-right">Diff. Cajas</th>
+  1632→  1632→                  <th className="px-3 py-3 w-20"></th>
+  1633→  1633→                </tr>
+  1634→  1634→              </thead>
+  1635→  1635→              <tbody>
+  1636→  1636→                {pageData.length === 0 ? (
+  1637→  1637→                  <tr><td colSpan={11} className="text-center py-10 text-slate-400">No se encontraron registros</td></tr>
+  1638→  1638→                ) : (pageData as CruceRow[]).map(r => (
+  1639→  1639→                  <tr key={r.exp.id} className={`border-b cursor-pointer ${r.diffEnvases < 0 ? 'hover:bg-red-50/40' : 'hover:bg-orange-50/40'} ${isEdited('export', r.exp.id) ? 'bg-violet-50/30' : ''}`} onClick={() => { setDetailRow(r); setDetailOpen(true); }}>
+  1640→  1640→                    <td className="px-3 py-2.5 text-xs font-mono font-medium text-blue-700">
+  1641→  1641→                      <button onClick={(e) => { e.stopPropagation(); setIngresoDetailCote(null); setDetailRow(r); setDetailOpen(true); }} className="hover:underline cursor-pointer">{r.exp.nroCote}</button>
+  1642→  1642→                    </td>
+  1643→  1643→                    <td className="px-3 py-2.5 text-xs font-mono">{r.exp.nroTramite}</td>
+  1644→  1644→                    <td className="px-3 py-2.5 text-xs">{fd(r.exp.fechaTramite)}</td>
+  1645→  1645→                    <td className="px-3 py-2.5 text-xs">{r.exp.paisDestino}</td>
+  1646→  1646→                    <td className="px-3 py-2.5 text-xs hidden xl:table-cell max-w-[200px] truncate">{r.exp.denominacionMercaderia}</td>
+  1647→  1647→                    <td className="px-3 py-2.5 text-xs text-right font-mono font-medium">{r.envasesExp.toLocaleString('es-UY')}</td>
+  1648→  1648→                    <td className="px-3 py-2.5 text-xs">
+  1649→  1649→                      <div className="flex flex-wrap gap-1">
+  1650→  1650→                        {r.isManualLink && <span className="inline-block bg-violet-100 text-violet-800 text-[9px] font-bold px-1 py-0.5 rounded">MANUAL</span>}
+  1651→  1651→                        {r.ingresoCotes.map(c => (
+  1652→  1652→                          <button key={c} onClick={(e) => { e.stopPropagation(); openIngresoDetail(c); }} className="inline-block bg-emerald-100 text-emerald-800 text-[10px] font-mono px-1.5 py-0.5 rounded hover:bg-emerald-200 hover:underline cursor-pointer transition-colors">{c}</button>
+  1653→  1653→                        ))}
+  1654→  1654→                        {r.ingresoCotesNotFound.map(c => (
+  1655→  1655→                          <button key={c} title="No encontrado en ingresos Caliral" onClick={(e) => { e.stopPropagation(); openIngresoDetail(c); }} className="inline-block bg-red-100 text-red-700 text-[10px] font-mono px-1.5 py-0.5 rounded hover:bg-red-200 hover:underline cursor-pointer transition-colors">{c}</button>
+  1656→  1656→                        ))}
+  1657→  1657→                      </div>
+  1658→  1658→                    </td>
+  1659→  1659→                    <td className="px-3 py-2.5 text-xs text-right font-mono hidden lg:table-cell">{r.totalEnvasesIngreso.toLocaleString('es-UY')}</td>
+  1660→  1660→                    <td className="px-3 py-2.5 text-center" onClick={e => e.stopPropagation()}>
+  1661→  1661→                      <button
+  1662→  1662→                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-white bg-violet-600 hover:bg-violet-700 px-2.5 py-1 rounded-md transition-colors"
+  1663→  1663→                        onClick={() => openExportEdit(r)}
+  1664→  1664→                      >
+  1665→  1665→                        <Plus className="h-3 w-3" />Vincular COTE
+  1666→  1666→                      </button>
+  1667→  1667→                    </td>
+  1668→  1668→                    <td className="px-3 py-2.5 text-right">{diffBadgeEnvases(r.diffEnvases)}</td>
+  1669→  1669→                    <td className="px-3 py-2.5 text-center" onClick={e => e.stopPropagation()}>
+  1670→  1670→                      <div className="flex items-center justify-center gap-1">
+  1671→  1671→                        <button className="p-1 rounded hover:bg-slate-100" title="Editar" onClick={() => openExportEdit(r)}>
+  1672→  1672→                          <Pencil className={`h-3.5 w-3.5 ${isEdited('export', r.exp.id) ? 'text-violet-600' : 'text-slate-400'}`} />
+  1673→  1673→                        </button>
+  1674→  1674→                        <button className="p-1 rounded hover:bg-slate-100" title="Ver detalle" onClick={() => { setDetailRow(r); setDetailOpen(true); }}>
+  1675→  1675→                          <Eye className="h-3.5 w-3.5 text-slate-400" />
+  1676→  1676→                        </button>
+  1677→  1677→                      </div>
+  1678→  1678→                    </td>
+  1679→  1679→                  </tr>
+  1680→  1680→                ))}
+  1681→  1681→              </tbody>
+  1682→  1682→            </table>
+  1683→  1683→          )}
+  1684→  1684→
+  1685→  1685→          {subTab === 'sincruce' && (
+  1686→  1686→            <>
+  1687→  1687→            <div className="mb-2">
+  1688→  1688→              <Button size="sm" className="text-xs" onClick={() => setAddExpOpen(true)}>
+  1689→  1689→                <Plus className="h-3.5 w-3.5 mr-1" />Agregar exportacion manual
+  1690→  1690→              </Button>
+  1691→  1691→            </div>
+  1692→  1692→            <table className="w-full text-sm">
+  1693→  1693→              <thead>
+  1694→  1694→                <tr className="border-b bg-slate-50 text-left text-xs text-slate-500 uppercase">
+  1695→  1695→                  <th className="px-3 py-3">COTE Exp.</th>
+  1696→  1696→                  <th className="px-3 py-3">Tramite</th>
+  1697→  1697→                  <th className="px-3 py-3">Fecha</th>
+  1698→  1698→                  <th className="px-3 py-3">Pais</th>
+  1699→  1699→                  <th className="px-3 py-3 hidden lg:table-cell">Producto</th>
+  1700→  1700→                  <th className="px-3 py-3 text-right">Cajas Exp.</th>
+  1701→  1701→                  <th className="px-3 py-3 text-right hidden md:table-cell">Kg</th>
+  1702→  1702→                  <th className="px-3 py-3 w-[160px]">Agregar COTE Ingreso</th>
+  1703→  1703→                </tr>
+  1704→  1704→              </thead>
+  1705→  1705→              <tbody>
+  1706→  1706→                {pageData.length === 0 ? (
+  1707→  1707→                  <tr><td colSpan={8} className="text-center py-10 text-slate-400">No se encontraron registros</td></tr>
+  1708→  1708→                ) : (pageData as SinCruceRow[]).map(r => (
+  1709→  1709→                  <SinCruceInlineRow key={r.exp.id} row={r} ingresoMap={ingresoMap} stockAggMap={stockAggMap} edits={edits} onSaved={(newEdits) => { setEdits(newEdits); saveEdits(newEdits); recomputeCruce(newEdits); }} onEditFull={() => openExportEdit(r)} onViewDetail={() => { setIngresoDetailCote(null); setDetailRow(r); setDetailOpen(true); }} isEditedFlag={isEdited('export', r.exp.id)} />
+  1710→  1710→                ))}
+  1711→  1711→              </tbody>
+  1712→  1712→            </table>
+  1713→  1713→            </>
+  1714→  1714→          )}
+  1715→  1715→
+  1716→  1716→          {subTab === 'pendientes' && (
+  1717→  1717→            <>
+  1718→  1718→            <div className="mb-2">
+  1719→  1719→              <Button size="sm" className="text-xs" onClick={() => setAddIngresoOpen(true)}>
+  1720→  1720→                <Plus className="h-3.5 w-3.5 mr-1" />Agregar COTE deposito manual
+  1721→  1721→              </Button>
+  1722→  1722→            </div>
+  1723→  1723→            <table className="w-full text-sm">
+  1724→  1724→              <thead>
+  1725→  1725→                <tr className="border-b bg-slate-50 text-left text-xs text-slate-500 uppercase">
+  1726→  1726→                  <th className="px-3 py-3">COTE</th>
+  1727→  1727→                  <th className="px-3 py-3">Tramite</th>
+  1728→  1728→                  <th className="px-3 py-3">Fecha</th>
+  1729→  1729→                  <th className="px-3 py-3 hidden lg:table-cell">Producto</th>
+  1730→  1730→                  <th className="px-3 py-3 hidden md:table-cell">Cortes</th>
+  1731→  1731→                  <th className="px-3 py-3 text-right">Cajas</th>
+  1732→  1732→                  <th className="px-3 py-3 text-right hidden md:table-cell">Kg</th>
+  1733→  1733→                  <th className="px-3 py-3 w-20"></th>
+  1734→  1734→                </tr>
+  1735→  1735→              </thead>
+  1736→  1736→              <tbody>
+  1737→  1737→                {pageData.length === 0 ? (
+  1738→  1738→                  <tr><td colSpan={8} className="text-center py-10 text-slate-400">No se encontraron registros</td></tr>
+  1739→  1739→                ) : (pageData as IngresoPendienteRow[]).map(r => (
+  1740→  1740→                  <tr key={r.cote} className={`border-b hover:bg-orange-50/40 cursor-pointer ${isEdited('ingreso', r.cote) ? 'bg-violet-50/30' : ''}`} onClick={() => { setDetailRow(r); setDetailOpen(true); }}>
+  1741→  1741→                    <td className="px-3 py-2.5 text-xs font-mono font-medium text-orange-700"><button onClick={(e) => { e.stopPropagation(); setIngresoDetailCote(null); setDetailRow(r); setDetailOpen(true); }} className="hover:underline cursor-pointer">{r.cote}</button></td>
+  1742→  1742→                    <td className="px-3 py-2.5 text-xs font-mono">{r.tramite}</td>
+  1743→  1743→                    <td className="px-3 py-2.5 text-xs">{fd(r.fecha)}</td>
+  1744→  1744→                    <td className="px-3 py-2.5 text-xs hidden lg:table-cell max-w-[200px] truncate">{r.producto}</td>
+  1745→  1745→                    <td className="px-3 py-2.5 text-xs hidden md:table-cell max-w-[200px] truncate">{r.cortes.join(', ')}</td>
+  1746→  1746→                    <td className="px-3 py-2.5 text-xs text-right font-mono">{r.envases.toLocaleString('es-UY')}</td>
+  1747→  1747→                    <td className="px-3 py-2.5 text-xs text-right font-mono hidden md:table-cell">{r.pesoNeto.toLocaleString('es-UY')}</td>
+  1748→  1748→                    <td className="px-3 py-2.5 text-center" onClick={e => e.stopPropagation()}>
+  1749→  1749→                      <div className="flex items-center justify-center gap-1">
+  1750→  1750→                        <button className="p-1 rounded hover:bg-slate-100" title="Editar" onClick={() => openIngresoEdit(r)}>
+  1751→  1751→                          <Pencil className={`h-3.5 w-3.5 ${isEdited('ingreso', r.cote) ? 'text-violet-600' : 'text-slate-400'}`} />
+  1752→  1752→                        </button>
+  1753→  1753→                        <button className="p-1 rounded hover:bg-slate-100" title="Ver detalle" onClick={() => { setDetailRow(r); setDetailOpen(true); }}>
+  1754→  1754→                          <Eye className="h-3.5 w-3.5 text-slate-400" />
+  1755→  1755→                        </button>
+  1756→  1756→                      </div>
+  1757→  1757→                    </td>
+  1758→  1758→                  </tr>
+  1759→  1759→                ))}
+  1760→  1760→              </tbody>
+  1761→  1761→            </table>
+  1762→  1762→            </>
+  1763→  1763→          )}
+  1764→  1764→
+  1765→  1765→          {subTab === 'stock' && (
+  1766→  1766→            <>
+  1767→  1767→              {stockData ? (<>
+  1768→  1768→                {/* Stock summary card */}
+  1769→  1769→                <div className="mb-3 p-3 bg-teal-50 border border-teal-200 rounded-lg text-xs text-teal-800">
+  1770→  1770→                  <div className="flex flex-wrap items-center gap-4">
+  1771→  1771→                    <span className="font-bold">Stock al {stockData.fecha} — {stockData.cliente}</span>
+  1772→  1772→                    <span>Total codigos: <b>{stockAggMap.size}</b></span>
+  1773→  1773→                    <span>Total pallets: <b>{stockData.pallets.length}</b></span>
+  1774→  1774→                    <span>Cajas totales: <b>{[...stockAggMap.values()].reduce((s, a) => s + a.totalCajas, 0).toLocaleString('es-UY')}</b></span>
+  1775→  1775→                    <span>Kg totales: <b>{[...stockAggMap.values()].reduce((s, a) => s + a.totalKilos, 0).toLocaleString('es-UY')}</b></span>
+  1776→  1776→                  </div>
+  1777→  1777→                </div>
+  1778→  1778→                <StockTable
+  1779→  1779→                  stockAggMap={stockAggMap}
+  1780→  1780→                  ingresoMap={ingresoMap}
+  1781→  1781→                  cruceRows={cruceRows}
+  1782→  1782→                  sinCruceRows={sinCruceRows}
+  1783→  1783→                  edits={edits}
+  1784→  1784→                />
+  1785→  1785→              </>) : (
+  1786→  1786→                <div className="text-center py-16 text-slate-400">
+  1787→  1787→                  <Package className="h-12 w-12 mx-auto mb-3 opacity-30" />
+  1788→  1788→                  <p className="text-sm">No hay datos de stock cargados.</p>
+  1789→  1789→                  <p className="text-xs mt-1">Hace click en <b>Cargar Stock</b> para subir un archivo XLS del deposito.</p>
+  1790→  1790→                </div>
+  1791→  1791→              )}
+  1792→  1792→            </>
+  1793→  1793→          )}
+  1794→  1794→        </div>
+  1795→  1795→        {subTab !== 'stock' && (
+  1796→  1796→        <div className="flex items-center justify-between p-4 border-t">
+  1797→  1797→          <p className="text-sm text-slate-500">{filteredData.length} registros — Pagina {page} de {totalPages || 1}</p>
+  1798→  1798→          <div className="flex gap-2">
+  1799→  1799→            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+  1800→  1800→            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}><ChevronRight className="h-4 w-4" /></Button>
+  1801→  1801→          </div>
+  1802→  1802→        </div>
+  1803→  1803→        )}
+  1804→  1804→      </CardContent></Card>
+  1805→  1805→
+  1806→  1806→      {/* Detail Sheet (read-only) */}
+  1807→  1807→      <Sheet open={detailOpen} onOpenChange={(open) => { if (!open) { setDetailOpen(false); setIngresoDetailCote(null); } else { setDetailOpen(true); } }}>
+  1808→  1808→        <SheetContent className="sm:max-w-xl overflow-y-auto">
+  1809→  1809→          {/* Ingreso COTE detail view */}
+  1810→  1810→          {ingresoDetailCote && (() => {
+  1811→  1811→            const agg = ingresoMap.get(ingresoDetailCote);
+  1812→  1812→            return (<>
+  1813→  1813→              <SheetHeader>
+  1814→  1814→                <SheetTitle className="flex items-center gap-2">
+  1815→  1815→                  <button onClick={closeIngresoDetail} className="p-1 rounded hover:bg-slate-100 mr-1"><ChevronLeft className="h-5 w-5" /></button>
+  1816→  1816→                  Ingreso COTE {ingresoDetailCote}
+  1817→  1817→                </SheetTitle>
+  1818→  1818→              </SheetHeader>
+  1819→  1819→              <div className="mt-6 space-y-4 text-sm">
+  1820→  1820→                {agg ? (<>
+  1821→  1821→                  <div className="bg-emerald-50 rounded-lg p-3 space-y-1">
+  1822→  1822→                    {[
+  1823→  1823→                      ['COTE', agg.cote], ['Nro. Tramite', String(agg.tramite)],
+  1824→  1824→                      ['Fecha', fd(agg.fecha)], ['Producto', agg.producto],
+  1825→  1825→                      ['Cortes', agg.cortes.join(', ')], ['Lineas', String(agg.lineCount)],
+  1826→  1826→                      ['Cajas (envases)', agg.envases.toLocaleString('es-UY')],
+  1827→  1827→                      ['Peso Bruto', agg.pesoBruto.toLocaleString('es-UY') + ' kg'],
+  1828→  1828→                      ['Peso Neto', agg.pesoNeto.toLocaleString('es-UY') + ' kg'],
+  1829→  1829→                    ].map(([l, v]) => (
+  1830→  1830→                      <div key={l} className="flex justify-between gap-4"><span className="text-slate-500 text-xs">{l}</span><span className="text-slate-800 text-xs text-right font-medium break-all">{v}</span></div>
+  1831→  1831→                    ))}
+  1832→  1832→                  </div>
+  1833→  1833→                  {agg.lines.length > 0 && (
+  1834→  1834→                    <div>
+  1835→  1835→                      <p className="text-[10px] text-slate-500 uppercase mb-1">Lineas del ingreso</p>
+  1836→  1836→                      <div className="max-h-[400px] overflow-y-auto border rounded">
+  1837→  1837→                        <table className="w-full text-[11px]">
+  1838→  1838→                          <thead className="sticky top-0 bg-slate-100"><tr>
+  1839→  1839→                            <th className="px-2 py-1 text-left">Linea</th>
+  1840→  1840→                            <th className="px-2 py-1 text-left">Corte</th>
+  1841→  1841→                            <th className="px-2 py-1 text-right">Cajas</th>
+  1842→  1842→                            <th className="px-2 py-1 text-right">Peso Bruto</th>
+  1843→  1843→                            <th className="px-2 py-1 text-right">Peso Neto</th>
+  1844→  1844→                          </tr></thead>
+  1845→  1845→                          <tbody>
+  1846→  1846→                            {agg.lines.map((l, i) => (
+  1847→  1847→                              <tr key={i} className="border-t">
+  1848→  1848→                                <td className="px-2 py-1">{String((l as Record<string, unknown>).idLinea ?? i + 1)}</td>
+  1849→  1849→                                <td className="px-2 py-1">{l.corte}</td>
+  1850→  1850→                                <td className="px-2 py-1 text-right font-mono">{l.cantidadEnvases ?? '-'}</td>
+  1851→  1851→                                <td className="px-2 py-1 text-right font-mono">{l.pesoBruto ? l.pesoBruto.toLocaleString('es-UY') : '-'}</td>
+  1852→  1852→                                <td className="px-2 py-1 text-right font-mono">{l.pesoNeto ? l.pesoNeto.toLocaleString('es-UY') : '-'}</td>
+  1853→  1853→                              </tr>
+  1854→  1854→                            ))}
+  1855→  1855→                          </tbody>
+  1856→  1856→                        </table>
+  1857→  1857→                      </div>
+  1858→  1858→                    </div>
+  1859→  1859→                  )}
+  1860→  1860→                  <button onClick={closeIngresoDetail} className="w-full text-center text-xs text-blue-600 hover:text-blue-800 py-2 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors">
+  1861→  1861→                    Volver al detalle de la exportacion
+  1862→  1862→                  </button>
+  1863→  1863→                </>) : (
+  1864→  1864→                  <div className="space-y-4">
+  1865→  1865→                    <div className="bg-orange-50 rounded-lg p-4 text-xs text-orange-800">
+  1866→  1866→                      <p className="font-bold mb-1">COTE {ingresoDetailCote} no encontrado en los ingresos a Caliral.</p>
+  1867→  1867→                      <p>Puede ser un COTE que no ingreso a Caliral, o un error en el numero. Crealo manualmente abajo para vincularlo.</p>
+  1868→  1868→                    </div>
+  1869→  1869→                    <div className="border-2 border-dashed border-emerald-200 rounded-lg p-4 bg-emerald-50/50">
+  1870→  1870→                      <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-3">Crear ingreso manual para {ingresoDetailCote}</p>
+  1871→  1871→                      <div className="grid grid-cols-2 gap-3">
+  1872→  1872→                        <div><FieldLabel>Tramite</FieldLabel><Input inputMode="numeric" value={ni_tramite} onChange={e => setNi_tramite(e.target.value)} placeholder="19282" className="h-8 text-xs font-mono" /></div>
+  1873→  1873→                        <div><FieldLabel>Fecha</FieldLabel><Input type="date" value={ni_fecha} onChange={e => setNi_fecha(e.target.value)} className="h-8 text-xs" /></div>
+  1874→  1874→                        <div className="col-span-2"><FieldLabel>Producto</FieldLabel><Input value={ni_producto} onChange={e => setNi_producto(e.target.value)} placeholder="Menudencias bovinas..." className="h-8 text-xs" /></div>
+  1875→  1875→                        <div><FieldLabel>Cajas (envases)</FieldLabel><Input inputMode="numeric" value={ni_cajas} onChange={e => setNi_cajas(e.target.value)} placeholder="90" className="h-8 text-xs font-mono" /></div>
+  1876→  1876→                        <div><FieldLabel>Kg Neto</FieldLabel><Input inputMode="numeric" value={ni_pesoNeto} onChange={e => setNi_pesoNeto(e.target.value)} placeholder="2500" className="h-8 text-xs font-mono" /></div>
+  1877→  1877→                        <div><FieldLabel>Kg Bruto</FieldLabel><Input inputMode="numeric" value={ni_pesoBruto} onChange={e => setNi_pesoBruto(e.target.value)} placeholder="2800" className="h-8 text-xs font-mono" /></div>
+  1878→  1878→                      </div>
+  1879→  1879→                      <div className="flex gap-2 mt-3">
+  1880→  1880→                        <Button size="sm" onClick={() => { saveNewIngreso(ingresoDetailCote, true); }} className="flex-1" disabled={!ni_tramite.trim()}>
+  1881→  1881→                          <Save className="h-4 w-4 mr-2" />Crear y vincular
+  1882→  1882→                        </Button>
+  1883→  1883→                        <Button size="sm" variant="outline" onClick={closeIngresoDetail}>Cancelar</Button>
+  1884→  1884→                      </div>
+  1885→  1885→                    </div>
+  1886→  1886→                    <button onClick={closeIngresoDetail} className="w-full text-center text-xs text-blue-600 hover:text-blue-800 py-2 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors">
+  1887→  1887→                      Volver al detalle de la exportacion
+  1888→  1888→                    </button>
+  1889→  1889→                  </div>
+  1890→  1890→                )}
+  1891→  1891→              </div>
+  1892→  1892→            </>);
+  1893→  1893→          })()}
+  1894→  1894→
+  1895→  1895→          {/* Original detail views (only when no ingreso detail is active) */}
+  1896→  1896→          {!ingresoDetailCote && detailRow && detailType === 'cruce' && (() => {
+  1897→  1897→            const r = detailRow as CruceRow;
+  1898→  1898→            return (<>
+  1899→  1899→              <SheetHeader><SheetTitle className="flex items-center gap-2"><ArrowLeftRight className="h-5 w-5 text-orange-600" />Cruce — Exportacion COTE {r.exp.nroCote}</SheetTitle></SheetHeader>
+  1900→  1900→              <div className="mt-6 space-y-4 text-sm">
+  1901→  1901→                <div>
+  1902→  1902→                  <p className="text-xs font-bold text-blue-600 uppercase tracking-wide mb-2">Datos de la Exportacion</p>
+  1903→  1903→                  <div className="bg-blue-50/50 rounded-lg p-3 space-y-1">
+  1904→  1904→                    {[
+  1905→  1905→                      ['COTE Exportacion', r.exp.nroCote],
+  1906→  1906→                      ['Nro. Tramite', String(r.exp.nroTramite)],
+  1907→  1907→                      ['Fecha', fd(r.exp.fechaTramite)],
+  1908→  1908→                      ['Pais', r.exp.paisDestino],
+  1909→  1909→                      ['Producto', r.exp.denominacionMercaderia],
+  1910→  1910→                      ['Corte', r.exp.corte],
+  1911→  1911→                      ['Transporte', r.exp.tipoTransporte || '-'],
+  1912→  1912→                      ['Contenedor', (r.exp as Record<string, unknown>).contenedorSerieNro as string || '-'],
+  1913→  1913→                      ['Precinto', r.exp.precinto1 || '-'],
+  1914→  1914→                      ['Cert. Sanitario', r.exp.nroCertificadoSanitario || '-'],
+  1915→  1915→                      ['Estab. Certificador', r.exp.nombreEstablecimientoCertif || '-'],
+  1916→  1916→                      ['Cajas (envases)', String(r.envasesExp)],
+  1917→  1917→                      ['Peso Bruto', r.exp.pesoBruto ? String(r.exp.pesoBruto) + ' kg' : '-'],
+  1918→  1918→                      ['Peso Neto', r.kgExp ? String(r.kgExp) + ' kg' : '-'],
+  1919→  1919→                    ].map(([l, v]) => (
+  1920→  1920→                      <div key={l} className="flex justify-between gap-4"><span className="text-slate-500 text-xs">{l}</span><span className="text-slate-800 text-xs text-right font-medium break-all">{v}</span></div>
+  1921→  1921→                    ))}
+  1922→  1922→                  </div>
+  1923→  1923→                </div>
+  1924→  1924→                {r.isManualLink && (
+  1925→  1925→                  <div className="bg-violet-50 border border-violet-200 rounded-lg p-2 text-xs text-violet-800">
+  1926→  1926→                    <p className="font-bold">Vinculacion manual de COTEs de ingreso</p>
+  1927→  1927→                    {r.manualCajasUsadas !== undefined && r.manualCajasUsadas > 0 && (
+  1928→  1928→                      <p className="mt-1">Cajas usadas de estos COTEs en esta exportacion: <b>{r.manualCajasUsadas.toLocaleString('es-UY')}</b> (de {r.totalEnvasesIngreso.toLocaleString('es-UY')} totales en depositos)</p>
+  1929→  1929→                    )}
+  1930→  1930→                  </div>
+  1931→  1931→                )}
+  1932→  1932→                <div className={`rounded-lg p-4 ${r.diffEnvases < 0 ? 'bg-red-50 border border-red-200' : 'bg-slate-50'}`}>
+  1933→  1933→                  <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-3">Balance por Cajas (Envases)</p>
+  1934→  1934→                  <div className="grid grid-cols-3 gap-3 text-center">
+  1935→  1935→                    <div><p className="text-[10px] text-slate-400">{r.isManualLink ? 'Cajas en Depositos' : 'Cajas Ingresadas'}</p><p className="text-xl font-bold text-emerald-700">{r.totalEnvasesIngreso.toLocaleString('es-UY')}</p></div>
+  1936→  1936→                    <div><p className="text-[10px] text-slate-400">Cajas Exportadas</p><p className="text-xl font-bold text-blue-700">{r.envasesExp.toLocaleString('es-UY')}</p></div>
+  1937→  1937→                    <div><p className="text-[10px] text-slate-400">Diferencia</p><div className="flex justify-center">{diffBadgeEnvases(r.diffEnvases)}</div></div>
+  1938→  1938→                  </div>
+  1939→  1939→                  {r.diffEnvases < 0 && (
+  1940→  1940→                    <div className="mt-3 bg-red-100 rounded p-2 text-xs text-red-800">
+  1941→  1941→                      <p className="font-bold">ERROR: Se exportaron {Math.abs(r.diffEnvases)} cajas mas de las que ingresaron con los COTEs referenciados.</p>
+  1942→  1942→                      <p className="mt-1">Posibles causas: las cajas pueden venir de COTEs de ingreso no declarados en observaciones, o hubo un error de carga.</p>
+  1943→  1943→                    </div>
+  1944→  1944→                  )}
+  1945→  1945→                  {r.diffEnvases > 0 && (
+  1946→  1946→                    <p className="text-center text-xs text-sky-600 mt-2">Sobran {r.diffEnvases} cajas de ingreso vs esta exportacion (pueden corresponder a otras exportaciones o estar pendientes).</p>
+  1947→  1947→                  )}
+  1948→  1948→                </div>
+  1949→  1949→                <div className="bg-slate-50/50 rounded-lg p-3">
+  1950→  1950→                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Referencia en Kg</p>
+  1951→  1951→                  <div className="flex justify-between text-xs">
+  1952→  1952→                    <span className="text-slate-500">Kg ingresados: <span className="font-medium text-slate-700">{r.totalKgIngreso.toLocaleString('es-UY')} kg</span></span>
+  1953→  1953→                    <span className="text-slate-500">Kg exportados: <span className="font-medium text-slate-700">{r.kgExp.toLocaleString('es-UY')} kg</span></span>
+  1954→  1954→                  </div>
+  1955→  1955→                </div>
+  1956→  1956→                <div>
+  1957→  1957→                  <p className="text-xs font-bold text-emerald-600 uppercase tracking-wide mb-2">COTEs de Ingreso ({r.ingresoCotes.length})</p>
+  1958→  1958→                  <div className="space-y-2">
+  1959→  1959→                    {r.ingresoAgg.map(agg => (
+  1960→  1960→                      <div key={agg.cote} className="border rounded-lg p-3 bg-emerald-50/50">
+  1961→  1961→                        <div className="flex items-center justify-between mb-1">
+  1962→  1962→                          <button onClick={() => openIngresoDetail(agg.cote)} className="font-mono font-bold text-emerald-700 text-sm hover:underline cursor-pointer">{agg.cote}</button>
+  1963→  1963→                          <span className="text-xs text-slate-500">Tramite {agg.tramite} — {fd(agg.fecha)}</span>
+  1964→  1964→                        </div>
+  1965→  1965→                        <div className="text-xs text-slate-600 space-y-0.5">
+  1966→  1966→                          <p>Producto: {agg.producto}</p>
+  1967→  1967→                          <p>Cortes: {agg.cortes.join(', ')}</p>
+  1968→  1968→                          <p><span className="font-medium">Cajas: {agg.envases.toLocaleString('es-UY')}</span> — Peso Neto: {agg.pesoNeto.toLocaleString('es-UY')} kg ({agg.lineCount} lineas)</p>
+  1969→  1969→                        </div>
+  1970→  1970→                      </div>
+  1971→  1971→                    ))}
+  1972→  1972→                  </div>
+  1973→  1973→                </div>
+  1974→  1974→                {r.ingresoCotesNotFound.length > 0 && (
+  1975→  1975→                  <div>
+  1976→  1976→                    <p className="text-xs font-bold text-red-600 uppercase tracking-wide mb-2">COTEs no encontrados en ingresos Caliral</p>
+  1977→  1977→                    <div className="flex flex-wrap gap-1">
+  1978→  1978→                      {r.ingresoCotesNotFound.map(c => (
+  1979→  1979→                        <span key={c} className="inline-block bg-red-100 text-red-700 text-xs font-mono px-2 py-1 rounded">{c}</span>
+  1980→  1980→                      ))}
+  1981→  1981→                    </div>
+  1982→  1982→                  </div>
+  1983→  1983→                )}
+  1984→  1984→                {r.exp.observaciones && (
+  1985→  1985→                  <div>
+  1986→  1986→                    <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">Observaciones</p>
+  1987→  1987→                    <p className="text-xs text-slate-600 whitespace-pre-wrap bg-slate-50 rounded-lg p-3">{r.exp.observaciones}</p>
+  1988→  1988→                  </div>
+  1989→  1989→                )}
+  1990→  1990→              </div>
+  1991→  1991→            </>);
+  1992→  1992→          })()}
+  1993→  1993→
+  1994→  1994→          {!ingresoDetailCote && detailRow && detailType === 'sincruce' && (() => {
+  1995→  1995→            const r = detailRow as SinCruceRow;
+  1996→  1996→            return (<>
+  1997→  1997→              <SheetHeader><SheetTitle className="flex items-center gap-2"><Unlink className="h-5 w-5 text-amber-600" />Sin COTE de Ingreso — {r.exp.nroCote}</SheetTitle></SheetHeader>
+  1998→  1998→              <div className="mt-6 space-y-4 text-sm">
+  1999→  1999→                <div className="bg-amber-50 rounded-lg p-3 text-xs text-amber-800">
+  2000→  2000→                  <p className="font-bold mb-1">Esta exportacion no tiene COTE de ingreso referenciado.</p>
+
+[showing lines 1-2000 of 2002; use offset=2001 with limit to continue reading]
