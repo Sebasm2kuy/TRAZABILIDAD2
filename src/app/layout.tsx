@@ -30,6 +30,9 @@ export default function RootLayout({
   return (
     <html lang="es" suppressHydrationWarning>
       <head>
+        <meta httpEquiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+        <meta httpEquiv="Pragma" content="no-cache" />
+        <meta httpEquiv="Expires" content="0" />
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){
@@ -54,6 +57,27 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `if(new URLSearchParams(window.location.search).get('reset')==='1'){window.__TRZ_RESET=1;}`,
+          }}
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){
+              try {
+                if (window.__TRZ_VER_CHECKED) return;
+                window.__TRZ_VER_CHECKED = true;
+                var links = document.querySelectorAll('script[src*="_next"]');
+                var hashes = [];
+                links.forEach(function(s){ var m = s.src.match(/[a-f0-9]{8,}/); if(m) hashes.push(m[0]); });
+                var ver = hashes.join('_');
+                var prev = sessionStorage.getItem('_trz_v');
+                if (prev && prev !== ver) {
+                  sessionStorage.setItem('_trz_v', ver);
+                  window.location.reload(true);
+                } else if (!prev) {
+                  sessionStorage.setItem('_trz_v', ver);
+                }
+              } catch(e) {}
+            })();`,
           }}
         />
       </head>
