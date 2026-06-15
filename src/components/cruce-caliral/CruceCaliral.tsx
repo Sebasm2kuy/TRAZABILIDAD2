@@ -943,6 +943,8 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
                     <td className="px-3 py-2.5 text-xs text-right font-mono">
                       {ing ? (
                         <span className="text-emerald-700">{ing.envases.toLocaleString('es-UY')}</span>
+                      ) : (edits.ingresosManuales || []).some(m => m.cote === agg.codigo) ? (
+                        <span className="text-emerald-600 text-[10px] bg-emerald-50 px-1.5 py-0.5 rounded" title="Creado manualmente">{((edits.ingresosManuales || []).find(m => m.cote === agg.codigo)?.envases || 0).toLocaleString('es-UY')} <span className="text-emerald-400">*</span></span>
                       ) : (
                         <button
                           className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2 py-0.5 rounded border border-amber-200 transition-colors"
@@ -1027,25 +1029,39 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
                             </div>
                           )}
                           {!ing && (
-                            <div className="bg-amber-50 rounded-lg p-3 text-[11px] text-amber-700 space-y-2">
-                              <div className="flex items-center justify-between">
-                                <span>Este codigo no tiene un ingreso registrado en los depositos de Caliral.</span>
+                            (() => {
+                              const manual = (edits.ingresosManuales || []).find(m => m.cote === agg.codigo);
+                              return (
+                              <div className="bg-amber-50 rounded-lg p-3 text-[11px] text-amber-700 space-y-2">
+                                {manual ? (
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                                    <span className="text-emerald-700">{agg.codigo} ya fue creado como ingreso manual ({manual.envases} cajas, tramite {manual.tramite})</span>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="flex items-center justify-between">
+                                      <span>Este codigo no tiene un ingreso registrado en los depositos de Caliral.</span>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <div className="flex items-center gap-1.5 text-xs">
+                                        <Package className="h-3.5 w-3.5" />
+                                        Stock: <b>{agg.totalCajas.toLocaleString('es-UY')}</b> cajas
+                                      </div>
+                                      <Button
+                                        size="sm"
+                                        className="h-7 text-[11px] bg-amber-500 hover:bg-amber-600 text-white"
+                                        onClick={() => onAddIngresoFromStock(agg.codigo, agg.totalCajas, agg.producto)}
+                                      >
+                                        <Plus className="h-3 w-3 mr-1" />
+                                        Crear ingreso con {agg.totalCajas.toLocaleString('es-UY')} cajas
+                                      </Button>
+                                    </div>
+                                  </>
+                                )}
                               </div>
-                              <div className="flex items-center gap-3">
-                                <div className="flex items-center gap-1.5 text-xs">
-                                  <Package className="h-3.5 w-3.5" />
-                                  Stock: <b>{agg.totalCajas.toLocaleString('es-UY')}</b> cajas
-                                </div>
-                                <Button
-                                  size="sm"
-                                  className="h-7 text-[11px] bg-amber-500 hover:bg-amber-600 text-white"
-                                  onClick={() => onAddIngresoFromStock(agg.codigo, agg.totalCajas, agg.producto)}
-                                >
-                                  <Plus className="h-3 w-3 mr-1" />
-                                  Crear ingreso con {agg.totalCajas.toLocaleString('es-UY')} cajas
-                                </Button>
-                              </div>
-                            </div>
+                              );
+                            })()
                           )}
 
                           {/* Pallet details */}
@@ -1548,6 +1564,17 @@ export default function CruceCaliral() {
   };
 
   const handleAddIngresoFromStock = (codigo: string, cajas: number, producto: string) => {
+    // Check if already exists
+    const existingManual = (edits.ingresosManuales || []).find(m => m.cote === codigo);
+    if (existingManual) {
+      toast.info(`${codigo} ya fue creado como ingreso manual (${existingManual.envases} cajas, tramite ${existingManual.tramite})`);
+      return;
+    }
+    if (ingresoMap.has(codigo)) {
+      const ing = ingresoMap.get(codigo)!;
+      toast.info(`${codigo} ya existe como ingreso: ${ing.envases} cajas, tramite ${ing.tramite}`);
+      return;
+    }
     // Pre-fill the new ingreso form with stock data and open it
     setNi_cote(codigo);
     setNi_cajas(String(cajas));
