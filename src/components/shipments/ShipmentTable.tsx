@@ -8,12 +8,28 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
-import { Search, X, ChevronLeft, ChevronRight, Eye, FileCheck, Pencil, Save, RotateCcw, CheckCircle2, Plus, Trash2, Download, Upload, Loader2, Check } from 'lucide-react';
+import { Search, X, ChevronLeft, ChevronRight, Eye, FileCheck, Pencil, Save, RotateCcw, CheckCircle2, Plus, Trash2, Download, Upload, Loader2, Check, Globe, Sparkles, ClipboardPaste } from 'lucide-react';
 import { fetchShipments, fetchAnalytics, getCotes } from '@/lib/staticData';
 import { parseEnviosExcel } from '@/lib/parseExcelRegistro';
 import type { Shipment } from '@/lib/types';
 import { schedulePush } from '@/lib/googleSheets';
 import { toast } from 'sonner';
+
+function parseMgapContentLocal(raw: string) {
+  const r: { cote?: string; tramite?: number; fecha?: string; producto?: string; cajas?: number; pesoNeto?: number; pesoBruto?: number; corte?: string; pais?: string } = {};
+  try {
+    const m = raw.match(/Nro[.\s]*COTE[:\s]*([A-Z]\d{4,})/i); if (m) r.cote = m[1];
+    const t = raw.match(/Nro[.\s]*Tramite[:\s]*(\d+)/i); if (t) r.tramite = parseInt(t[1]);
+    const f = raw.match(/(\d{2}\/\d{2}\/\d{4})/); if (f) r.fecha = f[1];
+    const p = raw.match(/Denominacion[\s\S]*?:\s*([A-ZÑÁÉÍÓÚ\s]+?)(?:\n|$)/i); if (p) r.producto = p[1].trim();
+    const c = raw.match(/Corte[:\s]*([A-ZÑÁÉÍÓÚ\s\/,]+?)(?:\n|$)/i); if (c) r.corte = c[1].trim();
+    const pa = raw.match(/Pais[:\s]*([A-ZÑÁÉÍÓÚ\s]+?)(?:\n|$)/i); if (pa) r.pais = pa[1].trim();
+    const ce = raw.match(/Cantidad[\s]*Envases[:\s]*([\d.]+)/i); if (ce) r.cajas = parseInt(ce[1].replace(/\./g, ''));
+    const pn = raw.match(/Peso[\s]*Neto[:\s]*([\d.]+)/i); if (pn) r.pesoNeto = parseFloat(pn[1].replace(/\./g, '').replace(',', '.'));
+    const pb = raw.match(/Peso[\s]*Bruto[:\s]*([\d.]+)/i); if (pb) r.pesoBruto = parseFloat(pb[1].replace(/\./g, '').replace(',', '.'));
+  } catch { /* ignore */ }
+  return r;
+}
 
 function fd(d: string | null | undefined) { if (!d) return '-'; try { return new Date(d).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric' }); } catch { return '-'; } }
 function fdt(d: string | null | undefined) { if (!d) return '-'; try { return new Date(d).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return '-'; } }
@@ -367,6 +383,75 @@ export default function ShipmentTable() {
     setEdits(newEdits);
     saveEdits(newEdits);
   }, [edits]);
+
+  // MGAP import state
+  const [mgapPaste, setMgapPaste] = useState('');
+  const [showMgap, setShowMgap] = useState(false);
+
+  // Process MGAP paste → fill new record form
+  const processMgap = () => {
+    const parsed = parseMgapContentLocal(mgapPaste);
+    if (!parsed.cote && !parsed.tramite) {
+      toast.error('No se pudieron extraer datos del contenido pegado.');
+      return;
+    }
+    const newRecord: Shipment = {
+      id: `new_dep_${Date.now()}`,
+      nroTramite: parsed.tramite || 0,
+      fechaTramite: parsed.fecha ? new Date(parsed.fecha).toISOString() : new Date().toISOString(),
+      nroCote: parsed.cote || '',
+      nombreEstablecimientoDestino: '',
+      paisDestino: parsed.pais || '',
+      denominacionMercaderia: parsed.producto || '',
+      corte: parsed.corte || '',
+      tipo: 'DEPOSITO',
+      cantidadEnvases: parsed.cajas || null,
+      pesoNeto: parsed.pesoNeto || null,
+      pesoBruto: parsed.pesoBruto || null,
+    };
+    const updated = [...newRecords, newRecord];
+    setNewRecords(updated);
+    saveNewRecords(updated);
+    setMgapPaste('');
+    setShowMgap(false);
+    handleOpenDetail(newRecord);
+    setEditMode(true);
+    const filled = [parsed.cote && 'COTE', parsed.tramite && 'Tramite', parsed.fecha && 'Fecha', parsed.producto && 'Producto', parsed.cajas && 'Cajas', parsed.pesoNeto && 'Kg'].filter(Boolean);
+    toast.success(`MGAP: campos completados (${filled.join(', ')})`);
+  };
+
+  // Add a new line (shipment) to the same tramite
+  const handleAddLine = useCallback(() => {
+    if (!selected) return;
+    const newLine: Shipment = {
+      id: `new_dep_${Date.now()}`,
+      nroTramite: selected.nroTramite,
+      fechaTramite: selected.fechaTramite,
+      nroCote: selected.nroCote,
+      nombreEstablecimientoDestino: selected.nombreEstablecimientoDestino,
+      paisDestino: selected.paisDestino,
+      tipo: selected.tipo,
+      denominacionMercaderia: '',
+      corte: '',
+      cantidadEnvases: null,
+      pesoNeto: null,
+    };
+    const updated = [...newRecords, newLine];
+    setNewRecords(updated);
+    saveNewRecords(updated);
+    // Switch to editing the new line
+    setDetailOpen(false);
+    setTimeout(() => {
+      handleOpenDetail(newLine);
+      setEditMode(true);
+    }, 100);
+  }, [selected, newRecords, handleOpenDetail]);
+
+  // Get sibling lines (same tramite)
+  const siblingLines = selected
+    ? applyEdits([...depCache.data, ...newRecords], edits)
+        .filter(s => s.nroTramite === selected.nroTramite && s.id !== selected.id)
+    : [];
 
   const handleCreate = useCallback(() => {
     const newRecord: Shipment = {
