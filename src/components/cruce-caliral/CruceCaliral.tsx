@@ -535,8 +535,22 @@ function SinCruceInlineRow({ row, ingresoMap, stockAggMap, edits, onSaved, onEdi
         <td className="px-3 py-2.5 text-xs">{fd(row.exp.fechaTramite)}</td>
         <td className="px-3 py-2.5 text-xs">{row.exp.paisDestino}</td>
         <td className="px-3 py-2.5 text-xs hidden lg:table-cell max-w-[200px] truncate">{row.exp.denominacionMercaderia}</td>
-        <td className="px-3 py-2.5 text-xs text-right font-mono font-medium">{(row.exp.cantidadEnvases || 0).toLocaleString('es-UY')}</td>
-        <td className="px-3 py-2.5 text-xs text-right font-mono hidden md:table-cell">{(row.exp.pesoNeto || 0).toLocaleString('es-UY')}</td>
+        <td className="px-1 py-1.5 text-right" onClick={e => e.stopPropagation()}>
+          <input type="number" min="0" step="1"
+            className="w-[72px] h-7 text-xs text-right font-mono font-medium bg-transparent border border-transparent hover:border-slate-300 focus:border-amber-500 focus:bg-white rounded px-1.5 outline-none transition-colors"
+            defaultValue={row.exp.cantidadEnvases || 0}
+            onBlur={e => { const v = e.target.value; const nv = v !== '' ? parseInt(v) : null; if (nv !== row.exp.cantidadEnvases) { const ne: EditsStore = { ...edits }; ne.exports = { ...ne.exports, [row.exp.id]: { ...ne.exports[row.exp.id], cantidadEnvases: nv } }; onSaved(ne); } }}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+          />
+        </td>
+        <td className="px-1 py-1.5 text-right hidden md:table-cell" onClick={e => e.stopPropagation()}>
+          <input type="number" min="0" step="0.01"
+            className="w-[88px] h-7 text-xs text-right font-mono bg-transparent border border-transparent hover:border-slate-300 focus:border-amber-500 focus:bg-white rounded px-1.5 outline-none transition-colors"
+            defaultValue={row.exp.pesoNeto || 0}
+            onBlur={e => { const v = e.target.value; const nv = v !== '' ? parseFloat(v) : null; if (nv !== row.exp.pesoNeto) { const ne: EditsStore = { ...edits }; ne.exports = { ...ne.exports, [row.exp.id]: { ...ne.exports[row.exp.id], pesoNeto: nv } }; onSaved(ne); } }}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+          />
+        </td>
         <td className="px-3 py-2.5 text-center">
           {currentManualCotes.length > 0 ? (
             <div className="flex flex-wrap gap-1 justify-center">
@@ -1191,6 +1205,9 @@ export default function CruceCaliral() {
   const [showMgapImport, setShowMgapImport] = useState(true);
   const [mgapExportPaste, setMgapExportPaste] = useState('');
   const [showMgapExportImport, setShowMgapExportImport] = useState(true);
+  // Main page MGAP import
+  const [mainMgapPaste, setMainMgapPaste] = useState('');
+  const [showMainMgap, setShowMainMgap] = useState(false);
 
   // New manual export form state
   const [addExpOpen, setAddExpOpen] = useState(false);
@@ -1242,6 +1259,45 @@ export default function CruceCaliral() {
     } else {
       toast.error('No se pudieron extraer datos. Copia el contenido de la pagina del MGAP (Ctrl+A, Ctrl+C) y pegalo aqui.');
     }
+  };
+
+  // Main page MGAP: paste content → auto-open the right form with data filled
+  const processMainMgap = () => {
+    const parsed = parseMgapContent(mainMgapPaste);
+    if (!parsed.cote && !parsed.tramite) {
+      toast.error('No se pudieron extraer datos del contenido pegado.');
+      return;
+    }
+    // Check if this looks like an ingreso (has product but no country) or export (has country)
+    const isIngreso = !parsed.pais && parsed.producto;
+    if (isIngreso) {
+      // Fill ingreso form and open
+      if (parsed.cote) setNi_cote(parsed.cote);
+      if (parsed.tramite) setNi_tramite(String(parsed.tramite));
+      if (parsed.fecha) setNi_fecha(parsed.fecha);
+      if (parsed.producto) setNi_producto(parsed.producto);
+      if (parsed.cajas) setNi_cajas(String(parsed.cajas));
+      if (parsed.pesoNeto) setNi_pesoNeto(String(parsed.pesoNeto));
+      if (parsed.pesoBruto) setNi_pesoBruto(String(parsed.pesoBruto));
+      setAddIngresoOpen(true);
+      setShowMgapImport(false);
+    } else {
+      // Fill export form and open
+      if (parsed.cote) setNe_nroCote(parsed.cote);
+      if (parsed.tramite) setNe_nroTramite(String(parsed.tramite));
+      if (parsed.fecha) setNe_fecha(parsed.fecha);
+      if (parsed.pais) setNe_pais(parsed.pais);
+      if (parsed.producto) setNe_producto(parsed.producto);
+      if (parsed.corte) setNe_corte(parsed.corte);
+      if (parsed.cajas) setNe_cajas(String(parsed.cajas));
+      if (parsed.pesoNeto) setNe_pesoNeto(String(parsed.pesoNeto));
+      setAddExpOpen(true);
+      setShowMgapExportImport(false);
+    }
+    const filled = [parsed.cote && 'COTE', parsed.tramite && 'Tramite', parsed.fecha && 'Fecha', parsed.producto && 'Producto', parsed.cajas && 'Cajas', parsed.pesoNeto && 'Kg'].filter(Boolean);
+    toast.success(`MGAP: ${isIngreso ? 'Ingreso' : 'Exportacion'} detectada. Campos: ${filled.join(', ')}`);
+    setMainMgapPaste('');
+    setShowMainMgap(false);
   };
 
   // Recompute cruce when edits change
@@ -1437,6 +1493,61 @@ export default function CruceCaliral() {
     setEditOpen(true);
   };
 
+  // Inline edit handlers for table cells
+  const handleInlineExportCajas = useCallback((id: string, origVal: number | null | undefined, newVal: string) => {
+    if (newVal === String(origVal ?? '')) return;
+    const nv = newVal !== '' ? parseInt(newVal) : null;
+    const ne = { ...edits };
+    if (nv !== null && nv !== origVal) {
+      ne.exports = { ...ne.exports, [id]: { ...ne.exports[id], cantidadEnvases: nv } };
+    } else if (ne.exports[id]) {
+      const ec = { ...ne.exports[id] };
+      const tmp = { ...ec } as Record<string, unknown>;
+      delete tmp.cantidadEnvases;
+      if (Object.keys(tmp).length === 0) {
+        const restEntries = Object.entries(ne.exports).filter(([k]) => k !== id);
+        ne.exports = Object.fromEntries(restEntries) as typeof ne.exports;
+      } else {
+        ne.exports[id] = ec;
+      }
+    }
+    setEdits(ne);
+    saveEdits(ne);
+    recomputeCruce(ne);
+  }, [edits]);
+
+  const handleInlineExportKg = useCallback((id: string, origVal: number | null | undefined, newVal: string) => {
+    if (newVal === String(origVal ?? '')) return;
+    const nv = newVal !== '' ? parseFloat(newVal) : null;
+    const ne = { ...edits };
+    if (nv !== null && nv !== origVal) {
+      ne.exports = { ...ne.exports, [id]: { ...ne.exports[id], pesoNeto: nv } };
+    } else if (ne.exports[id]) {
+      const ec = { ...ne.exports[id] };
+      const tmp = { ...ec } as Record<string, unknown>;
+      delete tmp.pesoNeto;
+      if (Object.keys(tmp).length === 0) {
+        const restEntries = Object.entries(ne.exports).filter(([k]) => k !== id);
+        ne.exports = Object.fromEntries(restEntries) as typeof ne.exports;
+      } else {
+        ne.exports[id] = ec;
+      }
+    }
+    setEdits(ne);
+    saveEdits(ne);
+    recomputeCruce(ne);
+  }, [edits]);
+
+  const handleInlineIngresoField = useCallback((cote: string, field: 'envases' | 'pesoNeto', origVal: number, newVal: string) => {
+    const nv = field === 'envases' ? (parseInt(newVal) || 0) : (parseFloat(newVal) || 0);
+    if (nv === origVal) return;
+    const ne = { ...edits };
+    ne.ingresos = { ...ne.ingresos, [cote]: { ...ne.ingresos[cote], [field]: nv } };
+    setEdits(ne);
+    saveEdits(ne);
+    recomputeCruce(ne);
+  }, [edits]);
+
   const openIngresoEdit = (row: IngresoPendienteRow) => {
     const edit = edits.ingresos[row.cote];
     setEditTarget({ type: 'ingreso', id: row.cote, row });
@@ -1590,15 +1701,16 @@ export default function CruceCaliral() {
     const raw = overrideCote != null ? String(overrideCote) : ni_cote;
     const cote = (raw || '').trim().toUpperCase();
     if (!cote) return;
-    // Check if already exists in ingresoMap or in manual ingresos
-    if (ingresoMap.has(cote) || (edits.ingresosManuales || []).some(m => m.cote === cote)) {
-      toast.error(`${cote} ya existe en los ingresos`);
-      if (fromNotFoundView) {
-        // Force recompute to make sure ingresoMap is fresh
-        recomputeCruce(edits);
-      }
+    // Check if already exists in ingresoMap (original data)
+    if (ingresoMap.has(cote)) {
+      const ing = ingresoMap.get(cote)!;
+      toast.info(`${cote} ya existe en los ingresos: ${ing.envases} cajas, tramite ${ing.tramite}`);
+      if (fromNotFoundView) recomputeCruce(edits);
       return;
     }
+    // Check if exists in manual ingresos — allow update
+    const manualIngresos = edits.ingresosManuales || [];
+    const existingManualIdx = manualIngresos.findIndex(m => m.cote === cote);
     const tramiteVal = parseInt(String(ni_tramite).replace(/[^0-9]/g, '')) || 0;
     if (tramiteVal <= 0) {
       toast.error('Ingresa el numero de tramite');
@@ -1614,16 +1726,25 @@ export default function CruceCaliral() {
       pesoNeto: parseFloat(String(ni_pesoNeto).replace(/[^0-9.,]/g, '')) || 0,
       pesoBruto: parseFloat(String(ni_pesoBruto).replace(/[^0-9.,]/g, '')) || 0,
     };
-    const newEdits: EditsStore = {
-      ...edits,
-      ingresosManuales: [...(edits.ingresosManuales || []), newIngreso],
-    };
+    let newEdits: EditsStore;
+    if (existingManualIdx >= 0) {
+      // Update existing manual ingreso
+      const updated = [...manualIngresos];
+      updated[existingManualIdx] = newIngreso;
+      newEdits = { ...edits, ingresosManuales: updated };
+      toast.success(`${cote} actualizado`);
+    } else {
+      newEdits = {
+        ...edits,
+        ingresosManuales: [...manualIngresos, newIngreso],
+      };
+      toast.success(`${cote} creado`);
+    }
     setEdits(newEdits);
     saveEdits(newEdits);
     recomputeCruce(newEdits);
     if (fromNotFoundView) {
       // Keep the detail sheet open — ingresoMap will update and the detail will show the new data
-      toast.success(`${cote} creado y vinculado al cruce`);
     } else {
       setAddIngresoOpen(false);
     }
@@ -1970,6 +2091,34 @@ export default function CruceCaliral() {
         </CardContent></Card>
       </div>
 
+      {/* MGAP Quick Import - visible on main page */}
+      <Card className="border-violet-200 bg-violet-50/30">
+        <CardContent className="p-3">
+          <button type="button" onClick={() => setShowMainMgap(!showMainMgap)}
+            className="flex items-center gap-2 text-sm font-medium text-violet-700 hover:text-violet-900 transition-colors w-full text-left">
+            <Globe className="h-4 w-4" />
+            Importar desde MGAP
+            <Sparkles className="h-3.5 w-3.5 text-violet-400" />
+            <span className="ml-auto text-xs text-violet-400">{showMainMgap ? '▲' : '▼'}</span>
+          </button>
+          {showMainMgap && (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs text-slate-500">Pega el contenido de la pagina del MGAP (Ctrl+A, Ctrl+C en la pagina) y se auto-completara el formulario de ingreso o exportacion segun corresponda.</p>
+              <Textarea
+                value={mainMgapPaste}
+                onChange={e => setMainMgapPaste(e.target.value)}
+                placeholder="Pega aqui el contenido de la pagina del MGAP..."
+                className="text-xs min-h-[100px] font-mono"
+                rows={4}
+              />
+              <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-xs" onClick={processMainMgap} disabled={!mainMgapPaste.trim()}>
+                <ClipboardPaste className="h-3.5 w-3.5 mr-1.5" />Procesar y abrir formulario
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Info banner */}
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600">
         <p className="font-medium text-slate-700 mb-1">Como funciona el cruce</p>
@@ -2053,7 +2202,14 @@ export default function CruceCaliral() {
                     <td className="px-3 py-2.5 text-xs">{fd(r.exp.fechaTramite)}</td>
                     <td className="px-3 py-2.5 text-xs">{r.exp.paisDestino}</td>
                     <td className="px-3 py-2.5 text-xs hidden xl:table-cell max-w-[200px] truncate">{r.exp.denominacionMercaderia}</td>
-                    <td className="px-3 py-2.5 text-xs text-right font-mono font-medium">{r.envasesExp.toLocaleString('es-UY')}</td>
+                    <td className="px-1 py-1.5 text-right" onClick={e => e.stopPropagation()}>
+                      <input type="number" min="0" step="1"
+                        className="w-[72px] h-7 text-xs text-right font-mono font-medium bg-transparent border border-transparent hover:border-slate-300 focus:border-violet-500 focus:bg-white rounded px-1.5 outline-none transition-colors"
+                        defaultValue={r.envasesExp}
+                        onBlur={e => handleInlineExportCajas(r.exp.id, r.exp.cantidadEnvases, e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                      />
+                    </td>
                     <td className="px-3 py-2.5 text-xs">
                       <div className="flex flex-wrap gap-1">
                         {r.isManualLink && <span className="inline-block bg-violet-100 text-violet-800 text-[9px] font-bold px-1 py-0.5 rounded">MANUAL</span>}
@@ -2152,8 +2308,22 @@ export default function CruceCaliral() {
                     <td className="px-3 py-2.5 text-xs">{fd(r.fecha)}</td>
                     <td className="px-3 py-2.5 text-xs hidden lg:table-cell max-w-[200px] truncate">{r.producto}</td>
                     <td className="px-3 py-2.5 text-xs hidden md:table-cell max-w-[200px] truncate">{r.cortes.join(', ')}</td>
-                    <td className="px-3 py-2.5 text-xs text-right font-mono">{r.envases.toLocaleString('es-UY')}</td>
-                    <td className="px-3 py-2.5 text-xs text-right font-mono hidden md:table-cell">{r.pesoNeto.toLocaleString('es-UY')}</td>
+                    <td className="px-1 py-1.5 text-right" onClick={e => e.stopPropagation()}>
+                      <input type="number" min="0" step="1"
+                        className="w-[72px] h-7 text-xs text-right font-mono bg-transparent border border-transparent hover:border-slate-300 focus:border-violet-500 focus:bg-white rounded px-1.5 outline-none transition-colors"
+                        defaultValue={r.envases}
+                        onBlur={e => handleInlineIngresoField(r.cote, 'envases', r.envases, e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                      />
+                    </td>
+                    <td className="px-1 py-1.5 text-right hidden md:table-cell" onClick={e => e.stopPropagation()}>
+                      <input type="number" min="0" step="0.01"
+                        className="w-[88px] h-7 text-xs text-right font-mono bg-transparent border border-transparent hover:border-slate-300 focus:border-violet-500 focus:bg-white rounded px-1.5 outline-none transition-colors"
+                        defaultValue={r.pesoNeto}
+                        onBlur={e => handleInlineIngresoField(r.cote, 'pesoNeto', r.pesoNeto, e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                      />
+                    </td>
                     <td className="px-3 py-2.5 text-center" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-1">
                         <button className="p-1 rounded hover:bg-slate-100" title="Editar" onClick={() => openIngresoEdit(r)}>

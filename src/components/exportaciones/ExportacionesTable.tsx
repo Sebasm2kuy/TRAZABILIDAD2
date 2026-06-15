@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
-import { Search, X, ChevronLeft, ChevronRight, Eye, FileCheck, Download, Ship, Pencil, Save, RotateCcw, CheckCircle2, Plus, Trash2, Package, Upload, Loader2 } from 'lucide-react';
+import { Search, X, ChevronLeft, ChevronRight, Eye, FileCheck, Download, Ship, Pencil, Save, RotateCcw, CheckCircle2, Plus, Trash2, Package, Upload, Loader2, Check } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import type { Shipment, ExpRecord } from '@/lib/types';
 import { parseCotePdf, coteToExpRecord } from '@/lib/parseCotePdf';
@@ -433,6 +433,14 @@ export default function ExportacionesTable() {
     setSelected(null);
   }, [deletedIds, edits]);
 
+  // Inline edit for cajas / kilos in table
+  const handleInlineEdit = useCallback((id: string, field: 'cantidadEnvases' | 'pesoNeto', value: string) => {
+    const numVal = value !== '' ? Number(value) : null;
+    const newEdits = { ...edits, [id]: { ...edits[id], [field]: numVal } };
+    setEdits(newEdits);
+    saveEdits(newEdits);
+  }, [edits]);
+
   // Ingreso COTEs management
   const currentIngresos = selected ? (ingresosCotes[selected.id] || []) : [];
 
@@ -720,8 +728,22 @@ export default function ExportacionesTable() {
                       <td className="px-3 py-2.5 text-xs">{s.paisDestino}</td>
                       <td className="px-3 py-2.5 text-xs hidden md:table-cell max-w-[180px] truncate">{s.denominacionMercaderia}</td>
                       <td className="px-3 py-2.5 text-xs hidden xl:table-cell">{s.corte}</td>
-                      <td className="px-3 py-2.5 text-xs text-right font-mono">{s.cantidadEnvases ?? '-'}</td>
-                      <td className="px-3 py-2.5 text-xs text-right font-mono">{s.pesoNeto ? s.pesoNeto.toLocaleString('es-UY') : '-'}</td>
+                      <td className="px-1 py-1.5 text-right" onClick={e => e.stopPropagation()}>
+                        <input type="number" min="0" step="1"
+                          className="w-[72px] h-7 text-xs text-right font-mono bg-transparent border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white rounded px-1.5 outline-none transition-colors"
+                          defaultValue={s.cantidadEnvases ?? ''}
+                          onBlur={e => { const v = e.target.value; if (v !== String(s.cantidadEnvases ?? '')) handleInlineEdit(s.id, 'cantidadEnvases', v); }}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                        />
+                      </td>
+                      <td className="px-1 py-1.5 text-right" onClick={e => e.stopPropagation()}>
+                        <input type="number" min="0" step="0.01"
+                          className="w-[88px] h-7 text-xs text-right font-mono bg-transparent border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white rounded px-1.5 outline-none transition-colors"
+                          defaultValue={s.pesoNeto ?? ''}
+                          onBlur={e => { const v = e.target.value; if (v !== String(s.pesoNeto ?? '')) handleInlineEdit(s.id, 'pesoNeto', v); }}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                        />
+                      </td>
                       <td className="px-3 py-2.5 text-center"><Eye className="h-4 w-4 text-slate-400 inline" /></td>
                     </tr>
                   );
