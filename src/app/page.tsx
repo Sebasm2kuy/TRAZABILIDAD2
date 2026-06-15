@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import Sidebar from '@/components/Sidebar';
 import Dashboard from '@/components/dashboard/Dashboard';
@@ -11,9 +12,32 @@ import AnalyticsCharts from '@/components/analytics/AnalyticsCharts';
 import ProductoDestino from '@/components/comparativa/ProductoDestino';
 import ImportExportPanel from '@/components/import-export/ImportExportPanel';
 import NewRecordForm from '@/components/new-record/NewRecordForm';
+import { initialPull, isConfigured } from '@/lib/googleSheets';
+import { toast } from 'sonner';
 
 export default function Home() {
   const { activeTab } = useAppStore();
+
+  // Pull from Firebase on first load
+  useEffect(() => {
+    if ((window as unknown as Record<string, number>).__TRZ_RESET) return;
+    if (!isConfigured()) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const result = await initialPull();
+        if (!mounted) return;
+        if (result.error) {
+          console.warn('Firebase pull failed:', result.error);
+        } else if (result.count > 0) {
+          toast.success(`Datos cargados desde la nube: ${result.count} campos`);
+        }
+      } catch {
+        // Firebase not available, use local data
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const renderContent = () => {
     switch (activeTab) {

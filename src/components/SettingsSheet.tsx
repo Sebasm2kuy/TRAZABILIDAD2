@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
   Settings, Cloud, CloudOff, RefreshCw, CheckCircle2, XCircle,
-  Loader2, ExternalLink, Save, ShieldAlert, Trash2, Key, Lock, Eye, EyeOff, AlertTriangle
+  Loader2, ExternalLink, Save, ShieldAlert, Trash2, Key, Lock, Eye, EyeOff, AlertTriangle, Database
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as gs from '@/lib/googleSheets';
@@ -15,7 +15,6 @@ interface SettingsSheetProps {
   onOpenChange: (open: boolean) => void;
 }
 
-// All localStorage keys that hold user data (everything except settings themselves)
 const ALL_DATA_KEYS = [
   'trazabilidad_new_records',
   'trazabilidad_exp_edits',
@@ -30,6 +29,7 @@ const ALL_DATA_KEYS = [
   'trazabilidad_recent_searches',
   'trazabilidad_dep_imported',
   'trazabilidad_exp_imported',
+  'trazabilidad_stock_assignments',
 ];
 
 export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
@@ -39,7 +39,6 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState('');
 
-  // Password / factory reset state
   const [pwExists, setPwExists] = useState(false);
   const [pwStep, setPwStep] = useState<'idle' | 'create' | 'verify' | 'confirm_reset'>('idle');
   const [pwInput, setPwInput] = useState('');
@@ -62,21 +61,18 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
     }
   }, [open]);
 
-  // Listen for sync events
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (detail.type === 'initial-pull') {
+      if (detail.type === 'initial-pull' || detail.type === 'pull' || detail.type === 'full') {
         if (detail.error) {
           toast.error(`Error al sincronizar: ${detail.error}`);
         } else if (detail.count > 0) {
-          toast.success(`Sincronizado: ${detail.count} campos cargados`);
+          toast.success(`Sincronizado: ${detail.count} campos cargados de la nube`);
         }
         setLastSync(gs.getLastSync());
-        // Update password state after pull
         setPwExists(gs.hasPassword());
-      } else if (detail.type === 'auto-push') {
-        // Auto-push errors are usually CORS/network — silently ignore
+      } else if (detail.type === 'auto-push' || detail.type === 'push') {
         setLastSync(gs.getLastSync());
       }
     };
@@ -87,7 +83,7 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
   const handleSave = () => {
     if (!url.trim()) {
       gs.setSheetUrl('');
-      toast.success('URL eliminada. Usando datos locales.');
+      toast.success('Sincronización desactivada. Datos solo en este navegador.');
       setTestResult(null);
       onOpenChange(false);
       return;
@@ -106,14 +102,16 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
     const result = await gs.ping();
     setTestResult({
       ok: result.ok,
-      message: result.ok ? `Conectado (${result.time ? new Date(result.time).toLocaleTimeString('es-UY') : 'ok'})` : (result.error || 'No se pudo conectar'),
+      message: result.ok
+        ? `Conectado a Firebase`
+        : (result.error || 'No se pudo conectar'),
     });
     setTesting(false);
   };
 
   const handleSyncNow = async () => {
     if (!gs.isConfigured()) {
-      toast.error('Configurá la URL del script primero');
+      toast.error('Configurá la URL de Firebase primero');
       return;
     }
     setSyncing(true);
@@ -126,8 +124,6 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
       toast.success(`Sincronizado: ${result.pulled} bajados, ${result.pushed} subidos`);
     }
   };
-
-  // --- Password + Factory Reset handlers ---
 
   const handleCreatePassword = () => {
     if (pwInput.length < 4) {
@@ -160,22 +156,27 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
   const handleFactoryReset = async () => {
     setResetting(true);
     try {
-      // 1. Clear all data keys from localStorage
       for (const key of ALL_DATA_KEYS) {
         localStorage.removeItem(key);
       }
 
-      // 2. Update last sync time
-      localStorage.setItem('trazabilidad_sheets_last_sync', new Date().toISOString());
+      // Also clear remote Firebase data
+      if (gs.isConfigured()) {
+        try {
+          const fbUrl = gs.getSheetUrl();
+          await fetch(`${fbUrl}/.json`, {
+            method: 'DELETE',
+          });
+        } catch {
+          // ignore - local is cleared anyway
+        }
+      }
 
+      localStorage.setItem('trazabilidad_last_sync', new Date().toISOString());
       setPwStep('idle');
-      toast.success('Sistema restablecido. Recargá la página para ver los cambios limpios.');
+      toast.success('Sistema restablecido. Recargá la página.');
       onOpenChange(false);
-
-      // Auto-reload after a short delay
-      setTimeout(() => {
-        window.location.reload();
-      }, 1500);
+      setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       toast.error('Error al restablecer: ' + (err as Error).message);
     } finally {
@@ -197,11 +198,11 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
 
         <div className="mt-6 space-y-6">
 
-          {/* ========== SYNC SECTION ========== */}
+          {/* ========== FIREBASE SYNC SECTION ========== */}
           <div className="space-y-4">
             <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-              <Cloud className="h-4 w-4" />
-              Sincronización con Google Sheets
+              <Database className="h-4 w-4 text-orange-500" />
+              Sincronización con Firebase
             </h3>
 
             {/* Status */}
@@ -212,11 +213,11 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
                 <CloudOff className="h-5 w-5 text-amber-600" />
               )}
               <div>
-                <p className="text-sm font-medium">{configured ? 'Conectado a Google Sheets' : 'No conectado'}</p>
+                <p className="text-sm font-medium">{configured ? 'Conectado a Firebase' : 'No conectado'}</p>
                 <p className="text-xs text-slate-500">
                   {configured
-                    ? (lastSync ? `Ultima sync: ${new Date(lastSync).toLocaleString('es-UY')}` : 'Sin sincronización previa')
-                    : 'Los datos se guardan solo en este navegador'}
+                    ? (lastSync ? `Ultima sync: ${new Date(lastSync).toLocaleString('es-UY')}` : 'Sincronización lista')
+                    : 'Los datos se guardan solo en este navegador (se pierden al borrar cache)'}
                 </p>
               </div>
             </div>
@@ -224,17 +225,17 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
             {/* URL Input */}
             <div className="space-y-2">
               <label className="block text-sm font-medium text-slate-700">
-                URL del Script de Google
+                URL de Firebase Realtime Database
               </label>
               <Input
-                placeholder="https://script.google.com/macros/s/.../exec"
+                placeholder="https://tu-proyecto-default-rtdb.firebaseio.com"
                 value={url}
                 onChange={e => { setUrl(e.target.value); setTestResult(null); }}
                 className="text-xs font-mono"
                 onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
               />
               <p className="text-[11px] text-slate-400">
-                Pegá acá la URL que te da Google Apps Script al implementar
+                La URL de tu Realtime Database de Firebase (sin /.json al final)
               </p>
             </div>
 
@@ -275,40 +276,18 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
                   {syncing ? 'Sincronizando...' : 'Sincronizar ahora (subir y bajar)'}
                 </Button>
                 <p className="text-[11px] text-slate-400">
-                  Fusiona datos locales con los de la Sheet. Tus datos locales tienen prioridad.
+                  Fusiona datos locales con Firebase. Tus datos locales tienen prioridad.
                 </p>
               </div>
             )}
 
-            {/* Instructions */}
-            <div className="border-t pt-4">
-              <h4 className="text-sm font-semibold text-slate-700 mb-3">Como configurar (una sola vez):</h4>
-              <ol className="text-xs text-slate-600 space-y-2 list-decimal list-inside">
-                <li>
-                  Andá a{' '}
-                  <a href="https://script.google.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline inline-flex items-center gap-0.5">
-                    script.google.com <ExternalLink className="h-2.5 w-2.5" />
-                  </a>
-                </li>
-                <li>Creá un nuevo proyecto de Apps Script</li>
-                <li>Creá un Spreadsheet nuevo (Archivo &gt; Nuevo &gt; Hoja de cálculo) o usá uno existente</li>
-                <li>
-                  En el editor de Apps Script, pegá el código que está en el archivo{' '}
-                  <code className="bg-slate-100 px-1 rounded font-mono">google-script/Code.gs</code> del repositorio
-                </li>
-                <li>Implementar &gt; Nueva implementación &gt; Aplicación web</li>
-                <li>Ejecutar como: <b>Yo</b> | Acceso: <b>Cualquier persona</b></li>
-                <li>Copiá la URL y pegala arriba</li>
-              </ol>
-            </div>
-
-            {/* Info box */}
+            {/* How it works */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <p className="text-xs text-blue-700">
-                <b>Como funciona:</b> Cada vez que editás datos, se sincronizan automáticamente con la Sheet
-                (con una espera de 2 segundos después de tu último cambio). Cuando abrís la app en otro PC,
-                los datos se cargan desde la Sheet automáticamente. También podés ver y editar los datos
-                directamente en la Sheet si querés.
+                <b>Como funciona:</b> Cada vez que editás datos, se guardan automáticamente en Firebase
+                (3 segundos después de tu último cambio). Cuando abrís la app en otro PC o navegador,
+                los datos se cargan automáticamente desde Firebase. Si borras el cache del navegador,
+                no perdés nada porque está guardado en la nube.
               </p>
             </div>
           </div>
@@ -320,7 +299,6 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
               Zona de Seguridad
             </h3>
 
-            {/* IDLE STATE: Show the button */}
             {pwStep === 'idle' && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
                 <div className="flex items-start gap-2">
@@ -364,7 +342,6 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
               </div>
             )}
 
-            {/* CREATE PASSWORD STATE */}
             {pwStep === 'create' && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
                 <p className="text-sm font-medium text-amber-800 flex items-center gap-1.5">
@@ -373,7 +350,6 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
                 </p>
                 <p className="text-xs text-amber-700">
                   Esta contraseña se te pedirá cada vez que quieras restablecer el sistema.
-                  Se guarda en la Sheet si tenés sincronización activa.
                 </p>
 
                 <div className="space-y-2">
@@ -425,7 +401,6 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
               </div>
             )}
 
-            {/* VERIFY PASSWORD STATE */}
             {pwStep === 'verify' && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
                 <p className="text-sm font-medium text-red-800 flex items-center gap-1.5">
@@ -466,7 +441,6 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
               </div>
             )}
 
-            {/* CONFIRM RESET STATE */}
             {pwStep === 'confirm_reset' && (
               <div className="bg-red-100 border-2 border-red-300 rounded-lg p-4 space-y-3">
                 <div className="flex items-center gap-2">
@@ -475,8 +449,7 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
                 </div>
                 <p className="text-xs text-red-700">
                   Estás a punto de borrar <b>TODO</b>: exportaciones, depósitos, cruces caliral, stock cargado,
-                  importaciones y búsquedas recientes. Si tenés Google Sheets conectado, también se borrarán
-                  los datos remotos. <b>Esta acción es irreversible.</b>
+                  importaciones y búsquedas recientes. También se borrará Firebase. <b>Esta acción es irreversible.</b>
                 </p>
 
                 <div className="flex gap-2">

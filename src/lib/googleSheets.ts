@@ -8,7 +8,21 @@
 
 const SETTINGS_KEY = 'trazabilidad_firebase_url';
 const LAST_SYNC_KEY = 'trazabilidad_last_sync';
+const OLD_SETTINGS_KEY = 'trazabilidad_sheets_url'; // Legacy Google Sheets key
 const SYNC_DEBOUNCE_MS = 3000; // Wait 3s after last change before pushing
+
+// Auto-migrate: clear old Google Sheets URL to prevent CORS errors
+if (typeof window !== 'undefined') {
+  try {
+    const oldUrl = localStorage.getItem(OLD_SETTINGS_KEY);
+    if (oldUrl) {
+      localStorage.removeItem(OLD_SETTINGS_KEY);
+      // Don't copy it — old URL is a Google Apps Script that causes CORS
+    }
+    // Also clear old sync key name
+    localStorage.removeItem('trazabilidad_sheets_last_sync');
+  } catch { /* ignore */ }
+}
 
 // All localStorage keys that need to be synced
 export const SYNC_KEYS = [
