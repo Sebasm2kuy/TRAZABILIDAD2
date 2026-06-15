@@ -1724,10 +1724,11 @@ export default function CruceCaliral() {
   };
 
   const saveNewIngreso = (overrideCote?: string, fromNotFoundView = false) => {
-    let raw = overrideCote != null ? String(overrideCote) : ni_cote;
-    // Defensive: if String() produced [object Object], try JSON
-    if (raw === '[object Object]' && overrideCote != null && typeof overrideCote === 'object') {
-      raw = (overrideCote as any).nroCote || (overrideCote as any).cote || JSON.stringify(overrideCote);
+    let raw: string;
+    if (overrideCote != null) {
+      raw = typeof overrideCote === 'string' ? overrideCote : '';
+    } else {
+      raw = ni_cote;
     }
     const cote = (raw || '').trim().toUpperCase();
     if (!cote) return;
