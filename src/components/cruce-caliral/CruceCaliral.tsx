@@ -1560,7 +1560,8 @@ export default function CruceCaliral() {
   };
 
   const saveNewIngreso = (overrideCote?: string, fromNotFoundView = false) => {
-    const cote = (overrideCote || ni_cote).trim().toUpperCase();
+    const raw = overrideCote != null ? String(overrideCote) : ni_cote;
+    const cote = (raw || '').trim().toUpperCase();
     if (!cote) return;
     // Check if already exists in ingresoMap or in manual ingresos
     if (ingresoMap.has(cote) || (edits.ingresosManuales || []).some(m => m.cote === cote)) {
