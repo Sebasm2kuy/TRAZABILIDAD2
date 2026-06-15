@@ -652,11 +652,11 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits }:
               <th className="px-3 py-2.5 hidden lg:table-cell">Producto</th>
               <th className="px-3 py-2.5 hidden xl:table-cell">Contenedores</th>
               <th className="px-3 py-2.5 text-right">Pallets</th>
-              <th className="px-3 py-2.5 text-right">Cajas Stock</th>
-              <th className="px-3 py-2.5 text-right">Saldo Teorico</th>
-              <th className="px-3 py-2.5 text-right">Diff Stock/Saldo</th>
               <th className="px-3 py-2.5 text-right">Cajas Ingreso</th>
               <th className="px-3 py-2.5 text-right">Cajas Export.</th>
+              <th className="px-3 py-2.5 text-right">Saldo Teorico</th>
+              <th className="px-3 py-2.5 text-right">Cajas Stock</th>
+              <th className="px-3 py-2.5 text-right">Diff Stock/Saldo</th>
               <th className="px-3 py-2.5 w-8"></th>
             </tr>
           </thead>
@@ -681,28 +681,6 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits }:
                     <td className="px-3 py-2.5 text-xs hidden lg:table-cell max-w-[200px] truncate" title={agg.producto}>{agg.producto}</td>
                     <td className="px-3 py-2.5 text-xs hidden xl:table-cell max-w-[150px] truncate">{agg.contenedores.join(', ') || '-'}</td>
                     <td className="px-3 py-2.5 text-xs text-right font-mono">{agg.totalPallets}</td>
-                    <td className="px-3 py-2.5 text-xs text-right font-mono font-medium text-teal-700">{agg.totalCajas.toLocaleString('es-UY')}</td>
-                    <td className="px-3 py-2.5 text-xs text-right font-mono">
-                      {saldoTeorico !== null ? (
-                        <span className={saldoTeorico < 0 ? 'text-red-600 font-medium' : 'text-violet-700 font-medium'}>
-                          {saldoTeorico.toLocaleString('es-UY')}
-                        </span>
-                      ) : (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-right">
-                      {diffStockSaldo !== null ? (
-                        <span className={`inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                          Math.abs(diffStockSaldo) === 0 ? 'bg-emerald-50 text-emerald-700' :
-                          diffStockSaldo < 0 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'
-                        }`}>
-                          {Math.abs(diffStockSaldo) === 0 ? '0' : (diffStockSaldo > 0 ? '+' : '') + diffStockSaldo}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-slate-300">—</span>
-                      )}
-                    </td>
                     <td className="px-3 py-2.5 text-xs text-right font-mono">
                       {ing ? (
                         <span className="text-emerald-700">{ing.envases.toLocaleString('es-UY')}</span>
@@ -715,6 +693,28 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits }:
                         <span className="text-blue-700">{expCajas.toLocaleString('es-UY')}</span>
                       ) : (
                         <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-right font-mono">
+                      {saldoTeorico !== null ? (
+                        <span className={saldoTeorico < 0 ? 'text-red-600 font-medium' : 'text-violet-700 font-medium'}>
+                          {saldoTeorico.toLocaleString('es-UY')}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-right font-mono font-medium text-teal-700">{agg.totalCajas.toLocaleString('es-UY')}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      {diffStockSaldo !== null ? (
+                        <span className={`inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                          Math.abs(diffStockSaldo) === 0 ? 'bg-emerald-50 text-emerald-700' :
+                          diffStockSaldo < 0 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'
+                        }`}>
+                          {Math.abs(diffStockSaldo) === 0 ? '0' : (diffStockSaldo > 0 ? '+' : '') + diffStockSaldo}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-300">—</span>
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-center">
