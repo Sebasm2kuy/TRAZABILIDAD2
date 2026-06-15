@@ -1703,12 +1703,12 @@ export default function CruceCaliral() {
     // Check if already exists
     const existingManual = (edits.ingresosManuales || []).find(m => m.cote === codigo);
     if (existingManual) {
-      toast.info(`${codigo} ya fue creado como ingreso manual (${existingManual.envases} cajas, tramite ${existingManual.tramite})`);
+      toast.info(`${String(codigo)} ya fue creado como ingreso manual (${existingManual.envases} cajas, tramite ${existingManual.tramite})`);
       return;
     }
     if (ingresoMap.has(codigo)) {
       const ing = ingresoMap.get(codigo)!;
-      toast.info(`${codigo} ya existe como ingreso: ${ing.envases} cajas, tramite ${ing.tramite}`);
+      toast.info(`${String(codigo)} ya existe como ingreso: ${ing.envases} cajas, tramite ${ing.tramite}`);
       return;
     }
     // Pre-fill the new ingreso form with stock data and open it
@@ -1724,13 +1724,17 @@ export default function CruceCaliral() {
   };
 
   const saveNewIngreso = (overrideCote?: string, fromNotFoundView = false) => {
-    const raw = overrideCote != null ? String(overrideCote) : ni_cote;
+    let raw = overrideCote != null ? String(overrideCote) : ni_cote;
+    // Defensive: if String() produced [object Object], try JSON
+    if (raw === '[object Object]' && overrideCote != null && typeof overrideCote === 'object') {
+      raw = (overrideCote as any).nroCote || (overrideCote as any).cote || JSON.stringify(overrideCote);
+    }
     const cote = (raw || '').trim().toUpperCase();
     if (!cote) return;
     // Check if already exists in ingresoMap (original data)
     if (ingresoMap.has(cote)) {
       const ing = ingresoMap.get(cote)!;
-      toast.info(`${cote} ya existe en los ingresos: ${ing.envases} cajas, tramite ${ing.tramite}`);
+      toast.info(`${String(cote)} ya existe en los ingresos: ${ing.envases} cajas, tramite ${ing.tramite}`);
       if (fromNotFoundView) recomputeCruce(edits);
       return;
     }
