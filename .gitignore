@@ -56,3 +56,4 @@ db/seed_data.json
 upload/
 dev.log
 .zscripts/
+tool-results/
