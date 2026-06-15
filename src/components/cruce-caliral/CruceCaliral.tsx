@@ -704,13 +704,14 @@ function PalletAssignRow({ pallet, allCodes, onAssign }: {
 }
 
 // --- Stock Table Component ---
-function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, onAssignPallet }: {
+function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, onAssignPallet, onAddIngresoFromStock }: {
   stockAggMap: Map<string, StockCodigoAgg>;
   ingresoMap: Map<string, IngresoAgg>;
   cruceRows: CruceRow[];
   sinCruceRows: SinCruceRow[];
   edits: EditsStore;
   onAssignPallet: (palletId: string, codigo: string, tipo: 'COTE' | 'PASE_SANITARIO') => void;
+  onAddIngresoFromStock: (codigo: string, cajas: number, producto: string) => void;
 }) {
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
   const [stockSearch, setStockSearch] = useState('');
@@ -943,7 +944,14 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
                       {ing ? (
                         <span className="text-emerald-700">{ing.envases.toLocaleString('es-UY')}</span>
                       ) : (
-                        <span className="text-slate-300">—</span>
+                        <button
+                          className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2 py-0.5 rounded border border-amber-200 transition-colors"
+                          onClick={(e) => { e.stopPropagation(); onAddIngresoFromStock(agg.codigo, agg.totalCajas, agg.producto); }}
+                          title="Crear ingreso para este COTE"
+                        >
+                          <Plus className="h-3 w-3" />
+                          +{agg.totalCajas.toLocaleString('es-UY')}
+                        </button>
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-right font-mono">
@@ -1019,8 +1027,24 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
                             </div>
                           )}
                           {!ing && (
-                            <div className="bg-amber-50 rounded-lg p-2 text-[11px] text-amber-700">
-                              Este codigo no tiene un ingreso registrado en los depositos de Caliral.
+                            <div className="bg-amber-50 rounded-lg p-3 text-[11px] text-amber-700 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span>Este codigo no tiene un ingreso registrado en los depositos de Caliral.</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-1.5 text-xs">
+                                  <Package className="h-3.5 w-3.5" />
+                                  Stock: <b>{agg.totalCajas.toLocaleString('es-UY')}</b> cajas
+                                </div>
+                                <Button
+                                  size="sm"
+                                  className="h-7 text-[11px] bg-amber-500 hover:bg-amber-600 text-white"
+                                  onClick={() => onAddIngresoFromStock(agg.codigo, agg.totalCajas, agg.producto)}
+                                >
+                                  <Plus className="h-3 w-3 mr-1" />
+                                  Crear ingreso con {agg.totalCajas.toLocaleString('es-UY')} cajas
+                                </Button>
+                              </div>
                             </div>
                           )}
 
@@ -1521,6 +1545,18 @@ export default function CruceCaliral() {
     saveEdits(newEdits);
     recomputeCruce(newEdits);
     setEditOpen(false);
+  };
+
+  const handleAddIngresoFromStock = (codigo: string, cajas: number, producto: string) => {
+    // Pre-fill the new ingreso form with stock data and open it
+    setNi_cote(codigo);
+    setNi_cajas(String(cajas));
+    setNi_producto(producto);
+    setNi_tramite('');
+    setNi_fecha('');
+    setNi_pesoNeto('');
+    setNi_pesoBruto('');
+    setAddIngresoOpen(true);
   };
 
   const saveNewIngreso = (overrideCote?: string, fromNotFoundView = false) => {
@@ -2127,6 +2163,7 @@ export default function CruceCaliral() {
                   sinCruceRows={sinCruceRows}
                   edits={edits}
                   onAssignPallet={handleAssignPallet}
+                  onAddIngresoFromStock={handleAddIngresoFromStock}
                 />
               </>) : (
                 <div className="text-center py-16 text-slate-400">
