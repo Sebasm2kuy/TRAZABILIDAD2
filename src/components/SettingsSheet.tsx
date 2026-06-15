@@ -76,9 +76,7 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
         // Update password state after pull
         setPwExists(gs.hasPassword());
       } else if (detail.type === 'auto-push') {
-        if (detail.error) {
-          console.warn('Auto-push failed:', detail.error);
-        }
+        // Auto-push errors are usually CORS/network — silently ignore
         setLastSync(gs.getLastSync());
       }
     };

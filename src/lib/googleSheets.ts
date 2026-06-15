@@ -54,29 +54,44 @@ export function getLastSync(): string {
 async function fetchGet(url: string, params: Record<string, string>): Promise<unknown> {
   const sep = url.includes('?') ? '&' : '?';
   const qs = Object.entries(params).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
-  const resp = await fetch(`${url}${sep}${qs}`, {
-    method: 'GET',
-    redirect: 'follow',
-  });
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => '');
-    throw new Error(`Sheets GET error ${resp.status}: ${errText}`);
+  try {
+    const resp = await fetch(`${url}${sep}${qs}`, {
+      method: 'GET',
+      redirect: 'follow',
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      throw new Error(`Sheets GET error ${resp.status}: ${errText}`);
+    }
+    return resp.json();
+  } catch (err) {
+    // Silently suppress CORS / network errors to avoid console spam
+    if (err instanceof TypeError && (err.message.includes('Failed to fetch') || err.message.includes('CORS'))) {
+      return null;
+    }
+    throw err;
   }
-  return resp.json();
 }
 
 async function fetchPost(url: string, body: Record<string, unknown>): Promise<unknown> {
-  const resp = await fetch(url, {
-    method: 'POST',
-    redirect: 'follow',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => '');
-    throw new Error(`Sheets POST error ${resp.status}: ${errText}`);
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      throw new Error(`Sheets POST error ${resp.status}: ${errText}`);
+    }
+    return resp.json();
+  } catch (err) {
+    if (err instanceof TypeError && (err.message.includes('Failed to fetch') || err.message.includes('CORS'))) {
+      return null;
+    }
+    throw err;
   }
-  return resp.json();
 }
 
 // --- Collect all local data ---

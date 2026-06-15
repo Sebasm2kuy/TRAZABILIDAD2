@@ -1148,9 +1148,9 @@ export default function CruceCaliral() {
 
   // MGAP import state
   const [mgapPaste, setMgapPaste] = useState('');
-  const [showMgapImport, setShowMgapImport] = useState(false);
+  const [showMgapImport, setShowMgapImport] = useState(true);
   const [mgapExportPaste, setMgapExportPaste] = useState('');
-  const [showMgapExportImport, setShowMgapExportImport] = useState(false);
+  const [showMgapExportImport, setShowMgapExportImport] = useState(true);
 
   // New manual export form state
   const [addExpOpen, setAddExpOpen] = useState(false);
