@@ -1942,6 +1942,33 @@ export default function CruceCaliral() {
   }, [ingresoMap, cruceRows, sinCruceRows, pendienteRows]);
 
   const clearFilters = useCallback(() => { setSearchInput(''); setSearch(''); setPais(''); setFechaDesde(''); setFechaHasta(''); setFiltroProducto(''); setFiltroCorte(''); }, []);
+  // Precompute: ingreso COTE -> total export cajas (used in cruce + stock columns)
+  const exportCajasByCote = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of cruceRows) {
+      if (r.isManualLink && edits.exports[r.exp.id]?.manualCotes) {
+        for (const mc of edits.exports[r.exp.id].manualCotes!) {
+          map.set(mc.cote, (map.get(mc.cote) || 0) + mc.cajas);
+        }
+      } else if (r.ingresoCotes.length > 0) {
+        const totalIngCajas = r.ingresoCotes.reduce((s, c) => s + (ingresoMap.get(c)?.envases || 0), 0);
+        for (const c of r.ingresoCotes) {
+          const share = totalIngCajas > 0 ? Math.round(r.envasesExp * (ingresoMap.get(c)?.envases || 0) / totalIngCajas) : 0;
+          map.set(c, (map.get(c) || 0) + share);
+        }
+      }
+    }
+    for (const r of sinCruceRows) {
+      const mc = edits.exports[r.exp.id]?.manualCotes;
+      if (mc) {
+        for (const link of mc) {
+          map.set(link.cote, (map.get(link.cote) || 0) + link.cajas);
+        }
+      }
+    }
+    return map;
+  }, [cruceRows, sinCruceRows, edits, ingresoMap]);
+
   const hasFilters = search || pais || fechaDesde || fechaHasta || filtroProducto || filtroCorte;
   const detailType = detailRow ? ('exp' in detailRow ? ('ingresoCotes' in detailRow ? 'cruce' : 'sincruce') : 'pendiente') : null;
 
@@ -2263,13 +2290,16 @@ export default function CruceCaliral() {
                   <th className="px-3 py-3">COTEs de Ingreso</th>
                   <th className="px-3 py-3 text-right hidden lg:table-cell">Cajas Ingreso</th>
                   <th className="px-3 py-3 w-[100px]">Agregar COTE</th>
+                  <th className="px-3 py-3 text-right hidden lg:table-cell">Saldo Teorico</th>
+                  <th className="px-3 py-3 text-right hidden lg:table-cell">Cajas Stock</th>
+                  <th className="px-3 py-3 text-right hidden lg:table-cell">Diff Stock/Saldo</th>
                   <th className="px-3 py-3 text-right">Diff. Cajas</th>
                   <th className="px-3 py-3 w-20"></th>
                 </tr>
               </thead>
               <tbody>
                 {pageData.length === 0 ? (
-                  <tr><td colSpan={11} className="text-center py-10 text-slate-400">No se encontraron registros</td></tr>
+                  <tr><td colSpan={14} className="text-center py-10 text-slate-400">No se encontraron registros</td></tr>
                 ) : (pageData as CruceRow[]).map(r => (
                   <tr key={r.exp.id} className={`border-b cursor-pointer ${r.diffEnvases < 0 ? 'hover:bg-red-50/40' : 'hover:bg-orange-50/40'} ${isEdited('export', r.exp.id) ? 'bg-violet-50/30' : ''}`} onClick={() => { setDetailRow(r); setDetailOpen(true); }}>
                     <td className="px-3 py-2.5 text-xs font-mono font-medium text-blue-700">
@@ -2307,6 +2337,25 @@ export default function CruceCaliral() {
                         <Plus className="h-3 w-3" />Vincular COTE
                       </button>
                     </td>
+                    <td className="px-3 py-2.5 text-xs text-right font-mono hidden lg:table-cell">{(() => {
+                      const linkedCotes = r.ingresoCotes.filter(c => ingresoMap.has(c));
+                      if (linkedCotes.length === 0) return <span className="text-slate-300">&mdash;</span>;
+                      const saldo = linkedCotes.reduce((s, c) => s + ((ingresoMap.get(c)?.envases || 0) - (exportCajasByCote.get(c) || 0)), 0);
+                      return <span className={saldo < 0 ? 'text-red-600 font-medium' : 'text-violet-700 font-medium'}>{saldo.toLocaleString('es-UY')}</span>;
+                    })()}</td>
+                    <td className="px-3 py-2.5 text-xs text-right font-mono hidden lg:table-cell">{(() => {
+                      const stockCajas = r.ingresoCotes.reduce((s, c) => s + (stockAggMap.get(c)?.totalCajas || 0), 0);
+                      return stockCajas > 0 ? <span className="text-teal-700 font-medium">{stockCajas.toLocaleString('es-UY')}</span> : <span className="text-slate-300">&mdash;</span>;
+                    })()}</td>
+                    <td className="px-3 py-2.5 text-right hidden lg:table-cell">{(() => {
+                      const linkedCotes = r.ingresoCotes.filter(c => ingresoMap.has(c));
+                      if (linkedCotes.length === 0) return <span className="text-slate-300">&mdash;</span>;
+                      const saldo = linkedCotes.reduce((s, c) => s + ((ingresoMap.get(c)?.envases || 0) - (exportCajasByCote.get(c) || 0)), 0);
+                      const stockCajas = r.ingresoCotes.reduce((s, c) => s + (stockAggMap.get(c)?.totalCajas || 0), 0);
+                      if (stockCajas === 0) return <span className="text-slate-300">&mdash;</span>;
+                      const diff = stockCajas - saldo;
+                      return <span className={`inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full ${Math.abs(diff) === 0 ? 'bg-emerald-50 text-emerald-700' : diff < 0 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>{diff.toLocaleString('es-UY')}</span>;
+                    })()}</td>
                     <td className="px-3 py-2.5 text-right">{diffBadgeEnvases(r.diffEnvases)}</td>
                     <td className="px-3 py-2.5 text-center" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-1">
