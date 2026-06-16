@@ -1732,17 +1732,45 @@ export default function CruceCaliral() {
     }
     const cote = (raw || '').trim().toUpperCase();
     if (!cote) return;
-    // Check if already exists in ingresoMap (original data)
-    if (ingresoMap.has(cote)) {
-      const ing = ingresoMap.get(cote)!;
-      toast.info(`${String(cote)} ya existe en los ingresos: ${ing.envases} cajas, tramite ${ing.tramite}`);
-      if (fromNotFoundView) recomputeCruce(edits);
-      return;
-    }
-    // Check if exists in manual ingresos — allow update
     const manualIngresos = edits.ingresosManuales || [];
     const existingManualIdx = manualIngresos.findIndex(m => m.cote === cote);
     const tramiteVal = parseInt(String(ni_tramite).replace(/[^0-9]/g, '')) || 0;
+
+    // Check if already exists in ingresoMap (original data) — allow saving manual override with lineas
+    if (ingresoMap.has(cote) && existingManualIdx < 0) {
+      const ing = ingresoMap.get(cote)!;
+      const filledLineas = ni_lineas.filter(l => l.producto.trim() || l.corte.trim());
+      const totalCajasFromLineas = filledLineas.reduce((s, l) => s + (typeof l.cajas === 'number' ? l.cajas : 0), 0);
+      const newIngreso: ManualIngreso = {
+        cote,
+        tramite: tramiteVal || ing.tramite,
+        fecha: ni_fecha ? new Date(ni_fecha).toISOString() : ing.fecha,
+        producto: filledLineas.length > 0 ? filledLineas.map(l => l.producto).filter(Boolean).join(', ') : ing.producto,
+        cortes: filledLineas.length > 0 ? filledLineas.map(l => l.corte).filter(Boolean) : ing.cortes,
+        pesoNeto: parseFloat(String(ni_pesoNeto).replace(/[^0-9.,]/g, '')) || ing.pesoNeto,
+        pesoBruto: parseFloat(String(ni_pesoBruto).replace(/[^0-9.,]/g, '')) || ing.pesoBruto,
+        envases: totalCajasFromLineas || (parseInt(String(ni_cajas).replace(/[^0-9]/g, '')) || ing.envases),
+        lineas: filledLineas.length > 0 ? filledLineas : undefined,
+      };
+      const newEdits: EditsStore = {
+        ...edits,
+        ingresosManuales: [...manualIngresos, newIngreso],
+      };
+      setEdits(newEdits);
+      saveEdits(newEdits);
+      recomputeCruce(newEdits);
+      toast.success(`${cote} guardado (existente, ahora con edicion manual)`);
+      if (fromNotFoundView) {
+        // keep detail open
+      } else {
+        setAddIngresoOpen(false);
+      }
+      setNi_cote(''); setNi_tramite(''); setNi_fecha('');
+      setNi_producto(''); setNi_cajas(''); setNi_pesoNeto(''); setNi_pesoBruto('');
+      setNi_lineas([{ id: '1', producto: '', corte: '', cajas: '' }]);
+      return;
+    }
+    // Check if exists in manual ingresos — allow update
     if (tramiteVal <= 0) {
       toast.error('Ingresa el numero de tramite');
       return;
