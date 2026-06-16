@@ -3066,7 +3066,7 @@ export default function CruceCaliral() {
               </div>
             </div>
             <div className="flex gap-2 pt-2 border-t">
-              <Button size="sm" onClick={saveNewIngreso} className="flex-1" disabled={!ni_cote.trim() || !ni_tramite.trim()}>
+              <Button size="sm" onClick={() => saveNewIngreso()} className="flex-1" disabled={!ni_cote.trim() || !ni_tramite.trim()}>
                 <Save className="h-4 w-4 mr-2" />Guardar
               </Button>
               <Button size="sm" variant="outline" onClick={() => setAddIngresoOpen(false)}>Cancelar</Button>
@@ -3181,7 +3181,7 @@ export default function CruceCaliral() {
               </div>
             </div>
             <div className="flex gap-2 pt-2 border-t">
-              <Button size="sm" onClick={saveNewExp} className="flex-1" disabled={!ne_nroCote.trim()}>
+              <Button size="sm" onClick={() => saveNewExp()} className="flex-1" disabled={!ne_nroCote.trim()}>
                 <Save className="h-4 w-4 mr-2" />Guardar
               </Button>
               <Button size="sm" variant="outline" onClick={() => setAddExpOpen(false)}>Cancelar</Button>
