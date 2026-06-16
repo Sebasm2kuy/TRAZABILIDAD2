@@ -1,5 +1,5 @@
 'use client';
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -1146,11 +1146,21 @@ export default function CruceCaliral() {
   const [palletAssignments, setPalletAssignments] = useState<Record<string, { codigo: string; tipo: 'COTE' | 'PASE_SANITARIO' }>>({});
 
   const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pais, setPais] = useState('');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [filtroProducto, setFiltroProducto] = useState('');
   const [filtroCorte, setFiltroCorte] = useState('');
+
+  // Debounce search: input updates instantly, filtering delays 300ms
+  const handleSearchChange = useCallback((val: string) => {
+    setSearchInput(val);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setSearch(val), 300);
+  }, []);
+  useEffect(() => { return () => { if (debounceRef.current) clearTimeout(debounceRef.current); }; }, []);
 
   const [page, setPage] = useState(1);
   const limit = 20;
@@ -1931,7 +1941,7 @@ export default function CruceCaliral() {
     };
   }, [ingresoMap, cruceRows, sinCruceRows, pendienteRows]);
 
-  const clearFilters = useCallback(() => { setSearch(''); setPais(''); setFechaDesde(''); setFechaHasta(''); setFiltroProducto(''); setFiltroCorte(''); }, []);
+  const clearFilters = useCallback(() => { setSearchInput(''); setSearch(''); setPais(''); setFechaDesde(''); setFechaHasta(''); setFiltroProducto(''); setFiltroCorte(''); }, []);
   const hasFilters = search || pais || fechaDesde || fechaHasta || filtroProducto || filtroCorte;
   const detailType = detailRow ? ('exp' in detailRow ? ('ingresoCotes' in detailRow ? 'cruce' : 'sincruce') : 'pendiente') : null;
 
@@ -2215,7 +2225,7 @@ export default function CruceCaliral() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input
               placeholder={subTab === 'pendientes' ? 'Buscar COTE, tramite, producto...' : 'Buscar tramite, COTE, pais, producto...'}
-              value={search} onChange={e => setSearch(e.target.value)} className="pl-9"
+              value={searchInput} onChange={e => handleSearchChange(e.target.value)} className="pl-9"
             />
           </div>
           {subTab !== 'pendientes' && (
