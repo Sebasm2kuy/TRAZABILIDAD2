@@ -82,11 +82,26 @@ function formatDate(val: unknown): string {
   if (typeof val === 'string') {
     const s = val.trim();
     if (!s || s === NULL_DATE_STR) return '';
-    // Try parsing DD/MM/YYYY
+    // Try DD/MM/YYYY first
     const parts = s.split('/');
     if (parts.length === 3) {
-      const d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-      if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+      const a = parseInt(parts[0]), b = parseInt(parts[1]), y = parseInt(parts[2]);
+      // If first part > 12, it must be a day → DD/MM/YYYY
+      if (a > 12) {
+        const d = new Date(y, b - 1, a);
+        if (!isNaN(d.getTime()) && d.getFullYear() > 1900) return d.toISOString().split('T')[0];
+      }
+      // If second part > 12, it must be a month → DD/MM/YYYY with day <= 12
+      if (b > 12) {
+        const d = new Date(y, b - 1, a);
+        if (!isNaN(d.getTime()) && d.getFullYear() > 1900) return d.toISOString().split('T')[0];
+      }
+      // Ambiguous (both <= 12): try DD/MM/YYYY first (Latam default)
+      const dDD = new Date(y, b - 1, a);
+      if (!isNaN(dDD.getTime()) && dDD.getFullYear() > 1900) return dDD.toISOString().split('T')[0];
+      // Fallback: try MM/DD/YYYY (American)
+      const dMM = new Date(y, a - 1, b);
+      if (!isNaN(dMM.getTime()) && dMM.getFullYear() > 1900) return dMM.toISOString().split('T')[0];
     }
     // Try ISO format
     try {
@@ -175,10 +190,14 @@ export async function parseStockXls(file: File): Promise<StockLoad> {
   let fecha = '';
   let cliente = '';
 
-  // Row 1 (index 1): "Fecha: DD/MM/YYYY"
+  // Row 1 (index 1): "Fecha: DD/MM/YYYY" or "Fecha: MM/DD/YYYY"
   const row1Str = safeStr(rows[1]?.[0] || rows[1]?.[1] || '');
   const fechaMatch = row1Str.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})/);
-  if (fechaMatch) fecha = fechaMatch[1];
+  if (fechaMatch) {
+    const parsed = formatDate(fechaMatch[1]);
+    if (parsed) fecha = parsed; // ISO format YYYY-MM-DD
+    else fecha = fechaMatch[1]; // fallback: keep raw
+  }
 
   // Row 0 (index 0): "Cliente: ..."
   const row0Str = safeStr(rows[0]?.[0] || '');

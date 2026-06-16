@@ -676,12 +676,12 @@ function PalletAssignRow({ pallet, allCodes, onAssign }: {
     return (
       <tr className="border-t bg-violet-50/50">
         <td className="px-2 py-1 font-mono">{pallet.contenedor || '-'}</td>
-        <td className="px-2 py-1">{pallet.fechaEntrega || '-'}</td>
+        <td className="px-2 py-1">{pallet.fechaEntrega ? fd(pallet.fechaEntrega) : '-'}</td>
         <td className="px-2 py-1 text-right font-mono">{pallet.cajas.toLocaleString('es-UY')}</td>
         <td className="px-2 py-1 text-right font-mono">{pallet.kilos.toLocaleString('es-UY')}</td>
         <td className="px-2 py-1 max-w-[200px] truncate" title={pallet.contenido}>{pallet.contenido}</td>
         <td className="px-2 py-1 font-mono">{pallet.nroLote || '-'}</td>
-        <td className="px-2 py-1">{pallet.fechaVencimiento || '-'}</td>
+        <td className="px-2 py-1">{pallet.fechaVencimiento ? fd(pallet.fechaVencimiento) : '-'}</td>
         <td className="px-2 py-1">
           <div className="flex items-center gap-1">
             <Input
@@ -711,12 +711,12 @@ function PalletAssignRow({ pallet, allCodes, onAssign }: {
   return (
     <tr className="border-t hover:bg-white/50">
       <td className="px-2 py-1 font-mono">{pallet.contenedor || '-'}</td>
-      <td className="px-2 py-1">{pallet.fechaEntrega || '-'}</td>
+      <td className="px-2 py-1">{pallet.fechaEntrega ? fd(pallet.fechaEntrega) : '-'}</td>
       <td className="px-2 py-1 text-right font-mono">{pallet.cajas.toLocaleString('es-UY')}</td>
       <td className="px-2 py-1 text-right font-mono">{pallet.kilos.toLocaleString('es-UY')}</td>
       <td className="px-2 py-1 max-w-[200px] truncate" title={pallet.contenido}>{pallet.contenido}</td>
       <td className="px-2 py-1 font-mono">{pallet.nroLote || '-'}</td>
-      <td className="px-2 py-1">{pallet.fechaVencimiento || '-'}</td>
+      <td className="px-2 py-1">{pallet.fechaVencimiento ? fd(pallet.fechaVencimiento) : '-'}</td>
       <td className="px-2 py-1">
         <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] text-violet-700 border-violet-300 hover:bg-violet-50" onClick={() => setAssigning(true)}>
           <ArrowLeftRight className="h-3 w-3 mr-0.5" />Asignar
@@ -1107,12 +1107,12 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
                                   {agg.pallets.map(p => (
                                     <tr key={p.id} className="border-t hover:bg-white/50">
                                       <td className="px-2 py-1 font-mono">{p.contenedor || '-'}</td>
-                                      <td className="px-2 py-1">{p.fechaEntrega || '-'}</td>
+                                      <td className="px-2 py-1">{p.fechaEntrega ? fd(p.fechaEntrega) : '-'}</td>
                                       <td className="px-2 py-1 text-right font-mono">{p.cajas.toLocaleString('es-UY')}</td>
                                       <td className="px-2 py-1 text-right font-mono">{p.kilos.toLocaleString('es-UY')}</td>
                                       <td className="px-2 py-1 max-w-[300px] truncate" title={p.contenido}>{p.contenido}</td>
                                       <td className="px-2 py-1 font-mono">{p.nroLote || '-'}</td>
-                                      <td className="px-2 py-1">{p.fechaVencimiento || '-'}</td>
+                                      <td className="px-2 py-1">{p.fechaVencimiento ? fd(p.fechaVencimiento) : '-'}</td>
                                     </tr>
                                   ))}
                                 </tbody>
@@ -2473,7 +2473,7 @@ export default function CruceCaliral() {
                 {/* Stock summary card */}
                 <div className="mb-3 p-3 bg-teal-50 border border-teal-200 rounded-lg text-xs text-teal-800">
                   <div className="flex flex-wrap items-center gap-4">
-                    <span className="font-bold">Stock al {stockData.fecha} — {stockData.cliente}</span>
+                    <span className="font-bold">Stock al {stockData.fecha ? fd(stockData.fecha) : '-'} — {stockData.cliente}</span>
                     <span>Total codigos: <b>{stockAggMap.size}</b></span>
                     <span>Total pallets: <b>{stockData.pallets.length}</b></span>
                     <span>Cajas totales: <b>{[...stockAggMap.values()].reduce((s, a) => s + a.totalCajas, 0).toLocaleString('es-UY')}</b></span>
