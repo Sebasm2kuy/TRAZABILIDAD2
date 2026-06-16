@@ -95,11 +95,50 @@ function cleanDate(val: unknown): string | null {
     if (val.getFullYear() < 1900) return null;
     return val.toISOString();
   }
+  // Handle Excel serial date numbers
+  if (typeof val === 'number') {
+    if (val <= 0) return null;
+    try {
+      const epoch = new Date(1899, 11, 30);
+      const ms = epoch.getTime() + val * 86400000;
+      const d = new Date(ms);
+      if (isNaN(d.getTime()) || d.getFullYear() < 1900) return null;
+      return d.toISOString();
+    } catch { return null; }
+  }
   const s = String(val).trim();
   if (!s || s === '0') return null;
+  // Try ISO format first (YYYY-MM-DD)
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const d = new Date(s);
+    if (!isNaN(d.getTime()) && d.getFullYear() >= 1900) return d.toISOString();
+  }
+  // Handle DD/MM/YYYY or MM/DD/YYYY strings
+  const parts = s.split('/');
+  if (parts.length === 3) {
+    const a = parseInt(parts[0]), b = parseInt(parts[1]), y = parseInt(parts[2]);
+    // If first part > 12, must be DD/MM/YYYY
+    if (a > 12) {
+      const d = new Date(y, b - 1, a);
+      if (!isNaN(d.getTime()) && d.getFullYear() >= 1900) return d.toISOString();
+    }
+    // If second part > 12, first must be month ≤ 12 → MM/DD/YYYY? No, b > 12 means b is day in DD/MM
+    if (b > 12) {
+      const d = new Date(y, b - 1, a);
+      if (!isNaN(d.getTime()) && d.getFullYear() >= 1900) return d.toISOString();
+    }
+    // Ambiguous (both ≤ 12): use the Excel cell format hint — since Registro Excel
+    // from Uruguay uses DD/MM/YYYY, prefer that interpretation
+    const dDD = new Date(y, b - 1, a);
+    if (!isNaN(dDD.getTime()) && dDD.getFullYear() >= 1900) return dDD.toISOString();
+    // Fallback: MM/DD/YYYY
+    const dMM = new Date(y, a - 1, b);
+    if (!isNaN(dMM.getTime()) && dMM.getFullYear() >= 1900) return dMM.toISOString();
+  }
+  // Last resort: let JS try
   const d = new Date(s);
-  if (isNaN(d.getTime()) || d.getFullYear() < 1900) return null;
-  return d.toISOString();
+  if (!isNaN(d.getTime()) && d.getFullYear() >= 1900) return d.toISOString();
+  return null;
 }
 
 function parseRow(row: unknown[], idPrefix: string, rowIndex: number): Shipment | null {
@@ -209,7 +248,9 @@ export async function parseEnviosExcel(file: File): Promise<Shipment[]> {
   const ws = wb.Sheets[wb.SheetNames[0]];
 
   // Convert to array of arrays
-  const data: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd' });
+  // Use raw: true so Date objects pass through directly to cleanDate()
+  // raw: false causes XLSX to format dates as strings using cell locale, corrupting day/month
+  const data: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
 
   const results: Shipment[] = [];
   for (let i = DATA_START_ROW - 1; i < data.length; i++) {
@@ -232,7 +273,7 @@ export async function parseExpoExcel(file: File): Promise<ExpRecord[]> {
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
 
-  const data: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd' });
+  const data: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
 
   const results: ExpRecord[] = [];
   for (let i = DATA_START_ROW - 1; i < data.length; i++) {

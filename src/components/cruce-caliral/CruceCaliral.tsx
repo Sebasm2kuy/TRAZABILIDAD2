@@ -17,6 +17,43 @@ import { buildStockAggMap, SIN_CODIGO_KEY } from '@/lib/parseStockXls';
 function fd(d: string | null | undefined) { if (!d) return '-'; return new Date(d).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
 function fmt(n: number) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return Math.round(n).toLocaleString('es-UY'); }
 
+// Fix dates that were corrupted by MM/DD ↔ DD/MM swap during Excel import
+// If a date is more than 2 months in the future, swap day and month
+function fixSwappedDate(iso: string): string {
+  if (!iso || !iso.includes('T')) return iso;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const now = new Date();
+  const twoMonthsMs = 62 * 86400000;
+  // If date is more than 2 months in the future, it's probably swapped
+  if (d.getTime() > now.getTime() + twoMonthsMs && d.getDate() <= 12 && d.getMonth() + 1 <= 12) {
+    const swapped = new Date(d.getFullYear(), d.getDate() - 1, d.getMonth() + 1);
+    if (!isNaN(swapped.getTime()) && swapped.getTime() <= now.getTime()) {
+      return swapped.toISOString();
+    }
+  }
+  return iso;
+}
+
+function fixRecordDates<T extends Record<string, unknown>>(records: T[], dateFields: string[]): T[] {
+  let changed = false;
+  const fixed = records.map(r => {
+    let modified = false;
+    const copy = { ...r };
+    for (const f of dateFields) {
+      const v = copy[f];
+      if (typeof v === 'string' && v.includes('T')) {
+        const fixed = fixSwappedDate(v);
+        if (fixed !== v) { copy[f] = fixed; modified = true; }
+      }
+    }
+    if (modified) changed = true;
+    return copy;
+  });
+  if (changed) return fixed;
+  return records;
+}
+
 // --- MGAP page content parser ---
 interface MgapParsed {
   cote?: string;
@@ -355,6 +392,22 @@ async function ensureData(forceReload = false) {
       }
     } catch { /* ignore */ }
 
+    // Fix swapped dates (MM/DD ↔ DD/MM corruption from old Excel imports)
+    const shipDateFields = ['fechaTramite', 'fechaEmitidoCote', 'fechaInicioFaena', 'fechaFinFaena', 'fechaInicioProduccion', 'fechaFinProduccion', 'fechaInicioCongelacion', 'fechaFinCongelacion'];
+    const fixedShipments = fixRecordDates(caliralShipments, shipDateFields);
+    if (fixedShipments !== caliralShipments) {
+      // Save corrected data back to localStorage
+      try {
+        const depImpRaw = localStorage.getItem('trazabilidad_dep_imported');
+        if (depImpRaw) {
+          const depImported: IngresoLine[] = JSON.parse(depImpRaw);
+          const fixedDep = fixRecordDates(depImported, shipDateFields);
+          if (fixedDep !== depImported) localStorage.setItem('trazabilidad_dep_imported', JSON.stringify(fixedDep));
+        }
+      } catch { /* ignore */ }
+      caliralShipments = fixedShipments;
+    }
+
     cache.shipments = caliralShipments;
     cache.exportsRaw = allExports;
     cache.loaded = true;
@@ -393,6 +446,22 @@ async function ensureData(forceReload = false) {
       }
     }
   } catch { /* ignore */ }
+
+  // Fix swapped dates on exports too
+  const expDateFields = ['fechaTramite', 'fechaEmitidoCote', 'fechaInicioFaena', 'fechaFinFaena', 'fechaInicioProduccion', 'fechaFinProduccion', 'fechaInicioCongelacion', 'fechaFinCongelacion', 'recibidaFechaHora'];
+  const fixedExports = fixRecordDates(allExportsList, expDateFields);
+  if (fixedExports !== allExportsList) {
+    try {
+      const expImpRaw = localStorage.getItem('trazabilidad_exp_imported');
+      if (expImpRaw) {
+        const expImported: ExpRecord[] = JSON.parse(expImpRaw);
+        const fixedImp = fixRecordDates(expImported, expDateFields);
+        if (fixedImp !== expImported) localStorage.setItem('trazabilidad_exp_imported', JSON.stringify(fixedImp));
+      }
+    } catch { /* ignore */ }
+    allExportsList.length = 0;
+    allExportsList.push(...fixedExports);
+  }
 
   // Apply edits from Exportaciones page to ALL exports (including PDF uploads)
   const expEdits = loadExpEdits();
