@@ -550,8 +550,18 @@ function SinCruceInlineRow({ row, ingresoMap, stockAggMap, edits, onSaved, onEdi
   const [expanding, setExpanding] = useState(false);
   const [newCote, setNewCote] = useState('');
   const [newCajas, setNewCajas] = useState('');
-
-  const currentManualCotes = edits.exports[row.exp.id]?.manualCotes || [];
+  // Local mirror of manualCotes to avoid stale closure when adding quickly
+  const [localCotes, setLocalCotes] = useState<ManualCoteLink[]>(
+    () => edits.exports[row.exp.id]?.manualCotes || []
+  );
+  const opLock = useRef(false);
+  // Sync from props (handles external changes like sync/undo), skip during local ops
+  const propCotes = edits.exports[row.exp.id]?.manualCotes || [];
+  const propKey = propCotes.map(c => `${c.cote}:${c.cajas}`).join(',');
+  const localKey = localCotes.map(c => `${c.cote}:${c.cajas}`).join(',');
+  if (propKey !== localKey && !opLock.current) {
+    setLocalCotes(propCotes);
+  }
 
   const existingCotesInCaliral = [...ingresoMap.keys(), ...stockAggMap.keys()].sort();
 
@@ -566,15 +576,18 @@ function SinCruceInlineRow({ row, ingresoMap, stockAggMap, edits, onSaved, onEdi
       toast.error('Ingresá la cantidad de cajas');
       return;
     }
-    const existingIdx = currentManualCotes.findIndex(c => c.cote === cote);
+    opLock.current = true;
+    setTimeout(() => { opLock.current = false; }, 100);
+    const existingIdx = localCotes.findIndex(c => c.cote === cote);
     let updated: ManualCoteLink[];
     if (existingIdx >= 0) {
-      updated = currentManualCotes.map((c, i) => i === existingIdx ? { ...c, cajas } : c);
+      updated = localCotes.map((c, i) => i === existingIdx ? { ...c, cajas } : c);
       toast.success(`${cote} actualizado: ${cajas} cajas`);
     } else {
-      updated = [...currentManualCotes, { cote, cajas }];
+      updated = [...localCotes, { cote, cajas }];
       toast.success(`${cote} agregado`);
     }
+    setLocalCotes(updated);
     const newEdits: EditsStore = {
       ...edits,
       exports: {
@@ -588,7 +601,10 @@ function SinCruceInlineRow({ row, ingresoMap, stockAggMap, edits, onSaved, onEdi
   };
 
   const handleRemoveCote = (cote: string) => {
-    const updated = currentManualCotes.filter(c => c.cote !== cote);
+    opLock.current = true;
+    setTimeout(() => { opLock.current = false; }, 100);
+    const updated = localCotes.filter(c => c.cote !== cote);
+    setLocalCotes(updated);
     const newEdits: EditsStore = { ...edits };
     if (updated.length > 0) {
       newEdits.exports = { ...newEdits.exports, [row.exp.id]: { ...newEdits.exports[row.exp.id], manualCotes: updated } };
@@ -630,9 +646,9 @@ function SinCruceInlineRow({ row, ingresoMap, stockAggMap, edits, onSaved, onEdi
           />
         </td>
         <td className="px-3 py-2.5 text-center">
-          {currentManualCotes.length > 0 ? (
+          {localCotes.length > 0 ? (
             <div className="flex flex-wrap gap-1 justify-center">
-              {currentManualCotes.map(mc => {
+              {localCotes.map(mc => {
                 const found = ingresoMap.get(mc.cote);
                 return (
                   <span key={mc.cote} className={`inline-flex items-center gap-0.5 text-[10px] font-mono px-1.5 py-0.5 rounded ${found ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
@@ -670,7 +686,7 @@ function SinCruceInlineRow({ row, ingresoMap, stockAggMap, edits, onSaved, onEdi
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleQuickAdd(); } }}
                 />
                 <datalist id={`cote-sug-${row.exp.id}`}>
-                  {existingCotesInCaliral.filter(c => !currentManualCotes.some(mc => mc.cote === c)).map(c => {
+                  {existingCotesInCaliral.filter(c => !localCotes.some(mc => mc.cote === c)).map(c => {
                     const ing = ingresoMap.get(c);
                     const stk = stockAggMap.get(c);
                     return (
@@ -703,16 +719,16 @@ function SinCruceInlineRow({ row, ingresoMap, stockAggMap, edits, onSaved, onEdi
                 <X className="h-3 w-3" />
               </Button>
             </div>
-            {currentManualCotes.length > 0 && (
+            {localCotes.length > 0 && (
               <div className="mt-2 space-y-0.5">
                 <div className="flex items-center gap-2 text-[11px] text-slate-600">
-                  <span>Usadas: <b className="text-violet-700">{currentManualCotes.reduce((s, c) => s + c.cajas, 0)}</b></span>
+                  <span>Usadas: <b className="text-violet-700">{localCotes.reduce((s, c) => s + c.cajas, 0)}</b></span>
                   <span className="text-slate-300">|</span>
-                  <span>En depositos: <b className="text-emerald-700">{currentManualCotes.reduce((s, c) => s + (ingresoMap.get(c.cote)?.envases || 0), 0)}</b></span>
+                  <span>En depositos: <b className="text-emerald-700">{localCotes.reduce((s, c) => s + (ingresoMap.get(c.cote)?.envases || 0), 0)}</b></span>
                   <span className="text-slate-300">|</span>
                   <span>Exp.: <b>{row.exp.cantidadEnvases || 0}</b></span>
                   <span className="text-slate-300">|</span>
-                  <span>Diff depositos: <b className={currentManualCotes.reduce((s, c) => s + (ingresoMap.get(c.cote)?.envases || 0), 0) - (row.exp.cantidadEnvases || 0) < 0 ? 'text-red-600' : 'text-emerald-600'}>{(currentManualCotes.reduce((s, c) => s + (ingresoMap.get(c.cote)?.envases || 0), 0) - (row.exp.cantidadEnvases || 0)).toLocaleString('es-UY')}</b></span>
+                  <span>Diff depositos: <b className={localCotes.reduce((s, c) => s + (ingresoMap.get(c.cote)?.envases || 0), 0) - (row.exp.cantidadEnvases || 0) < 0 ? 'text-red-600' : 'text-emerald-600'}>{(localCotes.reduce((s, c) => s + (ingresoMap.get(c.cote)?.envases || 0), 0) - (row.exp.cantidadEnvases || 0)).toLocaleString('es-UY')}</b></span>
                 </div>
               </div>
             )}
