@@ -11,8 +11,8 @@ const LAST_SYNC_KEY = 'trazabilidad_last_sync';
 const OLD_SETTINGS_KEY = 'trazabilidad_sheets_url'; // Legacy Google Sheets key
 const SYNC_DEBOUNCE_MS = 3000; // Wait 3s after last change before pushing
 
-// Firebase URL hardcoded — works on any device without configuration
-const HARDCODED_FIREBASE_URL = 'https://trazabilidad-9aa3c-default-rtdb.firebaseio.com';
+// Firebase URL — check for window env variable first, then fall back to hardcoded value
+const HARDCODED_FIREBASE_URL = (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).TRZ_FB_URL as string) || 'https://trazabilidad-9aa3c-default-rtdb.firebaseio.com';
 
 // Auto-migrate: clear old Google Sheets URL to prevent CORS errors
 if (typeof window !== 'undefined') {
@@ -24,10 +24,10 @@ if (typeof window !== 'undefined') {
     }
     // Also clear old sync key name
     localStorage.removeItem('trazabilidad_sheets_last_sync');
-  } catch { /* ignore */ }
+  } catch (err) { console.warn('Auto-migrate cleanup error:', err); }
 }
 
-// All localStorage keys that need to be synced
+// All localStorage keys that need to be synced (password excluded for security)
 export const SYNC_KEYS = [
   'trazabilidad_new_records',
   'trazabilidad_exp_edits',
@@ -38,7 +38,6 @@ export const SYNC_KEYS = [
   'trazabilidad_dep_deleted',
   'cruce_caliral_edits',
   'trazabilidad_stock_data',
-  'trazabilidad_system_password',
   'trazabilidad_dep_imported',
   'trazabilidad_exp_imported',
   'trazabilidad_stock_assignments',
@@ -118,6 +117,27 @@ async function firebasePut(url: string, data: SyncData): Promise<boolean> {
   }
 }
 
+async function firebasePatch(url: string, data: SyncData): Promise<boolean> {
+  try {
+    const resp = await fetch(`${url}/.json`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`Firebase PATCH ${resp.status}: ${text.slice(0, 100)}`);
+    }
+    return true;
+  } catch (err) {
+    if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
+      console.warn('Firebase: no se pudo conectar (red/CORS)');
+      return false;
+    }
+    throw err;
+  }
+}
+
 // --- Collect all local data ---
 
 function collectLocalData(): SyncData {
@@ -128,8 +148,8 @@ function collectLocalData(): SyncData {
       if (val !== null && val !== undefined) {
         data[key] = JSON.parse(val);
       }
-    } catch {
-      // skip
+    } catch (err) {
+      console.warn('Sync key parse error:', key, err);
     }
   }
   return data;
@@ -190,7 +210,8 @@ export async function pullFromSheets(): Promise<{ count: number; error?: string 
 }
 
 /**
- * Push all local data to Firebase (local wins).
+ * Push all local data to Firebase using PATCH for granular sync.
+ * PATCH only updates keys present in localData, preserving remote keys that don't exist locally.
  */
 export async function pushToSheets(): Promise<{ count: number; error?: string }> {
   const url = getSheetUrl();
@@ -199,21 +220,15 @@ export async function pushToSheets(): Promise<{ count: number; error?: string }>
   isSyncing = true;
 
   try {
-    // First pull remote to merge
-    const remote = await firebaseGet(url);
-    const remoteData: SyncData = remote || {};
-
     // Collect local data
     const localData = collectLocalData();
-
-    // Merge: local wins for keys that exist locally
-    const merged: SyncData = { ...remoteData, ...localData };
 
     const keys = Object.keys(localData);
     if (keys.length === 0) return { count: 0 };
 
-    // Push merged data
-    const ok = await firebasePut(url, merged);
+    // Use PATCH instead of PUT: only updates keys present in localData,
+    // preserving remote keys that don't exist locally (reduces data loss from concurrent writes)
+    const ok = await firebasePatch(url, localData);
     if (ok) {
       localStorage.setItem(LAST_SYNC_KEY, new Date().toISOString());
       dispatchSyncEvent('push', { count: keys.length });
@@ -313,10 +328,16 @@ function dispatchSyncEvent(type: string, detail: Record<string, unknown>) {
   }
 }
 
-// --- Password management (local + synced via Firebase) ---
+// --- Password management (local only — NOT synced via Firebase for security) ---
 
 const PASSWORD_KEY = 'trazabilidad_system_password';
+const PBKDF2_SALT_KEY = 'trazabilidad_pbkdf2_salt';
+const PBKDF2_ITERATIONS = 100_000;
+const HASH_PREFIX = 'pbkdf2$'; // Distinguish new hashes from old simpleHash format
 
+/**
+ * Legacy DJB2 hash — kept for backward compatibility during migration.
+ */
 function simpleHash(str: string): string {
   let hash = 5381;
   const salted = 'trazabilidad_salt_' + str;
@@ -326,19 +347,76 @@ function simpleHash(str: string): string {
   return hash.toString(36);
 }
 
+/**
+ * Get or create a stable PBKDF2 salt stored in localStorage.
+ * The salt is derived from the app name + a random component.
+ */
+function getOrCreateSalt(): string {
+  if (typeof window === 'undefined') return 'trazabilidad_fallback_salt';
+  let salt = localStorage.getItem(PBKDF2_SALT_KEY);
+  if (!salt) {
+    const randomPart = crypto.getRandomValues(new Uint8Array(16));
+    salt = 'trazabilidad_' + Array.from(randomPart, (b) => b.toString(16).padStart(2, '0')).join('');
+    localStorage.setItem(PBKDF2_SALT_KEY, salt);
+  }
+  return salt;
+}
+
+/**
+ * Secure hash using PBKDF2 (Web Crypto API) with 100,000 iterations.
+ * Returns a hex string prefixed with 'pbkdf2$' to distinguish from old simpleHash format.
+ */
+async function secureHash(str: string): Promise<string> {
+  const salt = getOrCreateSalt();
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(str),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits'],
+  );
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: encoder.encode(salt),
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    256,
+  );
+  const hashArray = Array.from(new Uint8Array(derivedBits));
+  const hexHash = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  return HASH_PREFIX + hexHash;
+}
+
 export function hasPassword(): boolean {
   if (typeof window === 'undefined') return false;
   return !!localStorage.getItem(PASSWORD_KEY);
 }
 
-export function setPassword(pw: string): void {
+export async function setPassword(pw: string): Promise<void> {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(PASSWORD_KEY, simpleHash(pw));
+  localStorage.setItem(PASSWORD_KEY, await secureHash(pw));
 }
 
-export function verifyPassword(pw: string): boolean {
+export async function verifyPassword(pw: string): Promise<boolean> {
   if (typeof window === 'undefined') return false;
   const stored = localStorage.getItem(PASSWORD_KEY);
   if (!stored) return false;
-  return stored === simpleHash(pw);
+
+  // Check if stored hash uses new PBKDF2 format
+  if (stored.startsWith(HASH_PREFIX)) {
+    const newHash = await secureHash(pw);
+    return stored === newHash;
+  }
+
+  // Backward compatibility: try old simpleHash for migration
+  const legacyMatch = stored === simpleHash(pw);
+  if (legacyMatch) {
+    // Migrate to new secure hash
+    localStorage.setItem(PASSWORD_KEY, await secureHash(pw));
+  }
+  return legacyMatch;
 }

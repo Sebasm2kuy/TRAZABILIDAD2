@@ -5,9 +5,9 @@ const nextConfig: NextConfig = {
   basePath: "/trazabilidad",
   images: { unoptimized: true },
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
-  reactStrictMode: false,
+  reactStrictMode: true,
 };
 
 export default nextConfig;

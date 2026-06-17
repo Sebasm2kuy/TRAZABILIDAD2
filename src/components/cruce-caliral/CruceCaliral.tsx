@@ -13,9 +13,7 @@ import { schedulePush } from '@/lib/googleSheets';
 import type { ExpRecord } from '@/lib/types';
 import type { StockLoad, StockCodigoAgg, StockPallet } from '@/lib/parseStockXls';
 import { buildStockAggMap, SIN_CODIGO_KEY } from '@/lib/parseStockXls';
-
-function fd(d: string | null | undefined) { if (!d) return '-'; return new Date(d).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
-function fmt(n: number) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return Math.round(n).toLocaleString('es-UY'); }
+import { fd, fmt } from '@/lib/utils';
 
 // Fix dates that were corrupted by MM/DD ↔ DD/MM swap during Excel import
 // If a date is more than 2 months in the future, swap day and month
@@ -35,20 +33,20 @@ function fixSwappedDate(iso: string): string {
   return iso;
 }
 
-function fixRecordDates<T extends Record<string, unknown>>(records: T[], dateFields: string[]): T[] {
+function fixRecordDates<T>(records: T[], dateFields: string[]): T[] {
   let changed = false;
   const fixed = records.map(r => {
     let modified = false;
-    const copy = { ...r };
+    const copy = { ...r } as unknown as Record<string, unknown>;
     for (const f of dateFields) {
       const v = copy[f];
       if (typeof v === 'string' && v.includes('T')) {
-        const fixed = fixSwappedDate(v);
-        if (fixed !== v) { copy[f] = fixed; modified = true; }
+        const fixedVal = fixSwappedDate(v);
+        if (fixedVal !== v) { copy[f] = fixedVal; modified = true; }
       }
     }
     if (modified) changed = true;
-    return copy;
+    return copy as T;
   });
   if (changed) return fixed;
   return records;
@@ -348,7 +346,7 @@ async function ensureData(forceReload = false) {
     }
 
     // Filter to Caliral-bound shipments
-    let caliralShipments = baseShipments.filter(s => (s.nombreEstablecimientoDestino || '').toLowerCase().includes('caliral'));
+    let caliralShipments = baseShipments.filter(s => String(s.nombreEstablecimientoDestino || '').toLowerCase().includes('caliral'));
 
     // Also include imported records that are not already in base (for non-caliral merge)
     if (baseShipments === allShipments && importedShipments.length > 0) {
@@ -1450,6 +1448,8 @@ export default function CruceCaliral() {
       nombreEstablecimientoCertif: null, precinto1: null, matriculaCamion: null,
       fechaEmitidoCote: null, fechaInicioProduccion: null, fechaFinProduccion: null,
       fechaInicioCongelacion: null, fechaFinCongelacion: null,
+      nombreEstablecimientoDestino: (me as unknown as unknown as Record<string, unknown>).nombreEstablecimientoDestino as string || '',
+      tipo: (me as unknown as unknown as Record<string, unknown>).tipo as string || 'EXPORTACION',
     }));
     const editedExports = [...cache.exports.map(e => {
       const edit = editsData.exports[e.id];
@@ -1622,7 +1622,7 @@ export default function CruceCaliral() {
       ne.exports = { ...ne.exports, [id]: { ...ne.exports[id], cantidadEnvases: nv } };
     } else if (ne.exports[id]) {
       const ec = { ...ne.exports[id] };
-      const tmp = { ...ec } as Record<string, unknown>;
+      const tmp = { ...ec } as unknown as Record<string, unknown>;
       delete tmp.cantidadEnvases;
       if (Object.keys(tmp).length === 0) {
         const restEntries = Object.entries(ne.exports).filter(([k]) => k !== id);
@@ -1644,7 +1644,7 @@ export default function CruceCaliral() {
       ne.exports = { ...ne.exports, [id]: { ...ne.exports[id], pesoNeto: nv } };
     } else if (ne.exports[id]) {
       const ec = { ...ne.exports[id] };
-      const tmp = { ...ec } as Record<string, unknown>;
+      const tmp = { ...ec } as unknown as Record<string, unknown>;
       delete tmp.pesoNeto;
       if (Object.keys(tmp).length === 0) {
         const restEntries = Object.entries(ne.exports).filter(([k]) => k !== id);
@@ -2637,7 +2637,7 @@ export default function CruceCaliral() {
                           <tbody>
                             {agg.lines.map((l, i) => (
                               <tr key={i} className="border-t">
-                                <td className="px-2 py-1">{String((l as Record<string, unknown>).idLinea ?? i + 1)}</td>
+                                <td className="px-2 py-1">{String((l as unknown as Record<string, unknown>).idLinea ?? i + 1)}</td>
                                 <td className="px-2 py-1">{l.corte}</td>
                                 <td className="px-2 py-1 text-right font-mono">{l.cantidadEnvases ?? '-'}</td>
                                 <td className="px-2 py-1 text-right font-mono">{l.pesoBruto ? l.pesoBruto.toLocaleString('es-UY') : '-'}</td>
@@ -2783,7 +2783,7 @@ export default function CruceCaliral() {
                       ['Producto', r.exp.denominacionMercaderia],
                       ['Corte', r.exp.corte],
                       ['Transporte', r.exp.tipoTransporte || '-'],
-                      ['Contenedor', (r.exp as Record<string, unknown>).contenedorSerieNro as string || '-'],
+                      ['Contenedor', (r.exp as unknown as Record<string, unknown>).contenedorSerieNro as string || '-'],
                       ['Precinto', r.exp.precinto1 || '-'],
                       ['Cert. Sanitario', r.exp.nroCertificadoSanitario || '-'],
                       ['Estab. Certificador', r.exp.nombreEstablecimientoCertif || '-'],
@@ -2879,7 +2879,7 @@ export default function CruceCaliral() {
                     ['COTE', r.exp.nroCote], ['Nro. Tramite', String(r.exp.nroTramite)],
                     ['Fecha', fd(r.exp.fechaTramite)], ['Pais', r.exp.paisDestino],
                     ['Producto', r.exp.denominacionMercaderia], ['Corte', r.exp.corte],
-                    ['Contenedor', (r.exp as Record<string, unknown>).contenedorSerieNro as string || '-'],
+                    ['Contenedor', (r.exp as unknown as Record<string, unknown>).contenedorSerieNro as string || '-'],
                     ['Cajas (envases)', String(r.exp.cantidadEnvases ?? '-')],
                     ['Peso Neto', r.exp.pesoNeto ? String(r.exp.pesoNeto) + ' kg' : '-'],
                     ['Estab. Certificador', r.exp.nombreEstablecimientoCertif || '-'],
@@ -2936,7 +2936,7 @@ export default function CruceCaliral() {
                             <tbody>
                               {agg.lines.map((l, i) => (
                                 <tr key={i} className="border-t">
-                                  <td className="px-2 py-1">{String((l as Record<string, unknown>).idLinea ?? i + 1)}</td>
+                                  <td className="px-2 py-1">{String((l as unknown as Record<string, unknown>).idLinea ?? i + 1)}</td>
                                   <td className="px-2 py-1">{l.corte}</td>
                                   <td className="px-2 py-1 text-right font-mono">{l.cantidadEnvases ?? '-'}</td>
                                   <td className="px-2 py-1 text-right font-mono">{l.pesoNeto ? l.pesoNeto.toLocaleString('es-UY') : '-'}</td>

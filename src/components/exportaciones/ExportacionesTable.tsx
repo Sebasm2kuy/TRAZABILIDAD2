@@ -16,10 +16,7 @@ import { parseCotePdf, coteToExpRecord } from '@/lib/parseCotePdf';
 import { parseExpoExcel } from '@/lib/parseExcelRegistro';
 import { schedulePush } from '@/lib/googleSheets';
 import { toast } from 'sonner';
-
-function fd(d: string | null | undefined) { if (!d) return '-'; try { return new Date(d).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric' }); } catch { return '-'; } }
-function fdt(d: string | null | undefined) { if (!d) return '-'; try { return new Date(d).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return '-'; } }
-function fmt(n: number) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return Math.round(n).toLocaleString('es-UY'); }
+import { fd, fdt, fmt } from '@/lib/utils';
 
 const COLORS = ['#059669', '#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899'];
 
@@ -261,9 +258,9 @@ export default function ExportacionesTable() {
       } catch { /* ignore */ }
       const a = expCache.analytics!;
       setOptions({
-        paises: (a.byPais || []).map((p: { pais: string }) => p.pais).filter(Boolean),
-        productos: (a.byProducto || []).map((p: { producto: string }) => p.producto).filter(Boolean),
-        destinos: (a.byDestino || []).map((d: { destino: string }) => d.destino).filter(Boolean),
+        paises: ((a.byPais as any[]) || []).map((p: any) => p.pais).filter(Boolean),
+        productos: ((a.byProducto as any[]) || []).map((p: any) => p.producto).filter(Boolean),
+        destinos: ((a.byDestino as any[]) || []).map((d: any) => d.destino).filter(Boolean),
       });
       // Apply edits to cache
       expCache.data = applyEdits(expCache.data, edits);
@@ -318,7 +315,7 @@ export default function ExportacionesTable() {
     const form: Record<string, string> = {};
     for (const sec of SECTIONS) {
       for (const f of sec.fields) {
-        const val = (s as Record<string, unknown>)[f.key];
+        const val = (s as unknown as unknown as Record<string, unknown>)[f.key];
         if (f.type === 'datetime-local') {
           form[f.key] = toInputDate(val as string | null | undefined);
         } else if (f.type === 'date') {
@@ -338,13 +335,13 @@ export default function ExportacionesTable() {
     for (const sec of SECTIONS) {
       for (const f of sec.fields) {
         const newVal = editForm[f.key];
-        const origVal = (selected as Record<string, unknown>)[f.key];
+        const origVal = (selected as unknown as unknown as Record<string, unknown>)[f.key];
         const origStr = origVal !== null && origVal !== undefined ? String(origVal) : '';
         if (newVal !== origStr) {
           if (f.type === 'number') {
-            (changed as Record<string, unknown>)[f.key] = newVal !== '' ? Number(newVal) : null;
+            (changed as unknown as Record<string, unknown>)[f.key] = newVal !== '' ? Number(newVal) : null;
           } else {
-            (changed as Record<string, unknown>)[f.key] = newVal || null;
+            (changed as unknown as Record<string, unknown>)[f.key] = newVal || null;
           }
         }
       }
@@ -356,15 +353,15 @@ export default function ExportacionesTable() {
       const firstProducto = filledLineas.map(l => l.producto).filter(Boolean).join(', ') || null;
       const firstCorte = filledLineas.map(l => l.corte).filter(Boolean).join(', ') || null;
       const totalCajas = filledLineas.reduce((s, l) => s + (typeof l.cajas === 'number' ? l.cajas : 0), 0);
-      (changed as Record<string, unknown>).denominacionMercaderia = firstProducto;
-      (changed as Record<string, unknown>).corte = firstCorte;
-      (changed as Record<string, unknown>).cantidadEnvases = totalCajas || null;
-      (changed as Record<string, unknown>).lineas = filledLineas;
+      (changed as unknown as Record<string, unknown>).denominacionMercaderia = firstProducto;
+      (changed as unknown as Record<string, unknown>).corte = firstCorte;
+      (changed as unknown as Record<string, unknown>).cantidadEnvases = totalCajas || null;
+      (changed as unknown as Record<string, unknown>).lineas = filledLineas;
     }
 
     // Remove undefined values from changed
     for (const k of Object.keys(changed)) {
-      if ((changed as Record<string, unknown>)[k] === undefined) delete (changed as Record<string, unknown>)[k];
+      if ((changed as unknown as Record<string, unknown>)[k] === undefined) delete (changed as unknown as Record<string, unknown>)[k];
     }
 
     if (Object.keys(changed).length === 0) {
@@ -384,7 +381,7 @@ export default function ExportacionesTable() {
     // Re-populate form with updated data
     for (const sec of SECTIONS) {
       for (const f of sec.fields) {
-        const val = (updated as Record<string, unknown>)[f.key];
+        const val = (updated as unknown as Record<string, unknown>)[f.key];
         if (f.type === 'datetime-local') {
           editForm[f.key] = toInputDate(val as string | null | undefined);
         } else {
@@ -415,7 +412,7 @@ export default function ExportacionesTable() {
     // Reset form field to original value
     const orig = expCache.data.find(s => s.id === selected.id);
     if (orig) {
-      const val = (orig as Record<string, unknown>)[key];
+      const val = (orig as unknown as Record<string, unknown>)[key];
       setEditForm(prev => ({ ...prev, [key]: val !== null && val !== undefined ? String(val) : '' }));
       setSelected({ ...selected, [key]: val });
     }
@@ -695,7 +692,7 @@ export default function ExportacionesTable() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <Card><CardContent className="p-4 flex items-center gap-3">
             <div className="p-3 rounded-xl bg-blue-50"><Ship className="h-5 w-5 text-blue-600" /></div>
-            <div><p className="text-xs text-slate-500">Total</p><p className="text-xl font-bold">{a.total}</p></div>
+            <div><p className="text-xs text-slate-500">Total</p><p className="text-xl font-bold">{String(a.total)}</p></div>
           </CardContent></Card>
           <Card><CardContent className="p-4 flex items-center gap-3">
             <div className="p-3 rounded-xl bg-amber-50"><span className="text-lg font-bold text-amber-600">kg</span></div>
@@ -703,14 +700,14 @@ export default function ExportacionesTable() {
           </CardContent></Card>
           <Card><CardContent className="p-4 flex items-center gap-3">
             <div className="p-3 rounded-xl bg-violet-50"><span className="text-lg font-bold text-violet-600">🇺🇾</span></div>
-            <div><p className="text-xs text-slate-500">Países</p><p className="text-xl font-bold">{a.uniquePaisCount}</p></div>
+            <div><p className="text-xs text-slate-500">Países</p><p className="text-xl font-bold">{String(a.uniquePaisCount)}</p></div>
           </CardContent></Card>
           <Card><CardContent className="p-4 flex items-center gap-3">
             <div className="p-3 rounded-xl bg-rose-50"><span className="text-lg font-bold text-rose-600">📦</span></div>
             <div><p className="text-xs text-slate-500">Envases</p><p className="text-xl font-bold">{fmt(a.envasesTotal as number)}</p></div>
           </CardContent></Card>
-          <Card className="lg:col-span-2"><CardContent className="h-52 relative"><ResponsiveContainer width="100%" height={176}><PieChart><Pie data={((a.byPais as Array<Record<string, number>>) || []).slice(0, 8)} dataKey="pesoNeto" nameKey="pais" cx="50%" cy="50%" outerRadius={80} label={({ pais, percent }) => `${(pais as string).substring(0, 15)} ${(percent * 100).toFixed(0)}%`}>{((a.byPais as Array<Record<string, number>>) || []).slice(0, 8).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip formatter={(v: number) => fmt(v) + ' kg'} /></PieChart></ResponsiveContainer></CardContent></Card>
-          <Card className="lg:col-span-2"><CardContent className="h-52 relative"><ResponsiveContainer width="100%" height={176}><BarChart data={((a.byProducto as Array<Record<string, number>>) || []).slice(0, 6)} layout="vertical" margin={{ left: 10 }}><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" /><XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => fmt(v as number)} /><YAxis type="category" dataKey="producto" width={160} tick={{ fontSize: 9 }} /><Tooltip formatter={(v: number) => fmt(v) + ' kg'} /><Bar dataKey="pesoNeto" fill="#3b82f6" radius={[0, 4, 4, 0]} /></BarChart></ResponsiveContainer></CardContent></Card>
+          <Card className="lg:col-span-2"><CardContent className="h-52 relative"><ResponsiveContainer width="100%" height={176}><PieChart><Pie data={((a.byPais as any) || []).slice(0, 8)} dataKey="pesoNeto" nameKey="pais" cx="50%" cy="50%" outerRadius={80} label={({ pais, percent }: any) => `${(pais as string).substring(0, 15)} ${(percent * 100).toFixed(0)}%`}>{((a.byPais as any) || []).slice(0, 8).map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip formatter={(v: any) => fmt(v) + ' kg'} /></PieChart></ResponsiveContainer></CardContent></Card>
+          <Card className="lg:col-span-2"><CardContent className="h-52 relative"><ResponsiveContainer width="100%" height={176}><BarChart data={((a.byProducto as any) || []).slice(0, 6)} layout="vertical" margin={{ left: 10 }}><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" /><XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v: any) => fmt(v)} /><YAxis type="category" dataKey="producto" width={160} tick={{ fontSize: 9 }} /><Tooltip formatter={(v: any) => fmt(v) + ' kg'} /><Bar dataKey="pesoNeto" fill="#3b82f6" radius={[0, 4, 4, 0]} /></BarChart></ResponsiveContainer></CardContent></Card>
         </div>
       )}
 
@@ -917,7 +914,7 @@ export default function ExportacionesTable() {
                         );
                       }
                       // Read-only mode
-                      const val = (selected as Record<string, unknown>)[field.key];
+                      const val = (selected as unknown as unknown as Record<string, unknown>)[field.key];
                       let displayVal: string;
                       if (field.type === 'datetime-local') {
                         displayVal = fdt(val as string | null | undefined);

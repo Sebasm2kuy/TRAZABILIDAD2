@@ -7,12 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Search, ArrowUpDown, Download } from 'lucide-react';
 import { fetchShipments } from '@/lib/staticData';
 import type { Shipment } from '@/lib/types';
-
-function fmt(n: number) {
-  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-  return Math.round(n).toLocaleString('es-UY');
-}
+import { fmt } from '@/lib/utils';
 
 export default function ProductoDestino() {
   const [shipments, setShipments] = useState<Shipment[]>([]);

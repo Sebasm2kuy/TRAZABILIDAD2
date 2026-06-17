@@ -1,6 +1,6 @@
 import type { ExpRecord } from './types';
 
-interface CoteParsed extends Record<string, string | number | null> {
+interface CoteParsed extends Record<string, string | number | null | string[]> {
   nroTramite: number | null;
   nroCote: string | null;
   fechaEmitidoCote: string | null;
@@ -715,7 +715,7 @@ export function coteToExpRecord(parsed: CoteParsed): Partial<ExpRecord> & { id: 
     recibidaFechaHora: '',
     recepcionServicio: '',
     inspeccionExteriorConforme: '',
-    recibidaTemperatura: null,
+    recibidaTemperatura: undefined,
     recepcionObservaciones: '',
     recepcionUsuario: '',
     obsInspeccionExterior: '',

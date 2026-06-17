@@ -16,22 +16,7 @@ import {
 } from 'lucide-react';
 import { fetchShipments, getCotes } from '@/lib/staticData';
 import type { Shipment } from '@/lib/types';
-
-function fd(d: string | null | undefined) {
-  if (!d) return '-';
-  try { return new Date(d).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
-  catch { return '-'; }
-}
-function fdt(d: string | null | undefined) {
-  if (!d) return '-';
-  try { return new Date(d).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
-  catch { return '-'; }
-}
-function fmt(n: number) {
-  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-  return Math.round(n).toLocaleString('es-UY');
-}
+import { fd, fmt } from '@/lib/utils';
 
 const STAGE_COLORS: Record<string, string> = {
   faena: 'bg-red-100 text-red-700 border-red-300',
@@ -585,7 +570,7 @@ export default function TraceSearch() {
                         <p><span className="text-slate-500">Destino:</span> {cruceData.exportacion.nombreEstablecimientoDestino}</p>
                         <p><span className="text-slate-500">Contenedor:</span> {cruceData.exportacion.contenedorSerieNro || '-'}</p>
                         <p><span className="text-slate-500">Precinto:</span> {cruceData.exportacion.precinto1 || '-'}</p>
-                        <p><span className="text-slate-500">Papel Seguridad:</span> {(cruceData.exportacion as Record<string, unknown>).papelSeguridad || '-'}</p>
+                        <p><span className="text-slate-500">Papel Seguridad:</span> {(cruceData.exportacion as unknown as Record<string, unknown>).papelSeguridad as string || '-'}</p>
                       </div>
                     ) : (
                       <p className="text-sm text-amber-600 bg-amber-50 rounded-lg p-3 border border-amber-200 flex items-center gap-2">

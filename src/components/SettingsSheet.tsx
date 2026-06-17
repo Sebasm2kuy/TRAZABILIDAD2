@@ -125,7 +125,7 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
     }
   };
 
-  const handleCreatePassword = () => {
+  const handleCreatePassword = async () => {
     if (pwInput.length < 4) {
       toast.error('La contraseña debe tener al menos 4 caracteres');
       return;
@@ -134,7 +134,7 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
       toast.error('Las contraseñas no coinciden');
       return;
     }
-    gs.setPassword(pwInput);
+    await gs.setPassword(pwInput);
     setPwExists(true);
     setPwStep('idle');
     setPwInput('');
@@ -143,8 +143,8 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
     toast.success('Contraseña creada y guardada');
   };
 
-  const handleVerifyPassword = () => {
-    if (gs.verifyPassword(pwInput)) {
+  const handleVerifyPassword = async () => {
+    if (await gs.verifyPassword(pwInput)) {
       setPwStep('confirm_reset');
       setPwInput('');
     } else {
@@ -154,21 +154,34 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
   };
 
   const handleFactoryReset = async () => {
+    // SECURITY WARNING: This function performs a destructive DELETE to Firebase.
+    // The password has already been verified before reaching this point
+    // (pwStep === 'confirm_reset' is only reachable after handleVerifyPassword succeeds).
+    // However, the Firebase DELETE request is unauthenticated — anyone with the URL can delete data.
+    // If authentication is needed, consider using Firebase Security Rules or a backend proxy.
     setResetting(true);
     try {
       for (const key of ALL_DATA_KEYS) {
         localStorage.removeItem(key);
       }
 
-      // Also clear remote Firebase data
+      // Only clear remote Firebase data if Firebase is configured AND password has been verified
+      // (password verification is guaranteed by the pwStep flow: 'verify' → 'confirm_reset')
       if (gs.isConfigured()) {
         try {
           const fbUrl = gs.getSheetUrl();
-          await fetch(`${fbUrl}/.json`, {
+          console.warn('[FactoryReset] Deleting remote Firebase data for:', fbUrl);
+          const response = await fetch(`${fbUrl}/.json`, {
             method: 'DELETE',
           });
-        } catch {
-          // ignore - local is cleared anyway
+          if (!response.ok) {
+            console.error('[FactoryReset] Firebase DELETE failed:', response.status, response.statusText);
+          } else {
+            console.info('[FactoryReset] Firebase data deleted successfully');
+          }
+        } catch (fbErr) {
+          // Log the error but continue — local data is already cleared
+          console.error('[FactoryReset] Error deleting Firebase data:', fbErr);
         }
       }
 
@@ -178,6 +191,7 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
       onOpenChange(false);
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
+      console.error('[FactoryReset] Unexpected error:', err);
       toast.error('Error al restablecer: ' + (err as Error).message);
     } finally {
       setResetting(false);

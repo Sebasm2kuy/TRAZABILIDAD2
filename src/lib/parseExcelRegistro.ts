@@ -169,7 +169,6 @@ function parseRow(row: unknown[], idPrefix: string, rowIndex: number): Shipment 
     temperaturaC: cleanNum(raw.temperaturaC),
     tipoTransporte: cleanStr(raw.tipoTransporte) || null,
     contenedorSerieNro: cleanStr(raw.contenedorSerieNro) || null,
-    matriculaAvion: cleanStr(raw.matriculaAvion) || null,
     matriculaCamion: cleanStr(raw.matriculaCamion) || null,
     precinto1: cleanStr(raw.precinto1) || null,
     nombreEstablecimientoDestino: cleanStr(raw.nombreEstablecimientoDestino),

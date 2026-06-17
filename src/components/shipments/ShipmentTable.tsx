@@ -14,6 +14,7 @@ import { parseEnviosExcel } from '@/lib/parseExcelRegistro';
 import type { Shipment } from '@/lib/types';
 import { schedulePush } from '@/lib/googleSheets';
 import { toast } from 'sonner';
+import { fd, fdt } from '@/lib/utils';
 
 function parseMgapContentLocal(raw: string) {
   const r: { cote?: string; tramite?: number; fecha?: string; producto?: string; cajas?: number; pesoNeto?: number; pesoBruto?: number; corte?: string; pais?: string } = {};
@@ -30,9 +31,6 @@ function parseMgapContentLocal(raw: string) {
   } catch { /* ignore */ }
   return r;
 }
-
-function fd(d: string | null | undefined) { if (!d) return '-'; try { return new Date(d).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric' }); } catch { return '-'; } }
-function fdt(d: string | null | undefined) { if (!d) return '-'; try { return new Date(d).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return '-'; } }
 
 const DEP_EDITS_KEY = 'trazabilidad_dep_edits';
 const DEP_NEW_KEY = 'trazabilidad_dep_new_records';
@@ -276,7 +274,7 @@ export default function ShipmentTable() {
     const form: Record<string, string> = {};
     for (const sec of SECTIONS) {
       for (const f of sec.fields) {
-        const val = (s as Record<string, unknown>)[f.key];
+        const val = (s as unknown as Record<string, unknown>)[f.key];
         if (f.type === 'datetime-local') {
           form[f.key] = toInputDate(val as string | null | undefined);
         } else if (f.type === 'date') {
@@ -296,13 +294,13 @@ export default function ShipmentTable() {
     for (const sec of SECTIONS) {
       for (const f of sec.fields) {
         const newVal = editForm[f.key];
-        const origVal = (selected as Record<string, unknown>)[f.key];
+        const origVal = (selected as unknown as Record<string, unknown>)[f.key];
         const origStr = origVal !== null && origVal !== undefined ? String(origVal) : '';
         if (newVal !== origStr) {
           if (f.type === 'number') {
-            (changed as Record<string, unknown>)[f.key] = newVal !== '' ? Number(newVal) : null;
+            (changed as unknown as Record<string, unknown>)[f.key] = newVal !== '' ? Number(newVal) : null;
           } else {
-            (changed as Record<string, unknown>)[f.key] = newVal || null;
+            (changed as unknown as Record<string, unknown>)[f.key] = newVal || null;
           }
         }
       }
@@ -313,10 +311,10 @@ export default function ShipmentTable() {
       const productoFromLineas = filledLineas.map(l => l.producto).filter(Boolean).join(', ');
       const corteFromLineas = filledLineas.map(l => l.corte).filter(Boolean).join(', ');
       const cajasFromLineas = filledLineas.reduce((s, l) => s + (typeof l.cajas === 'number' ? l.cajas : 0), 0);
-      (changed as Record<string, unknown>).denominacionMercaderia = productoFromLineas || null;
-      (changed as Record<string, unknown>).corte = corteFromLineas || null;
-      (changed as Record<string, unknown>).cantidadEnvases = cajasFromLineas || null;
-      (changed as Record<string, unknown>).lineas = filledLineas;
+      (changed as unknown as Record<string, unknown>).denominacionMercaderia = productoFromLineas || null;
+      (changed as unknown as Record<string, unknown>).corte = corteFromLineas || null;
+      (changed as unknown as Record<string, unknown>).cantidadEnvases = cajasFromLineas || null;
+      (changed as unknown as Record<string, unknown>).lineas = filledLineas;
     }
     if (Object.keys(changed).length === 0) {
       setSaveMsg('Sin cambios');
@@ -330,7 +328,7 @@ export default function ShipmentTable() {
     setSelected(updated);
     for (const sec of SECTIONS) {
       for (const f of sec.fields) {
-        const val = (updated as Record<string, unknown>)[f.key];
+        const val = (updated as unknown as Record<string, unknown>)[f.key];
         if (f.type === 'datetime-local') {
           editForm[f.key] = toInputDate(val as string | null | undefined);
         } else {
@@ -362,7 +360,7 @@ export default function ShipmentTable() {
     const origFromCache = depCache.data.find(s => s.id === selected.id);
     const orig = origFromNew || origFromCache;
     if (orig) {
-      const val = (orig as Record<string, unknown>)[key];
+      const val = (orig as unknown as Record<string, unknown>)[key];
       setEditForm(prev => ({ ...prev, [key]: val !== null && val !== undefined ? String(val) : '' }));
       setSelected({ ...selected, [key]: val });
     }
@@ -809,7 +807,7 @@ export default function ShipmentTable() {
                         );
                       }
                       // Read-only mode
-                      const val = (selected as Record<string, unknown>)[field.key];
+                      const val = (selected as unknown as Record<string, unknown>)[field.key];
                       let displayVal: string;
                       if (field.type === 'datetime-local') {
                         displayVal = fdt(val as string | null | undefined);

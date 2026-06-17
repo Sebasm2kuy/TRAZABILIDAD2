@@ -33,8 +33,15 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   return <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">{children}</label>;
 }
 
+const colSpanClass: Record<number, string> = {
+  1: 'col-span-1',
+  2: 'col-span-2',
+  3: 'col-span-3',
+  4: 'col-span-4',
+};
+
 function Field({ label, children, colSpan }: { label: string; children: React.ReactNode; colSpan?: number }) {
-  return <div className={colSpan ? `col-span-${colSpan}` : ''}><FieldLabel>{label}</FieldLabel>{children}</div>;
+  return <div className={colSpan ? colSpanClass[colSpan] || '' : ''}><FieldLabel>{label}</FieldLabel>{children}</div>;
 }
 
 export default function NewRecordForm() {
@@ -99,6 +106,7 @@ export default function NewRecordForm() {
       pallets: pallets ? parseInt(pallets) : null,
       observaciones: observaciones || null,
       tipo: tipo === 'ingreso' ? 'INGRESO' : 'EXPORTACION',
+      nombreEstablecimientoDestino: '',
     };
 
     if (tipo === 'exportacion') {

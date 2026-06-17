@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { useAppStore } from '@/store/useAppStore';
-import { LayoutDashboard, Warehouse, Ship, ArrowLeftRight, Search, GitCompare, BarChart3, Download, PlusCircle, Settings, Cloud, CloudOff } from 'lucide-react';
+import { LayoutDashboard, Warehouse, Ship, ArrowLeftRight, Search, GitCompare, BarChart3, Download, PlusCircle, Settings, Cloud, CloudOff, Menu } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isConfigured, getLastSync } from '@/lib/googleSheets';
 import SettingsSheet from '@/components/SettingsSheet';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const tabs = [
   { id: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
@@ -19,7 +21,11 @@ const tabs = [
   { id: 'nuevo' as const, label: 'Nuevo Registro', icon: PlusCircle },
 ];
 
-export default function Sidebar() {
+function SidebarContent({
+  onNavigate,
+}: {
+  onNavigate?: () => void;
+}) {
   const { activeTab, setActiveTab } = useAppStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [configured, setConfigured] = useState(false);
@@ -36,67 +42,115 @@ export default function Sidebar() {
     return () => window.removeEventListener('sheets-sync', handler);
   }, []);
 
+  const handleTabClick = (tabId: typeof activeTab) => {
+    setActiveTab(tabId);
+    onNavigate?.();
+  };
+
   return (
     <>
-      <aside className="w-[340px] bg-slate-900 text-white flex flex-col min-h-screen shrink-0">
-        <div className="p-5 border-b border-slate-700 flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold text-emerald-400">Trazabilidad</h1>
-            <p className="text-xs text-slate-400 mt-1">Frigorífico San Jacinto</p>
-          </div>
+      <div className="p-5 border-b border-slate-700 flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-bold text-emerald-400">Trazabilidad</h1>
+          <p className="text-xs text-slate-400 mt-1">Frigorífico San Jacinto</p>
+        </div>
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className={cn(
+            'p-2 rounded-lg transition-colors',
+            configured
+              ? 'text-emerald-400 hover:bg-slate-800'
+              : 'text-amber-400 hover:bg-slate-800'
+          )}
+          title={configured ? 'Sincronización configurada' : 'Configurar sincronización'}
+          aria-label={configured ? 'Sincronización configurada' : 'Configurar sincronización'}
+        >
+          {configured ? <Cloud className="h-5 w-5" /> : <CloudOff className="h-5 w-5" />}
+        </button>
+      </div>
+      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => handleTabClick(tab.id)}
+              className={cn(
+                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+                active
+                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="p-4 border-t border-slate-700 space-y-1">
+        {configured && lastSync && (
+          <p className="text-[10px] text-slate-500">
+            <Cloud className="h-3 w-3 inline mr-1" />
+            Sync: {new Date(lastSync).toLocaleString('es-UY')}
+          </p>
+        )}
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] text-slate-500">v1.2 — Nirea S.A.</p>
           <button
             onClick={() => setSettingsOpen(true)}
-            className={cn(
-              'p-2 rounded-lg transition-colors',
-              configured
-                ? 'text-emerald-400 hover:bg-slate-800'
-                : 'text-amber-400 hover:bg-slate-800'
-            )}
-            title={configured ? 'Sincronización configurada' : 'Configurar sincronización'}
+            className="text-slate-500 hover:text-slate-300 transition-colors"
+            aria-label="Configuración"
           >
-            {configured ? <Cloud className="h-5 w-5" /> : <CloudOff className="h-5 w-5" />}
+            <Settings className="h-3.5 w-3.5" />
           </button>
         </div>
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={cn(
-                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
-                  active
-                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
-                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
-        <div className="p-4 border-t border-slate-700 space-y-1">
-          {configured && lastSync && (
-            <p className="text-[10px] text-slate-500">
-              <Cloud className="h-3 w-3 inline mr-1" />
-              Sync: {new Date(lastSync).toLocaleString('es-UY')}
-            </p>
-          )}
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] text-slate-500">v1.2 — Nirea S.A.</p>
-            <button
-              onClick={() => setSettingsOpen(true)}
-              className="text-slate-500 hover:text-slate-300 transition-colors"
-            >
-              <Settings className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-      </aside>
+      </div>
       <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
+  );
+}
+
+export default function Sidebar() {
+  const isMobile = useIsMobile();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Close mobile sheet on route/tab change
+  const handleMobileNavigate = () => {
+    setMobileOpen(false);
+  };
+
+  if (isMobile) {
+    return (
+      <>
+        {/* Mobile hamburger button */}
+        <div className="fixed top-0 left-0 right-0 z-40 bg-slate-900 p-3 flex items-center md:hidden">
+          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+            <SheetTrigger asChild>
+              <button
+                className="p-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+                aria-label="Abrir menú de navegación"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+            </SheetTrigger>
+            <SheetContent side="left" className="bg-slate-900 text-white border-slate-700 p-0 w-[300px] sm:max-w-[300px]">
+              <div className="flex flex-col h-full">
+                <SidebarContent onNavigate={handleMobileNavigate} />
+              </div>
+            </SheetContent>
+          </Sheet>
+          <h1 className="text-lg font-bold text-emerald-400 ml-3">Trazabilidad</h1>
+        </div>
+      </>
+    );
+  }
+
+  // Desktop sidebar
+  return (
+    <aside className="w-[340px] bg-slate-900 text-white flex flex-col min-h-screen shrink-0">
+      <SidebarContent />
+    </aside>
   );
 }

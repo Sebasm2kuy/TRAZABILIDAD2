@@ -13,6 +13,7 @@ import ProductoDestino from '@/components/comparativa/ProductoDestino';
 import ImportExportPanel from '@/components/import-export/ImportExportPanel';
 import NewRecordForm from '@/components/new-record/NewRecordForm';
 import { initialPull } from '@/lib/googleSheets';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 export default function Home() {
   const { activeTab } = useAppStore();
@@ -68,11 +69,15 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto overflow-x-hidden">
-        {renderContent()}
-      </main>
-    </div>
+    <ErrorBoundary>
+      <div className="flex h-screen overflow-hidden bg-slate-50">
+        <Sidebar />
+        <main className="flex-1 overflow-y-auto overflow-x-hidden pt-14 md:pt-0">
+          <ErrorBoundary>
+            {renderContent()}
+          </ErrorBoundary>
+        </main>
+      </div>
+    </ErrorBoundary>
   );
 }

@@ -1,3 +1,10 @@
+export const TipoEnum = {
+  INGRESO: 'INGRESO',
+  EXPORTACION: 'EXPORTACION',
+  DEPOSITO: 'DEPOSITO',
+} as const;
+export type TipoType = typeof TipoEnum[keyof typeof TipoEnum];
+
 export interface Shipment {
   id: string;
   nroTramite: number;
