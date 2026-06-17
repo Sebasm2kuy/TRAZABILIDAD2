@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type Tab = 'dashboard' | 'depositos' | 'exportaciones' | 'cruce-caliral' | 'trazabilidad' | 'comparativa' | 'analiticas' | 'importar' | 'nuevo';
+export type Tab = 'dashboard' | 'depositos' | 'exportaciones' | 'cruce-caliral' | 'trazabilidad' | 'comparativa' | 'analiticas' | 'importar' | 'nuevo';
 
 interface Filters {
   pais: string;
@@ -38,6 +38,9 @@ interface AppState {
   clearExpFilters: () => void;
   selectedShipmentId: string | null;
   setSelectedShipmentId: (id: string | null) => void;
+  navigateAndFilter: (tab: Tab, filters?: Partial<Filters & ExpFilters>, search?: string) => void;
+  recentCotes: string[];
+  addRecentCote: (cote: string) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -53,4 +56,35 @@ export const useAppStore = create<AppState>((set) => ({
   clearExpFilters: () => set({ expFilters: { ...emptyExpFilters } }),
   selectedShipmentId: null,
   setSelectedShipmentId: (id) => set({ selectedShipmentId: id }),
+  navigateAndFilter: (tab, filters, search) => {
+    const state: Partial<AppState> = { activeTab: tab };
+    if (search !== undefined) state.search = search;
+    // Clear filters for the target tab, then apply new ones
+    if (tab === 'exportaciones') {
+      state.expFilters = { ...emptyExpFilters };
+      if (filters) {
+        const newExpFilters = { ...emptyExpFilters };
+        Object.entries(filters).forEach(([k, v]) => {
+          if (k in newExpFilters) (newExpFilters as any)[k] = v;
+        });
+        state.expFilters = newExpFilters;
+      }
+    } else if (tab === 'depositos' || tab === 'trazabilidad') {
+      state.filters = { ...emptyFilters };
+      if (filters) {
+        const newFilters = { ...emptyFilters };
+        Object.entries(filters).forEach(([k, v]) => {
+          if (k in newFilters) (newFilters as any)[k] = v;
+        });
+        state.filters = newFilters;
+      }
+    }
+    set(state);
+  },
+  recentCotes: [],
+  addRecentCote: (cote) =>
+    set((s) => {
+      const filtered = s.recentCotes.filter((c) => c !== cote);
+      return { recentCotes: [cote, ...filtered].slice(0, 20) };
+    }),
 }));

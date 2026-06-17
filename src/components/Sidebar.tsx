@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { LayoutDashboard, Warehouse, Ship, ArrowLeftRight, Search, GitCompare, BarChart3, Download, PlusCircle, Settings, Cloud, CloudOff, Menu } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -26,10 +26,12 @@ function SidebarContent({
 }: {
   onNavigate?: () => void;
 }) {
-  const { activeTab, setActiveTab } = useAppStore();
+  const { activeTab, setActiveTab, navigateAndFilter, search, setSearch } = useAppStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [configured, setConfigured] = useState(false);
   const [lastSync, setLastSync] = useState('');
+  const [hoveredTab, setHoveredTab] = useState<string | null>(null);
+  const [quickSearch, setQuickSearch] = useState('');
 
   useEffect(() => {
     setConfigured(isConfigured());
@@ -42,10 +44,41 @@ function SidebarContent({
     return () => window.removeEventListener('sheets-sync', handler);
   }, []);
 
+  // Sync quick search with store search on mount
+  useEffect(() => {
+    setQuickSearch(search);
+  }, [search]);
+
   const handleTabClick = (tabId: typeof activeTab) => {
     setActiveTab(tabId);
     onNavigate?.();
   };
+
+  const handleQuickSearch = useCallback(
+    (value: string) => {
+      setQuickSearch(value);
+      setSearch(value);
+      navigateAndFilter('trazabilidad', undefined, value);
+      onNavigate?.();
+    },
+    [navigateAndFilter, setSearch, onNavigate]
+  );
+
+  // Keyboard shortcuts: ⌘1-9 to switch tabs
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
+        const index = parseInt(e.key, 10) - 1;
+        if (index < tabs.length) {
+          e.preventDefault();
+          setActiveTab(tabs[index].id);
+          onNavigate?.();
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [setActiveTab, onNavigate]);
 
   return (
     <>
@@ -68,23 +101,69 @@ function SidebarContent({
           {configured ? <Cloud className="h-5 w-5" /> : <CloudOff className="h-5 w-5" />}
         </button>
       </div>
+
+      {/* Quick Search */}
+      <div className="px-4 pt-4 pb-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            value={quickSearch}
+            onChange={(e) => handleQuickSearch(e.target.value)}
+            placeholder="Buscar COTE, trámite..."
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 transition-colors"
+            aria-label="Búsqueda rápida"
+          />
+        </div>
+      </div>
+
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {tabs.map((tab) => {
+        {tabs.map((tab, index) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
+          const isHovered = hoveredTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => handleTabClick(tab.id)}
+              onMouseEnter={() => setHoveredTab(tab.id)}
+              onMouseLeave={() => setHoveredTab(null)}
               className={cn(
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all relative',
                 active
                   ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
                   : 'text-slate-300 hover:bg-slate-800 hover:text-white'
               )}
             >
-              <Icon className="h-4 w-4" />
-              {tab.label}
+              {/* Active tab indicator - emerald bar on left edge */}
+              {active && (
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[1px] w-[3px] h-5 bg-emerald-300 rounded-r-full" />
+              )}
+
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="flex-1 text-left">{tab.label}</span>
+
+              {/* Keyboard shortcut hint */}
+              <span
+                className={cn(
+                  'text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors',
+                  active
+                    ? 'text-emerald-200 bg-emerald-700/50'
+                    : 'text-slate-500 bg-slate-800'
+                )}
+              >
+                {index + 1}
+              </span>
+
+              {/* Hover arrow */}
+              <span
+                className={cn(
+                  'text-xs transition-opacity duration-150',
+                  isHovered && !active ? 'opacity-100 text-slate-400' : 'opacity-0'
+                )}
+              >
+                →
+              </span>
             </button>
           );
         })}

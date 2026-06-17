@@ -1,13 +1,14 @@
 'use client';
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, ArrowUpDown, Download } from 'lucide-react';
+import { Search, ArrowUpDown, Download, Trophy, X } from 'lucide-react';
 import { fetchShipments } from '@/lib/staticData';
 import type { Shipment } from '@/lib/types';
 import { fmt } from '@/lib/utils';
+import { useAppStore } from '@/store/useAppStore';
 
 export default function ProductoDestino() {
   const [shipments, setShipments] = useState<Shipment[]>([]);
@@ -16,7 +17,9 @@ export default function ProductoDestino() {
   const [searchProd, setSearchProd] = useState('');
   const [sortMode, setSortMode] = useState<'total' | 'name'>('total');
   const [topN, setTopN] = useState(30);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; prod: string; dest: string; kg: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { navigateAndFilter } = useAppStore();
 
   useEffect(() => {
     (async () => {
@@ -25,6 +28,13 @@ export default function ProductoDestino() {
       setLoading(false);
     })();
   }, []);
+
+  const go = useCallback((producto?: string, destino?: string) => {
+    const filters: { producto?: string; destino?: string } = {};
+    if (producto) filters.producto = producto;
+    if (destino) filters.destino = destino;
+    navigateAndFilter('depositos', filters);
+  }, [navigateAndFilter]);
 
   const matrix = useMemo(() => {
     const map = new Map<string, Map<string, number>>();
@@ -93,6 +103,21 @@ export default function ProductoDestino() {
     return { map, filteredDests, filteredProds, filteredProdTotals, colTotals, grandTotal, maxVal };
   }, [shipments, searchDest, searchProd, sortMode, topN]);
 
+  // Top 5 combinations
+  const topCombinations = useMemo(() => {
+    const combos: { prod: string; dest: string; kg: number }[] = [];
+    for (const prod of matrix.filteredProds) {
+      const row = matrix.map.get(prod);
+      if (!row) continue;
+      for (const dest of matrix.filteredDests) {
+        const kg = row.get(dest) || 0;
+        if (kg > 0) combos.push({ prod, dest, kg });
+      }
+    }
+    combos.sort((a, b) => b.kg - a.kg);
+    return combos.slice(0, 5);
+  }, [matrix]);
+
   function heatColor(val: number, max: number) {
     if (val === 0) return 'bg-slate-50 text-slate-300';
     const ratio = val / max;
@@ -102,6 +127,15 @@ export default function ProductoDestino() {
     if (ratio > 0.05) return 'bg-emerald-100 text-emerald-800';
     return 'bg-emerald-50 text-emerald-700';
   }
+
+  const handleCellHover = useCallback((e: React.MouseEvent, prod: string, dest: string, kg: number) => {
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setTooltip({ x: rect.right + 8, y: rect.top - 4, prod, dest, kg });
+  }, []);
+
+  const handleCellLeave = useCallback(() => {
+    setTooltip(null);
+  }, []);
 
   if (loading) {
     return (
@@ -179,11 +213,56 @@ export default function ProductoDestino() {
         </CardContent>
       </Card>
 
+      {/* Top Combinaciones Summary Card */}
+      {topCombinations.length > 0 && (
+        <Card className="border-emerald-200 bg-gradient-to-r from-emerald-50 to-white">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Trophy className="h-5 w-5 text-emerald-600" />
+              <h3 className="text-sm font-bold text-emerald-800">Top Combinaciones</h3>
+              <span className="text-xs text-emerald-500 ml-1">— haz clic para filtrar en Depósitos</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {topCombinations.map((c, i) => (
+                <button
+                  key={`${c.prod}-${c.dest}`}
+                  onClick={() => go(c.prod, c.dest)}
+                  className="group inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 hover:shadow-md hover:scale-105 transition-all duration-150 cursor-pointer"
+                >
+                  <span className="bg-white/20 rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold">
+                    {i + 1}
+                  </span>
+                  <span className="max-w-[160px] truncate">{c.prod}</span>
+                  <X className="h-3 w-3 opacity-50" />
+                  <span className="max-w-[120px] truncate">{c.dest}</span>
+                  <span className="ml-1 bg-white/20 rounded px-1.5 py-0.5 text-[10px] font-bold">
+                    {fmt(c.kg)} kg
+                  </span>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tooltip */}
+      {tooltip && (
+        <div
+          className="fixed z-50 pointer-events-none bg-slate-900 text-white text-xs rounded-lg shadow-xl px-3 py-2 border border-slate-700 max-w-[280px]"
+          style={{ left: tooltip.x, top: tooltip.y }}
+        >
+          <div className="font-bold text-emerald-400 mb-0.5">Detalle</div>
+          <div><span className="text-slate-400">Producto:</span> {tooltip.prod}</div>
+          <div><span className="text-slate-400">Destino:</span> {tooltip.dest}</div>
+          <div><span className="text-slate-400">Kg:</span> <span className="font-bold text-emerald-300">{fmt(tooltip.kg)} kg</span></div>
+        </div>
+      )}
+
       {/* Independent scroll container — breaks out of parent ScrollArea constraints */}
       <div
         ref={scrollRef}
         className="border rounded-lg bg-white shadow-sm overflow-auto"
-        style={{ maxHeight: 'calc(100vh - 240px)' }}
+        style={{ maxHeight: 'calc(100vh - 340px)' }}
       >
         <table
           className="text-xs border-collapse"
@@ -200,9 +279,10 @@ export default function ProductoDestino() {
               {matrix.filteredDests.map(d => (
                 <th
                   key={d}
-                  className="px-2 py-2.5 text-right whitespace-nowrap font-normal"
+                  className="px-2 py-2.5 text-right whitespace-nowrap font-normal cursor-pointer hover:underline hover:text-emerald-300 transition-colors"
                   style={{ minWidth: 80 }}
-                  title={d}
+                  title={`Filtrar por destino: ${d}`}
+                  onClick={() => go(undefined, d)}
                 >
                   {d.length > 20 ? d.substring(0, 18) + '…' : d}
                 </th>
@@ -223,24 +303,33 @@ export default function ProductoDestino() {
               return (
                 <tr key={prod} className={`${bg} hover:bg-emerald-50/50`}>
                   <td
-                    className={`px-3 py-1.5 text-left font-medium text-slate-700 sticky left-0 z-10 border-r border-slate-200 ${bg}`}
+                    className={`px-3 py-1.5 text-left font-medium text-slate-700 sticky left-0 z-10 border-r border-slate-200 ${bg} cursor-pointer hover:underline hover:text-emerald-700 transition-colors`}
                     style={{ minWidth: 200, maxWidth: 260 }}
-                    title={prod}
+                    title={`Filtrar por producto: ${prod}`}
+                    onClick={() => go(prod)}
                   >
                     <span className="block truncate">{prod}</span>
                   </td>
                   {matrix.filteredDests.map(dest => {
                     const val = row?.get(dest) || 0;
+                    const hasData = val > 0;
                     return (
                       <td
                         key={dest}
-                        className={`px-2 py-1.5 text-right font-mono whitespace-nowrap ${heatColor(val, matrix.maxVal)}`}
+                        className={`px-2 py-1.5 text-right font-mono whitespace-nowrap ${heatColor(val, matrix.maxVal)} ${hasData ? 'cursor-pointer hover:ring-2 hover:ring-emerald-400 hover:scale-105 transition-all duration-100' : ''}`}
+                        onClick={() => hasData && go(prod, dest)}
+                        onMouseEnter={hasData ? (e) => handleCellHover(e, prod, dest, val) : undefined}
+                        onMouseLeave={hasData ? handleCellLeave : undefined}
                       >
                         {val > 0 ? fmt(val) : <span className="text-slate-200">—</span>}
                       </td>
                     );
                   })}
-                  <td className="px-3 py-1.5 text-right font-bold font-mono bg-slate-100 text-slate-800 sticky right-0 z-10 border-l border-slate-300">
+                  <td
+                    className="px-3 py-1.5 text-right font-bold font-mono bg-slate-100 text-slate-800 sticky right-0 z-10 border-l border-slate-300 cursor-pointer hover:underline hover:text-emerald-700 hover:bg-slate-200 transition-colors"
+                    title={`Filtrar por producto: ${prod}`}
+                    onClick={() => go(prod)}
+                  >
                     {fmt(rowTotal)}
                   </td>
                 </tr>
@@ -251,7 +340,12 @@ export default function ProductoDestino() {
             <tr className="bg-slate-200 font-bold text-slate-800">
               <td className="px-3 py-2 sticky left-0 bg-slate-200 z-10 border-r border-slate-300">TOTAL</td>
               {matrix.filteredDests.map(dest => (
-                <td key={dest} className="px-2 py-2 text-right font-mono">
+                <td
+                  key={dest}
+                  className="px-2 py-2 text-right font-mono cursor-pointer hover:underline hover:text-emerald-700 transition-colors"
+                  title={`Filtrar por destino: ${dest}`}
+                  onClick={() => go(undefined, dest)}
+                >
                   {fmt(matrix.colTotals.get(dest) || 0)}
                 </td>
               ))}
