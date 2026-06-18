@@ -14,7 +14,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import type { Shipment, ExpRecord } from '@/lib/types';
 import { parseCotePdf, coteToExpRecord } from '@/lib/parseCotePdf';
 import { parseExpoExcel } from '@/lib/parseExcelRegistro';
-import { schedulePush } from '@/lib/googleSheets';
+import { schedulePush } from '@/lib/googleSheets'
+import { dataUrl } from '@/lib/staticData';
 import { toast } from 'sonner';
 import { fd, fdt, fmt } from '@/lib/utils';
 
@@ -61,8 +62,8 @@ async function ensureExp() {
       expCache.analytics = { total: 0, pesoNetoTotal: 0, pesoBrutoTotal: 0, envasesTotal: 0, uniquePaisCount: 0, uniqueProductoCount: 0, uniqueDestinoCount: 0, lastDate: null, byPais: [], byProducto: [], byDestino: [] };
     } else {
       const [expR, anaR] = await Promise.all([
-        fetch('data/exportaciones.json'),
-        fetch('data/exportaciones-analytics.json'),
+        fetch(dataUrl('data/exportaciones.json')),
+        fetch(dataUrl('data/exportaciones-analytics.json')),
       ]);
       expCache.data = await expR.json();
       expCache.analytics = await anaR.json();

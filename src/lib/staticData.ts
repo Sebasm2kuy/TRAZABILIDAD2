@@ -1,10 +1,23 @@
 import type { Shipment } from './types';
 
+// Base path for static assets — must match next.config.ts basePath
+const BASE = '/trazabilidad';
+
+/** Resolve a data file path accounting for basePath deployment */
+export function dataUrl(path: string): string {
+  // If path is already absolute with the base, return as-is
+  if (path.startsWith(BASE + '/')) return path;
+  // If path starts with /, prepend base
+  if (path.startsWith('/')) return BASE + path;
+  // Relative path: prepend base + /
+  return BASE + '/' + path;
+}
+
 const shipmentsCache: { data: Shipment[]; loaded: boolean } = { data: [], loaded: false };
 
 async function ensureLoaded() {
   if (!shipmentsCache.loaded) {
-    const r = await fetch('data/shipments.json');
+    const r = await fetch(dataUrl('data/shipments.json'));
     shipmentsCache.data = await r.json();
     shipmentsCache.loaded = true;
   }
@@ -17,7 +30,7 @@ export async function getCotes(): Promise<string[]> {
 }
 
 export async function fetchAnalytics() {
-  const r = await fetch('data/analytics.json');
+  const r = await fetch(dataUrl('data/analytics.json'));
   return r.json();
 }
 

@@ -9,7 +9,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { Search, X, ChevronLeft, ChevronRight, Eye, FileCheck, Pencil, Save, RotateCcw, CheckCircle2, Plus, Trash2, Download, Upload, Loader2, Check, Globe, Sparkles, ClipboardPaste, Package } from 'lucide-react';
-import { fetchShipments, fetchAnalytics, getCotes } from '@/lib/staticData';
+import { fetchShipments, fetchAnalytics, getCotes, dataUrl } from '@/lib/staticData';
 import { parseEnviosExcel } from '@/lib/parseExcelRegistro';
 import type { Shipment } from '@/lib/types';
 import { schedulePush } from '@/lib/googleSheets';
@@ -170,7 +170,7 @@ async function ensureDep() {
     if (imported) {
       try { depCache.data = JSON.parse(imported); } catch { depCache.data = []; }
     } else {
-      const r = await fetch('data/shipments.json');
+      const r = await fetch(dataUrl('data/shipments.json'));
       depCache.data = await r.json();
     }
     depCache.loaded = true;

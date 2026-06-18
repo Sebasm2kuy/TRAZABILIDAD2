@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Trash2, Table2 } from 'lucide-react';
 import type { Shipment } from '@/lib/types';
+import { dataUrl } from '@/lib/staticData';
 
 interface ImportedBatch {
   id: string;
@@ -153,7 +154,7 @@ export default function ImportExportPanel() {
   };
 
   const exportOriginal = () => {
-    fetch('data/shipments.json').then(r => r.json()).then(async (shipments) => {
+    fetch(dataUrl('data/shipments.json')).then(r => r.json()).then(async (shipments) => {
       const XLSX = await import('xlsx');
       const data = (shipments as Record<string, unknown>[]).map(s => ({
         'Nro. Trámite': s.nroTramite, 'Fecha': s.fechaTramite ? new Date(s.fechaTramite as string).toISOString().split('T')[0] : '',

@@ -9,7 +9,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Search, X, ChevronLeft, ChevronRight, Eye, Download, ArrowLeftRight, AlertTriangle, CheckCircle2, Link2, Unlink, PackageMinus, Package, Pencil, Save, Plus, Trash2, RotateCcw, Upload, ClipboardPaste, Globe, Sparkles } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { schedulePush } from '@/lib/googleSheets';
+import { schedulePush } from '@/lib/googleSheets'
+import { dataUrl } from '@/lib/staticData';
 import type { ExpRecord } from '@/lib/types';
 import type { StockLoad, StockCodigoAgg, StockPallet } from '@/lib/parseStockXls';
 import { buildStockAggMap, SIN_CODIGO_KEY } from '@/lib/parseStockXls';
@@ -325,8 +326,8 @@ function applyExpEdits(data: ExpRecord[], edits: Record<string, Partial<ExpRecor
 async function ensureData(forceReload = false) {
   if (!cache.loaded || forceReload) {
     const [sR, eR] = await Promise.all([
-      fetch('data/shipments.json?t=' + Date.now()),
-      fetch('data/exportaciones.json?t=' + Date.now()),
+      fetch(dataUrl('data/shipments.json') + '?t=' + Date.now()),
+      fetch(dataUrl('data/exportaciones.json') + '?t=' + Date.now()),
     ]);
     const allShipments: IngresoLine[] = await sR.json();
     const allExports: ExpRecord[] = await eR.json();

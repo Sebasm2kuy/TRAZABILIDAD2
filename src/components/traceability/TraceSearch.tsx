@@ -14,7 +14,7 @@ import {
   AlertTriangle, CheckCircle2, Circle, TrendingUp, ArrowDownUp,
   FileSpreadsheet, History, Route
 } from 'lucide-react';
-import { fetchShipments, getCotes } from '@/lib/staticData';
+import { fetchShipments, getCotes, dataUrl } from '@/lib/staticData';
 import type { Shipment } from '@/lib/types';
 import { fd, fmt } from '@/lib/utils';
 
@@ -49,7 +49,7 @@ function applyExpEdits(data: Shipment[], edits: Record<string, Partial<Shipment>
 
 async function ensureExp(): Promise<Shipment[]> {
   if (!expRawCache.loaded) {
-    const r = await fetch('data/exportaciones.json');
+    const r = await fetch(dataUrl('data/exportaciones.json'));
     expRawCache.data = await r.json();
     expRawCache.loaded = true;
   }
