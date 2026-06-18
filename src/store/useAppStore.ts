@@ -25,6 +25,15 @@ interface ExpFilters {
 const emptyFilters: Filters = { pais: '', producto: '', destino: '', tipo: '', cote: '', fechaDesde: '', fechaHasta: '' };
 const emptyExpFilters: ExpFilters = { pais: '', producto: '', destino: '', cote: '', fechaDesde: '', fechaHasta: '', search: '' };
 
+export type CruceSubTab = 'cruce' | 'sincruce' | 'pendientes' | 'stock';
+
+interface CruceCaliralNav {
+  subTab: CruceSubTab;
+  search: string;
+}
+
+const emptyCruceNav: CruceCaliralNav = { subTab: 'cruce', search: '' };
+
 interface AppState {
   activeTab: Tab;
   setActiveTab: (tab: Tab) => void;
@@ -41,9 +50,12 @@ interface AppState {
   navigateAndFilter: (tab: Tab, filters?: Partial<Filters & ExpFilters>, search?: string) => void;
   recentCotes: string[];
   addRecentCote: (cote: string) => void;
+  cruceNav: CruceCaliralNav;
+  setCruceNav: (nav: Partial<CruceCaliralNav>) => void;
+  consumeCruceNav: () => CruceCaliralNav;
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   activeTab: 'dashboard',
   setActiveTab: (tab) => set({ activeTab: tab }),
   search: '',
@@ -87,4 +99,11 @@ export const useAppStore = create<AppState>((set) => ({
       const filtered = s.recentCotes.filter((c) => c !== cote);
       return { recentCotes: [cote, ...filtered].slice(0, 20) };
     }),
+  cruceNav: { ...emptyCruceNav },
+  setCruceNav: (nav) => set((s) => ({ cruceNav: { ...s.cruceNav, ...nav } })),
+  consumeCruceNav: () => {
+    const current = { ...get().cruceNav };
+    set({ cruceNav: { ...emptyCruceNav } });
+    return current;
+  },
 }));

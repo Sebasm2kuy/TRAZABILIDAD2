@@ -15,6 +15,7 @@ import type { ExpRecord } from '@/lib/types';
 import type { StockLoad, StockCodigoAgg, StockPallet } from '@/lib/parseStockXls';
 import { buildStockAggMap, SIN_CODIGO_KEY } from '@/lib/parseStockXls';
 import { fd, fmt } from '@/lib/utils';
+import { useAppStore } from '@/store/useAppStore';
 
 // Fix dates that were corrupted by MM/DD ↔ DD/MM swap during Excel import
 // If a date is more than 2 months in the future, swap day and month
@@ -1222,6 +1223,7 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
 export default function CruceCaliral() {
   const [loading, setLoading] = useState(true);
   const [subTab, setSubTab] = useState<'cruce' | 'sincruce' | 'pendientes' | 'stock'>('cruce');
+  const { activeTab, setActiveTab, setCruceNav, consumeCruceNav } = useAppStore();
 
   // Stock state
   const [stockData, setStockData] = useState<StockLoad | null>(null);
@@ -1527,6 +1529,36 @@ export default function CruceCaliral() {
     setProductos([...new Set(editedExports.map(e => e.denominacionMercaderia).filter(Boolean))].sort());
     setCortes([...new Set(editedExports.map(e => e.corte).filter(Boolean))].sort());
   }, []);
+
+  // Consume navigation from other components (Dashboard KPI clicks, etc.)
+  const cruceNavConsumed = useRef(false);
+  useEffect(() => {
+    if (cruceNavConsumed.current) return;
+    const nav = consumeCruceNav();
+    if (nav.subTab !== 'cruce' || nav.search) {
+      setSubTab(nav.subTab);
+      if (nav.search) {
+        setSearch(nav.search);
+        setSearchInput(nav.search);
+      }
+      cruceNavConsumed.current = true;
+    }
+  }, [consumeCruceNav]);
+
+  // Also consume when the tab switches TO cruce-caliral
+  useEffect(() => {
+    if (activeTab === 'cruce-caliral') {
+      cruceNavConsumed.current = false;
+      const nav = consumeCruceNav();
+      if (nav.subTab !== 'cruce' || nav.search) {
+        setSubTab(nav.subTab);
+        if (nav.search) {
+          setSearch(nav.search);
+          setSearchInput(nav.search);
+        }
+      }
+    }
+  }, [activeTab, consumeCruceNav]);
 
   useEffect(() => {
     (async () => {
@@ -2245,40 +2277,61 @@ export default function CruceCaliral() {
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* KPI Cards — all clickable */}
       <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-emerald-50"><ArrowLeftRight className="h-5 w-5 text-emerald-600" /></div>
-          <div><p className="text-[10px] text-slate-500 uppercase">Ingresos Caliral</p><p className="text-lg font-bold">{stats.totalIngresos}</p><p className="text-[10px] text-slate-400">{fmt(stats.totalIngresoEnvases)} cajas</p></div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-blue-50"><Link2 className="h-5 w-5 text-blue-600" /></div>
-          <div><p className="text-[10px] text-slate-500 uppercase">COTEs Vinculados</p><p className="text-lg font-bold">{stats.cotesVinculados}</p><p className="text-[10px] text-slate-400">de {stats.totalIngresos} ingresos</p></div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-sky-50"><CheckCircle2 className="h-5 w-5 text-sky-600" /></div>
-          <div><p className="text-[10px] text-slate-500 uppercase">Exports con cruce</p><p className="text-lg font-bold">{stats.exportConCruce}</p><p className="text-[10px] text-slate-400">{fmt(stats.totalCruceExpEnvases)} cajas</p></div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-amber-50"><AlertTriangle className="h-5 w-5 text-amber-600" /></div>
-          <div><p className="text-[10px] text-slate-500 uppercase">Exports sin COTE</p><p className="text-lg font-bold">{stats.exportSinCruce}</p><p className="text-[10px] text-slate-400">{fmt(stats.totalSinCruceEnvases)} cajas</p></div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-orange-50"><Unlink className="h-5 w-5 text-orange-600" /></div>
-          <div><p className="text-[10px] text-slate-500 uppercase">Ingresos pendientes</p><p className="text-lg font-bold">{stats.pendienteCount}</p><p className="text-[10px] text-slate-400">{fmt(stats.pendienteEnvases)} cajas</p></div>
-        </CardContent></Card>
-        <Card><CardContent className={`p-4 flex items-center gap-3 ${stats.conProblema > 0 ? 'ring-2 ring-red-200' : ''}`}>
-          <div className={`p-3 rounded-xl ${stats.conProblema > 0 ? 'bg-red-50' : 'bg-emerald-50'}`}>
-            {stats.conProblema > 0 ? <PackageMinus className="h-5 w-5 text-red-600" /> : <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
-          </div>
-          <div><p className="text-[10px] text-slate-500 uppercase">Con diferencia</p><p className={`text-lg font-bold ${stats.conProblema > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{stats.conProblema}</p><p className="text-[10px] text-slate-400">mas cajas exp. que ing.</p></div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-violet-50"><span className="text-sm font-bold text-violet-600">%</span></div>
-          <div><p className="text-[10px] text-slate-500 uppercase">Cobertura cruce</p><p className="text-lg font-bold">
-            {stats.totalIngresos > 0 ? ((stats.cotesVinculados / stats.totalIngresos) * 100).toFixed(0) : 0}%
-          </p><p className="text-[10px] text-slate-400">COTEs vinculados</p></div>
-        </CardContent></Card>
+        <Card className="cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 group" onClick={() => { setActiveTab('depositos'); }}>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-emerald-50"><ArrowLeftRight className="h-5 w-5 text-emerald-600" /></div>
+            <div><p className="text-[10px] text-slate-500 uppercase">Ingresos Caliral</p><p className="text-lg font-bold">{stats.totalIngresos}</p><p className="text-[10px] text-slate-400">{fmt(stats.totalIngresoEnvases)} cajas</p></div>
+            <span className="ml-auto text-[9px] text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Ver ingresos →</span>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 group" onClick={() => { setSubTab('cruce'); setSearchInput(''); setSearch(''); setPage(1); }}>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-blue-50"><Link2 className="h-5 w-5 text-blue-600" /></div>
+            <div><p className="text-[10px] text-slate-500 uppercase">COTEs Vinculados</p><p className="text-lg font-bold">{stats.cotesVinculados}</p><p className="text-[10px] text-slate-400">de {stats.totalIngresos} ingresos</p></div>
+            <span className="ml-auto text-[9px] text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Ver cruces →</span>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 group" onClick={() => { setSubTab('cruce'); setSearchInput(''); setSearch(''); setPage(1); }}>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-sky-50"><CheckCircle2 className="h-5 w-5 text-sky-600" /></div>
+            <div><p className="text-[10px] text-slate-500 uppercase">Exports con cruce</p><p className="text-lg font-bold">{stats.exportConCruce}</p><p className="text-[10px] text-slate-400">{fmt(stats.totalCruceExpEnvases)} cajas</p></div>
+            <span className="ml-auto text-[9px] text-sky-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Ver con cruce →</span>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 group" onClick={() => { setSubTab('sincruce'); setSearchInput(''); setSearch(''); setPage(1); }}>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-amber-50"><AlertTriangle className="h-5 w-5 text-amber-600" /></div>
+            <div><p className="text-[10px] text-slate-500 uppercase">Exports sin COTE</p><p className="text-lg font-bold">{stats.exportSinCruce}</p><p className="text-[10px] text-slate-400">{fmt(stats.totalSinCruceEnvases)} cajas</p></div>
+            <span className="ml-auto text-[9px] text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Ver sin COTE →</span>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 group" onClick={() => { setSubTab('pendientes'); setSearchInput(''); setSearch(''); setPage(1); }}>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-orange-50"><Unlink className="h-5 w-5 text-orange-600" /></div>
+            <div><p className="text-[10px] text-slate-500 uppercase">Ingresos pendientes</p><p className="text-lg font-bold">{stats.pendienteCount}</p><p className="text-[10px] text-slate-400">{fmt(stats.pendienteEnvases)} cajas</p></div>
+            <span className="ml-auto text-[9px] text-orange-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Ver pendientes →</span>
+          </CardContent>
+        </Card>
+        <Card className={`cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 group ${stats.conProblema > 0 ? 'ring-2 ring-red-200' : ''}`} onClick={() => { setSubTab('cruce'); setSearchInput(''); setSearch(''); setPage(1); }}>
+          <CardContent className={`p-4 flex items-center gap-3 ${stats.conProblema > 0 ? 'ring-2 ring-red-200' : ''}`}>
+            <div className={`p-3 rounded-xl ${stats.conProblema > 0 ? 'bg-red-50' : 'bg-emerald-50'}`}>
+              {stats.conProblema > 0 ? <PackageMinus className="h-5 w-5 text-red-600" /> : <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
+            </div>
+            <div><p className="text-[10px] text-slate-500 uppercase">Con diferencia</p><p className={`text-lg font-bold ${stats.conProblema > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{stats.conProblema}</p><p className="text-[10px] text-slate-400">mas cajas exp. que ing.</p></div>
+            <span className="ml-auto text-[9px] text-red-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Ver diff →</span>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 group" onClick={() => { setActiveTab('comparativa'); }}>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-violet-50"><span className="text-sm font-bold text-violet-600">%</span></div>
+            <div><p className="text-[10px] text-slate-500 uppercase">Cobertura cruce</p><p className="text-lg font-bold">
+              {stats.totalIngresos > 0 ? ((stats.cotesVinculados / stats.totalIngresos) * 100).toFixed(0) : 0}%
+            </p><p className="text-[10px] text-slate-400">COTEs vinculados</p></div>
+            <span className="ml-auto text-[9px] text-violet-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Comparativa →</span>
+          </CardContent>
+        </Card>
       </div>
 
       {/* MGAP Quick Import - visible on main page */}

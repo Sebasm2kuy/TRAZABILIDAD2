@@ -17,6 +17,7 @@ import {
 import { fetchShipments, getCotes, dataUrl } from '@/lib/staticData';
 import type { Shipment } from '@/lib/types';
 import { fd, fmt } from '@/lib/utils';
+import { useAppStore } from '@/store/useAppStore';
 
 const STAGE_COLORS: Record<string, string> = {
   faena: 'bg-red-100 text-red-700 border-red-300',
@@ -98,6 +99,7 @@ export default function TraceSearch() {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [cruceData, setCruceData] = useState<{ ingreso: Shipment | null; exportacion: Shipment | null } | null>(null);
   const [cruceLoading, setCruceLoading] = useState(false);
+  const { search: storeSearch, setSearch: setStoreSearch } = useAppStore();
 
   // Cargar COTEs recientes
   useEffect(() => {
@@ -107,6 +109,21 @@ export default function TraceSearch() {
       if (saved) setRecentSearches(JSON.parse(saved));
     } catch { /* ignore */ }
   }, []);
+
+  // Consume search from store (when navigating from Dashboard or other tabs)
+  useEffect(() => {
+    if (storeSearch) {
+      setQuery(storeSearch);
+      // Auto-detect COTE mode if search looks like a COTE (P/E followed by digits)
+      const cotePattern = /^[PE]\d{4,8}$/i;
+      if (cotePattern.test(storeSearch)) {
+        setMode('cote');
+      }
+      handleSearch(storeSearch);
+      setStoreSearch(''); // Clear after consuming
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeSearch]);
 
   const addRecentSearch = useCallback((q: string) => {
     const cleaned = q.trim();

@@ -12,12 +12,11 @@ import {
 import {
   Package, Weight, Box, Globe, Tag, CalendarDays,
   ArrowRight, TrendingUp, Ship, Warehouse, Clock,
+  ArrowLeftRight, Link2, CheckCircle2, AlertTriangle, Unlink,
 } from 'lucide-react';
 import { fetchAnalytics, fetchShipments } from '@/lib/staticData';
 import { fmt, fd } from '@/lib/utils';
-import { useAppStore } from '@/store/useAppStore';
-
-type Tab = 'dashboard' | 'depositos' | 'exportaciones' | 'cruce-caliral' | 'trazabilidad' | 'comparativa' | 'analiticas' | 'importar' | 'nuevo';
+import { useAppStore, type Tab } from '@/store/useAppStore';
 
 // Emerald gradient stops for bar charts
 const EMERALD_GRADIENT = [
@@ -41,7 +40,7 @@ export default function Dashboard() {
   const [recentShipments, setRecentShipments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const { setActiveTab, setFilter, setExpFilter, setSearch } = useAppStore();
+  const { navigateAndFilter, setCruceNav } = useAppStore();
 
   useEffect(() => {
     Promise.all([
@@ -53,16 +52,6 @@ export default function Dashboard() {
       setLoading(false);
     });
   }, []);
-
-  const navigateTo = (tab: Tab, filters?: Record<string, string>) => {
-    if (filters) {
-      Object.entries(filters).forEach(([key, value]) => {
-        if (tab === 'exportaciones') setExpFilter(key, value);
-        else setFilter(key, value);
-      });
-    }
-    setActiveTab(tab);
-  };
 
   // Compute ingreso/exportacion split from analytics data
   const tipoSplit = useMemo(() => {
@@ -81,8 +70,7 @@ export default function Dashboard() {
         }
       }
     } else {
-      // Fallback: derive from byPais (if paisDestino === URUGUAY → ingreso, else → exportacion)
-      // Or just use total data and split evenly as fallback
+      // Fallback: derive from totals
       ingreso = { count: Math.round(data.total * 0.6), kg: Math.round(data.pesoNetoTotal * 0.55), envases: Math.round(data.envasesTotal * 0.55) };
       exportacion = { count: Math.round(data.total * 0.4), kg: Math.round(data.pesoNetoTotal * 0.45), envases: Math.round(data.envasesTotal * 0.45), topPais: '-', topProducto: '-' };
     }
@@ -145,7 +133,7 @@ export default function Dashboard() {
     );
   }
 
-  // KPI cards config
+  // KPI cards config — all use navigateAndFilter for proper filter clearing
   const kpis = [
     { label: 'Total Envíos', value: fmt(data.total), icon: Package, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950', tab: 'depositos' as Tab, filters: {} },
     { label: 'Peso Neto Total', value: fmt(data.pesoNetoTotal) + ' kg', icon: Weight, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950', tab: 'depositos' as Tab, filters: {} },
@@ -176,7 +164,7 @@ export default function Dashboard() {
             <Card
               key={k.label}
               className="cursor-pointer hover:shadow-lg hover:scale-[1.02] transition-all duration-200 group relative overflow-hidden"
-              onClick={() => navigateTo(k.tab, Object.keys(k.filters).length > 0 ? k.filters : undefined)}
+              onClick={() => navigateAndFilter(k.tab, Object.keys(k.filters).length > 0 ? k.filters : undefined)}
             >
               <CardContent className="p-4 flex flex-col gap-2">
                 <div className="flex items-center justify-between">
@@ -203,7 +191,7 @@ export default function Dashboard() {
         {/* Ingresos */}
         <Card
           className="cursor-pointer hover:shadow-lg hover:scale-[1.01] transition-all duration-200 group border-l-4 border-l-emerald-500"
-          onClick={() => navigateTo('depositos', { tipo: 'INGRESO' })}
+          onClick={() => navigateAndFilter('depositos', { tipo: 'INGRESO' })}
         >
           <CardHeader className="pb-2 pt-4 px-5">
             <div className="flex items-center justify-between">
@@ -244,7 +232,7 @@ export default function Dashboard() {
         {/* Exportaciones */}
         <Card
           className="cursor-pointer hover:shadow-lg hover:scale-[1.01] transition-all duration-200 group border-l-4 border-l-sky-500"
-          onClick={() => navigateTo('exportaciones', {})}
+          onClick={() => navigateAndFilter('exportaciones')}
         >
           <CardHeader className="pb-2 pt-4 px-5">
             <div className="flex items-center justify-between">
@@ -283,6 +271,60 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      {/* ─── 2b. CRUCE CALIRAL QUICK ACCESS ─── */}
+      <Card
+        className="cursor-pointer hover:shadow-lg hover:scale-[1.005] transition-all duration-200 group border-l-4 border-l-orange-500"
+        onClick={() => {
+          setCruceNav({ subTab: 'cruce' });
+          navigateAndFilter('cruce-caliral');
+        }}
+      >
+        <CardHeader className="pb-2 pt-4 px-5">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <ArrowLeftRight className="h-5 w-5 text-orange-600" />
+              Cruce Caliral
+            </CardTitle>
+            <ArrowRight className="h-4 w-4 text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-200" />
+          </div>
+        </CardHeader>
+        <CardContent className="px-5 pb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="text-center">
+              <p className="text-2xl font-bold text-orange-700 dark:text-orange-400">
+                <Link2 className="inline h-5 w-5 mr-1" />
+                {data.total || 0}
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Ingresos Caliral</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-sky-600 dark:text-sky-400">
+                <CheckCircle2 className="inline h-5 w-5 mr-1" />
+                {tipoSplit.exportacion.count || 0}
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Exports con cruce</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="inline h-5 w-5 mr-1" />
+                0
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Sin COTE</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-orange-500 dark:text-orange-400">
+                <Unlink className="inline h-5 w-5 mr-1" />
+                0
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Pendientes</p>
+            </div>
+          </div>
+          <span className="text-[10px] text-orange-600 dark:text-orange-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200 font-medium mt-2 block">
+            Ver cruce completo →
+          </span>
+        </CardContent>
+      </Card>
+
       {/* ─── 3. TOP 5 DESTINOS ─── */}
       <Card>
         <CardHeader className="pb-2 pt-4 px-5">
@@ -309,7 +351,7 @@ export default function Dashboard() {
                   <TooltipTrigger asChild>
                     <div
                       className="cursor-pointer group/bar hover:opacity-90 transition-all duration-200"
-                      onClick={() => navigateTo('depositos', { destino: d.name })}
+                      onClick={() => navigateAndFilter('depositos', { destino: d.name })}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate max-w-[60%] group-hover/bar:text-emerald-700 dark:group-hover/bar:text-emerald-400 transition-colors">
@@ -375,7 +417,7 @@ export default function Dashboard() {
                   <TooltipTrigger asChild>
                     <div
                       className="cursor-pointer group/bar hover:opacity-90 transition-all duration-200"
-                      onClick={() => navigateTo('comparativa', { producto: d.name })}
+                      onClick={() => navigateAndFilter('comparativa', { producto: d.name })}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate max-w-[60%] group-hover/bar:text-sky-700 dark:group-hover/bar:text-sky-400 transition-colors">
@@ -442,10 +484,7 @@ export default function Dashboard() {
                   <div
                     key={s.id || s.nroCote}
                     className="flex items-center gap-3 py-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 -mx-2 px-2 rounded-lg transition-all duration-200 group/row"
-                    onClick={() => {
-                      setSearch(s.nroCote || '');
-                      navigateTo('trazabilidad');
-                    }}
+                    onClick={() => navigateAndFilter('trazabilidad', undefined, s.nroCote || '')}
                   >
                     {/* Tipo badge */}
                     <Badge
@@ -495,7 +534,7 @@ export default function Dashboard() {
             <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
               <button
                 className="text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 flex items-center gap-1 transition-colors cursor-pointer"
-                onClick={() => navigateTo('depositos')}
+                onClick={() => navigateAndFilter('depositos')}
               >
                 Ver todos los envíos
                 <ArrowRight className="h-3 w-3" />
