@@ -509,15 +509,49 @@ export default function ExportacionesTable() {
     if (!file) return;
     setImporting(true);
     try {
-      const records = await parseExpoExcel(file);
-      expCache.data = records;
+      const newRecords = await parseExpoExcel(file);
+
+      // MERGE: append new records, don't replace existing ones
+      // Build a key set from existing data to deduplicate by nroTramite + nroCote + idLinea
+      const existingKeys = new Set(
+        expCache.data.map(r => `${r.nroTramite}_${r.nroCote}_${r.idLinea ?? ''}`)
+      );
+      const trulyNew = newRecords.filter(r => {
+        const key = `${r.nroTramite}_${r.nroCote}_${r.idLinea ?? ''}`;
+        return !existingKeys.has(key);
+      });
+
+      if (trulyNew.length === 0) {
+        toast.info('Todos los registros del Excel ya existen. No se agregaron nuevos.');
+        setImporting(false);
+        if (excelInputRef.current) excelInputRef.current.value = '';
+        return;
+      }
+
+      const merged = [...expCache.data, ...trulyNew];
+      expCache.data = merged;
       expCache.loaded = true;
-      expCache.analytics = { total: records.length, pesoNetoTotal: records.reduce((s, r) => s + (r.pesoNeto || 0), 0), pesoBrutoTotal: records.reduce((s, r) => s + (r.pesoBruto || 0), 0), envasesTotal: records.reduce((s, r) => s + (r.cantidadEnvases || 0), 0), uniquePaisCount: new Set(records.map(r => r.paisDestino).filter(Boolean)).size, uniqueProductoCount: new Set(records.map(r => r.denominacionMercaderia).filter(Boolean)).size, uniqueDestinoCount: 0, lastDate: records.length > 0 ? records[0].fechaTramite : null, byPais: [], byProducto: [], byDestino: [] };
-      localStorage.setItem(EXP_IMPORTED_KEY, JSON.stringify(records));
+      expCache.analytics = {
+        total: merged.length,
+        pesoNetoTotal: merged.reduce((s, r) => s + (r.pesoNeto || 0), 0),
+        pesoBrutoTotal: merged.reduce((s, r) => s + (r.pesoBruto || 0), 0),
+        envasesTotal: merged.reduce((s, r) => s + (r.cantidadEnvases || 0), 0),
+        uniquePaisCount: new Set(merged.map(r => r.paisDestino).filter(Boolean)).size,
+        uniqueProductoCount: new Set(merged.map(r => r.denominacionMercaderia).filter(Boolean)).size,
+        uniqueDestinoCount: 0,
+        lastDate: merged.length > 0 ? merged[0].fechaTramite : null,
+        byPais: [], byProducto: [], byDestino: []
+      };
+      localStorage.setItem(EXP_IMPORTED_KEY, JSON.stringify(merged));
       schedulePush();
       // Update COTEs
-      setCotes([...new Set(records.map(s => s.nroCote).filter(Boolean) as string[])].sort());
-      toast.success(`${records.length} registros importados de Exportaciones`);
+      setCotes([...new Set(merged.map(s => s.nroCote).filter(Boolean) as string[])].sort());
+
+      const dupCount = newRecords.length - trulyNew.length;
+      const msg = dupCount > 0
+        ? `${trulyNew.length} registros nuevos agregados (${dupCount} duplicados omitidos)`
+        : `${trulyNew.length} registros nuevos agregados`;
+      toast.success(msg);
       setPage(1);
       setLoading(true);
       setTimeout(() => setLoading(false), 100);

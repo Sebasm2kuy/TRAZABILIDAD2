@@ -535,12 +535,36 @@ export default function ShipmentTable() {
     if (!file) return;
     setImporting(true);
     try {
-      const records = await parseEnviosExcel(file);
-      depCache.data = records;
+      const newRecords = await parseEnviosExcel(file);
+
+      // MERGE: append new records, don't replace existing ones
+      // Build a key set from existing data to deduplicate
+      const existingKeys = new Set(
+        depCache.data.map(r => `${r.nroTramite}_${r.nroCote}_${r.idLinea ?? ''}`)
+      );
+      const trulyNew = newRecords.filter(r => {
+        const key = `${r.nroTramite}_${r.nroCote}_${r.idLinea ?? ''}`;
+        return !existingKeys.has(key);
+      });
+
+      if (trulyNew.length === 0) {
+        toast.info('Todos los registros del Excel ya existen. No se agregaron nuevos.');
+        setImporting(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+
+      const merged = [...depCache.data, ...trulyNew];
+      depCache.data = merged;
       depCache.loaded = true;
-      localStorage.setItem(DEP_IMPORTED_KEY, JSON.stringify(records));
+      localStorage.setItem(DEP_IMPORTED_KEY, JSON.stringify(merged));
       schedulePush();
-      toast.success(`${records.length} registros importados de Depósitos`);
+
+      const dupCount = newRecords.length - trulyNew.length;
+      const msg = dupCount > 0
+        ? `${trulyNew.length} registros nuevos agregados (${dupCount} duplicados omitidos)`
+        : `${trulyNew.length} registros nuevos agregados`;
+      toast.success(msg);
       setPage(1);
       // Re-trigger data loading
       setLoading(true);
