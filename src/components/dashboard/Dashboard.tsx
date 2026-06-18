@@ -14,9 +14,10 @@ import {
   ArrowRight, TrendingUp, Ship, Warehouse, Clock,
   ArrowLeftRight, Link2, CheckCircle2, AlertTriangle, Unlink,
 } from 'lucide-react';
-import { fetchAnalytics, fetchShipments } from '@/lib/staticData';
+import { dataUrl } from '@/lib/staticData';
 import { fmt, fd } from '@/lib/utils';
 import { useAppStore, type Tab } from '@/store/useAppStore';
+import type { Shipment, ExpRecord } from '@/lib/types';
 
 // Emerald gradient stops for bar charts
 const EMERALD_GRADIENT = [
@@ -35,88 +36,396 @@ const BLUE_GRADIENT = [
   'bg-sky-700',
 ];
 
+// --- Data loaders that read from localStorage first, then static JSON ---
+async function loadAllDepositos(): Promise<Shipment[]> {
+  // 1. Check localStorage imported data first
+  const imported = localStorage.getItem('trazabilidad_dep_imported');
+  let base: Shipment[];
+  if (imported) {
+    try { base = JSON.parse(imported); } catch { base = []; }
+  } else {
+    const r = await fetch(dataUrl('data/shipments.json'));
+    base = await r.json();
+  }
+
+  // 2. Merge new records
+  try {
+    const raw = localStorage.getItem('trazabilidad_dep_new_records');
+    if (raw) {
+      const newRecs: Shipment[] = JSON.parse(raw);
+      const existingIds = new Set(base.map(s => s.id));
+      for (const nr of newRecs) {
+        if (!existingIds.has(nr.id)) base.push(nr);
+      }
+    }
+  } catch { /* ignore */ }
+
+  // 3. Apply edits
+  try {
+    const raw = localStorage.getItem('trazabilidad_dep_edits');
+    if (raw) {
+      const edits: Record<string, Partial<Shipment>> = JSON.parse(raw);
+      base = base.map(s => edits[s.id] ? { ...s, ...edits[s.id] } : s);
+    }
+  } catch { /* ignore */ }
+
+  // 4. Remove deleted
+  try {
+    const raw = localStorage.getItem('trazabilidad_dep_deleted');
+    if (raw) {
+      const deleted: Set<string> = new Set(JSON.parse(raw));
+      base = base.filter(s => !deleted.has(s.id));
+    }
+  } catch { /* ignore */ }
+
+  return base;
+}
+
+async function loadAllExportaciones(): Promise<ExpRecord[]> {
+  // 1. Check localStorage imported data first
+  const imported = localStorage.getItem('trazabilidad_exp_imported');
+  let base: ExpRecord[];
+  if (imported) {
+    try { base = JSON.parse(imported); } catch { base = []; }
+  } else {
+    const r = await fetch(dataUrl('data/exportaciones.json'));
+    base = await r.json();
+  }
+
+  // 2. Merge PDF uploads
+  try {
+    const raw = localStorage.getItem('trazabilidad_new_records');
+    if (raw) {
+      const newRecs: ExpRecord[] = JSON.parse(raw);
+      const existingIds = new Set(base.map(e => e.id));
+      for (const nr of newRecs) {
+        if (!existingIds.has(nr.id)) base.push(nr);
+      }
+    }
+  } catch { /* ignore */ }
+
+  // 3. Apply edits
+  try {
+    const raw = localStorage.getItem('trazabilidad_exp_edits');
+    if (raw) {
+      const edits: Record<string, Partial<ExpRecord>> = JSON.parse(raw);
+      base = base.map(e => edits[e.id] ? { ...e, ...edits[e.id] } : e);
+    }
+  } catch { /* ignore */ }
+
+  // 4. Remove deleted
+  try {
+    const raw = localStorage.getItem('trazabilidad_exp_deleted');
+    if (raw) {
+      const deleted: Set<string> = new Set(JSON.parse(raw));
+      base = base.filter(e => !deleted.has(e.id));
+    }
+  } catch { /* ignore */ }
+
+  return base;
+}
+
+// --- Compute analytics from raw data ---
+interface Analytics {
+  total: number;
+  pesoNetoTotal: number;
+  envasesTotal: number;
+  uniquePaisCount: number;
+  uniqueProductoCount: number;
+  lastDate: string | null;
+  byPais: { pais: string; pesoNeto: number; envios: number }[];
+  byProducto: { producto: string; pesoNeto: number; envios: number }[];
+  byDestino: { destino: string; pesoNeto: number; envios: number }[];
+  byTipo: { tipo: string; pesoNeto: number; envios: number; envases: number }[];
+  // Ingreso/Export split
+  ingresoCount: number;
+  ingresoKg: number;
+  ingresoEnvases: number;
+  exportCount: number;
+  exportKg: number;
+  exportEnvases: number;
+  exportTopPais: string;
+  exportTopProducto: string;
+  // Cruce stats
+  cruceCotesVinculados: number;
+  cruceExportsConCruce: number;
+  cruceExportsSinCruce: number;
+  crucePendientes: number;
+  cruceConDiferencia: number;
+  cruceCobertura: number;
+}
+
+function computeAnalytics(depositos: Shipment[], exportaciones: ExpRecord[]): Analytics {
+  // Depositos stats
+  let total = depositos.length;
+  let pesoNetoTotal = 0;
+  let envasesTotal = 0;
+  const paises = new Set<string>();
+  const productos = new Set<string>();
+  let lastDate: string | null = null;
+  const byPaisMap = new Map<string, { pesoNeto: number; envios: number }>();
+  const byProductoMap = new Map<string, { pesoNeto: number; envios: number }>();
+  const byDestinoMap = new Map<string, { pesoNeto: number; envios: number }>();
+  const byTipoMap = new Map<string, { pesoNeto: number; envios: number; envases: number }>();
+
+  for (const s of depositos) {
+    pesoNetoTotal += s.pesoNeto || 0;
+    envasesTotal += s.cantidadEnvases || 0;
+    if (s.paisDestino) paises.add(s.paisDestino);
+    if (s.denominacionMercaderia) productos.add(s.denominacionMercaderia);
+    if (s.fechaTramite && (!lastDate || s.fechaTramite > lastDate)) lastDate = s.fechaTramite;
+
+    // By pais
+    if (s.paisDestino) {
+      const cur = byPaisMap.get(s.paisDestino) || { pesoNeto: 0, envios: 0 };
+      cur.pesoNeto += s.pesoNeto || 0;
+      cur.envios += 1;
+      byPaisMap.set(s.paisDestino, cur);
+    }
+
+    // By producto
+    if (s.denominacionMercaderia) {
+      const cur = byProductoMap.get(s.denominacionMercaderia) || { pesoNeto: 0, envios: 0 };
+      cur.pesoNeto += s.pesoNeto || 0;
+      cur.envios += 1;
+      byProductoMap.set(s.denominacionMercaderia, cur);
+    }
+
+    // By destino
+    if (s.nombreEstablecimientoDestino) {
+      const cur = byDestinoMap.get(s.nombreEstablecimientoDestino) || { pesoNeto: 0, envios: 0 };
+      cur.pesoNeto += s.pesoNeto || 0;
+      cur.envios += 1;
+      byDestinoMap.set(s.nombreEstablecimientoDestino, cur);
+    }
+
+    // By tipo
+    const tipo = s.tipo || 'UNKNOWN';
+    const curTipo = byTipoMap.get(tipo) || { pesoNeto: 0, envios: 0, envases: 0 };
+    curTipo.pesoNeto += s.pesoNeto || 0;
+    curTipo.envios += 1;
+    curTipo.envases += s.cantidadEnvases || 0;
+    byTipoMap.set(tipo, curTipo);
+  }
+
+  // Also add exportaciones to total counts
+  total += exportaciones.length;
+  for (const e of exportaciones) {
+    pesoNetoTotal += e.pesoNeto || 0;
+    envasesTotal += e.cantidadEnvases || 0;
+    if (e.paisDestino) paises.add(e.paisDestino);
+    if (e.denominacionMercaderia) productos.add(e.denominacionMercaderia);
+    if (e.fechaTramite && (!lastDate || e.fechaTramite > lastDate)) lastDate = e.fechaTramite;
+
+    if (e.paisDestino) {
+      const cur = byPaisMap.get(e.paisDestino) || { pesoNeto: 0, envios: 0 };
+      cur.pesoNeto += e.pesoNeto || 0;
+      cur.envios += 1;
+      byPaisMap.set(e.paisDestino, cur);
+    }
+    if (e.denominacionMercaderia) {
+      const cur = byProductoMap.get(e.denominacionMercaderia) || { pesoNeto: 0, envios: 0 };
+      cur.pesoNeto += e.pesoNeto || 0;
+      cur.envios += 1;
+      byProductoMap.set(e.denominacionMercaderia, cur);
+    }
+  }
+
+  // Ingreso/Export split from byTipo
+  let ingresoCount = 0, ingresoKg = 0, ingresoEnvases = 0;
+  let exportCount = 0, exportKg = 0, exportEnvases = 0;
+  let exportTopPais = '-';
+  let exportTopProducto = '-';
+  for (const [tipo, val] of byTipoMap) {
+    const t = tipo.toUpperCase();
+    if (t.includes('INGRESO') || t.includes('DEPOSITO')) {
+      ingresoCount += val.envios;
+      ingresoKg += val.pesoNeto;
+      ingresoEnvases += val.envases;
+    } else if (t.includes('EXPORT')) {
+      exportCount += val.envios;
+      exportKg += val.pesoNeto;
+      exportEnvases += val.envases;
+    }
+  }
+  // If byTipo is empty, use exportaciones data for export stats
+  if (exportCount === 0 && exportaciones.length > 0) {
+    exportCount = exportaciones.length;
+    exportKg = exportaciones.reduce((s, e) => s + (e.pesoNeto || 0), 0);
+    exportEnvases = exportaciones.reduce((s, e) => s + (e.cantidadEnvases || 0), 0);
+  }
+  if (ingresoCount === 0 && depositos.length > 0) {
+    ingresoCount = depositos.length;
+    ingresoKg = depositos.reduce((s, d) => s + (d.pesoNeto || 0), 0);
+    ingresoEnvases = depositos.reduce((s, d) => s + (d.cantidadEnvases || 0), 0);
+  }
+
+  // Top pais/producto for exports
+  const expByPais = new Map<string, number>();
+  const expByProducto = new Map<string, number>();
+  for (const e of exportaciones) {
+    if (e.paisDestino) expByPais.set(e.paisDestino, (expByPais.get(e.paisDestino) || 0) + (e.pesoNeto || 0));
+    if (e.denominacionMercaderia) expByProducto.set(e.denominacionMercaderia, (expByProducto.get(e.denominacionMercaderia) || 0) + (e.pesoNeto || 0));
+  }
+  const sortedExpPais = [...expByPais.entries()].sort((a, b) => b[1] - a[1]);
+  const sortedExpProducto = [...expByProducto.entries()].sort((a, b) => b[1] - a[1]);
+  if (sortedExpPais.length > 0) exportTopPais = sortedExpPais[0][0];
+  if (sortedExpProducto.length > 0) exportTopProducto = sortedExpProducto[0][0];
+
+  // --- Cruce Caliral stats ---
+  // Get Caliral deposits (same logic as CruceCaliral component)
+  const caliralDepositos = depositos.filter(s =>
+    String(s.nombreEstablecimientoDestino || '').toLowerCase().includes('caliral')
+  );
+  // Aggregate by COTE
+  const ingresoMap = new Map<string, { envases: number; pesoNeto: number; cortes: string[] }>();
+  for (const d of caliralDepositos) {
+    const cote = d.nroCote?.trim();
+    if (!cote) continue;
+    const cur = ingresoMap.get(cote) || { envases: 0, pesoNeto: 0, cortes: [] };
+    cur.envases += d.cantidadEnvases || 0;
+    cur.pesoNeto += d.pesoNeto || 0;
+    if (d.corte && !cur.cortes.includes(d.corte)) cur.cortes.push(d.corte);
+    ingresoMap.set(cote, cur);
+  }
+
+  // Extract COTEs from export observaciones
+  const referencedCotes = new Set<string>();
+  let exportsConCruce = 0;
+  let exportsSinCruce = 0;
+  let conDiferencia = 0;
+
+  for (const e of exportaciones) {
+    const obs = e.observaciones || '';
+    const allP = obs.match(/P\d{4,8}/gi) || [];
+    const allB = obs.match(/B\d{4,8}/gi) || [];
+    const cotes = [...allP, ...allB].map(c => c.toUpperCase());
+    // Remove self-reference
+    const selfCote = (e.nroCote || '').toUpperCase();
+    const ingresoCotes = cotes.filter(c => c !== selfCote);
+
+    if (ingresoCotes.length > 0) {
+      exportsConCruce++;
+      for (const c of ingresoCotes) referencedCotes.add(c);
+      // Check if diff < 0 (more export boxes than ingreso)
+      const expEnvases = e.cantidadEnvases || 0;
+      let totalIngresoEnvases = 0;
+      for (const c of ingresoCotes) {
+        totalIngresoEnvases += ingresoMap.get(c)?.envases || 0;
+      }
+      if (expEnvases > totalIngresoEnvases && totalIngresoEnvases > 0) {
+        conDiferencia++;
+      }
+    } else {
+      exportsSinCruce++;
+    }
+  }
+
+  const cotesVinculados = referencedCotes.size;
+  const pendientes = [...ingresoMap.keys()].filter(c => !referencedCotes.has(c)).length;
+  const cobertura = ingresoMap.size > 0 ? Math.round((cotesVinculados / ingresoMap.size) * 100) : 0;
+
+  // Sort maps by pesoNeto descending
+  const byPais = [...byPaisMap.entries()]
+    .sort((a, b) => b[1].pesoNeto - a[1].pesoNeto)
+    .map(([pais, v]) => ({ pais, ...v }));
+  const byProducto = [...byProductoMap.entries()]
+    .sort((a, b) => b[1].pesoNeto - a[1].pesoNeto)
+    .map(([producto, v]) => ({ producto, ...v }));
+  const byDestino = [...byDestinoMap.entries()]
+    .sort((a, b) => b[1].pesoNeto - a[1].pesoNeto)
+    .map(([destino, v]) => ({ destino, ...v }));
+  const byTipo = [...byTipoMap.entries()]
+    .map(([tipo, v]) => ({ tipo, ...v }));
+
+  return {
+    total,
+    pesoNetoTotal,
+    envasesTotal,
+    uniquePaisCount: paises.size,
+    uniqueProductoCount: productos.size,
+    lastDate,
+    byPais,
+    byProducto,
+    byDestino,
+    byTipo,
+    ingresoCount,
+    ingresoKg,
+    ingresoEnvases,
+    exportCount,
+    exportKg,
+    exportEnvases,
+    exportTopPais,
+    exportTopProducto,
+    cruceCotesVinculados: cotesVinculados,
+    cruceExportsConCruce: exportsConCruce,
+    cruceExportsSinCruce: exportsSinCruce,
+    crucePendientes: pendientes,
+    cruceConDiferencia: conDiferencia,
+    cruceCobertura: cobertura,
+  };
+}
+
 export default function Dashboard() {
-  const [data, setData] = useState<Record<string, any> | null>(null);
-  const [recentShipments, setRecentShipments] = useState<any[]>([]);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [recentShipments, setRecentShipments] = useState<Shipment[]>([]);
   const [loading, setLoading] = useState(true);
 
   const { navigateAndFilter, setCruceNav } = useAppStore();
 
   useEffect(() => {
-    Promise.all([
-      fetchAnalytics(),
-      fetchShipments({ page: 1, limit: 5 }),
-    ]).then(([analytics, shipments]) => {
-      setData(analytics);
-      setRecentShipments(shipments.data || []);
-      setLoading(false);
-    });
-  }, []);
-
-  // Compute ingreso/exportacion split from analytics data
-  const tipoSplit = useMemo(() => {
-    if (!data) return { ingreso: { count: 0, kg: 0, envases: 0 }, exportacion: { count: 0, kg: 0, envases: 0, topPais: '-', topProducto: '-' } };
-    const byTipo = data.shipmentsByTipo || data.byTipo || [];
-    let ingreso = { count: 0, kg: 0, envases: 0 };
-    let exportacion = { count: 0, kg: 0, envases: 0, topPais: '-', topProducto: '-' };
-
-    if (Array.isArray(byTipo) && byTipo.length > 0) {
-      for (const t of byTipo) {
-        const tipo = String(t.tipo || t.type || '').toUpperCase();
-        if (tipo.includes('INGRESO') || tipo.includes('DEPOSITO')) {
-          ingreso = { count: t.envios || t.count || 0, kg: t.pesoNeto || 0, envases: t.envases || 0 };
-        } else if (tipo.includes('EXPORT')) {
-          exportacion = { count: t.envios || t.count || 0, kg: t.pesoNeto || 0, envases: t.envases || 0, topPais: t.topPais || '-', topProducto: t.topProducto || '-' };
-        }
+    (async () => {
+      try {
+        const [depositos, exportaciones] = await Promise.all([
+          loadAllDepositos(),
+          loadAllExportaciones(),
+        ]);
+        const computed = computeAnalytics(depositos, exportaciones);
+        setAnalytics(computed);
+        // Last 5 shipments (by date)
+        const allSorted = [...depositos, ...exportaciones]
+          .filter(s => s.fechaTramite)
+          .sort((a, b) => b.fechaTramite.localeCompare(a.fechaTramite))
+          .slice(0, 5);
+        setRecentShipments(allSorted);
+      } catch (err) {
+        console.error('Error loading dashboard data:', err);
       }
-    } else {
-      // Fallback: derive from totals
-      ingreso = { count: Math.round(data.total * 0.6), kg: Math.round(data.pesoNetoTotal * 0.55), envases: Math.round(data.envasesTotal * 0.55) };
-      exportacion = { count: Math.round(data.total * 0.4), kg: Math.round(data.pesoNetoTotal * 0.45), envases: Math.round(data.envasesTotal * 0.45), topPais: '-', topProducto: '-' };
-    }
-
-    // Fill topPais/topProducto from analytics if available
-    if (exportacion.topPais === '-' && data.byPais?.length > 0) {
-      exportacion.topPais = data.byPais[0].pais || data.byPais[0].name || '-';
-    }
-    if (exportacion.topProducto === '-' && data.byProducto?.length > 0) {
-      exportacion.topProducto = data.byProducto[0].producto || data.byProducto[0].name || '-';
-    }
-
-    return { ingreso, exportacion };
-  }, [data]);
+      setLoading(false);
+    })();
+  }, []);
 
   // Top 5 destinos
   const topDestinos = useMemo(() => {
-    if (!data?.byDestino) return [];
-    const list = (data.byDestino || []).slice(0, 5);
-    const maxKg = list.length > 0 ? Math.max(...list.map((d: any) => d.pesoNeto || 0)) : 1;
-    const totalKg = data.pesoNetoTotal || 1;
-    return list.map((d: any) => ({
-      name: d.destino || d.name || '-',
-      kg: d.pesoNeto || 0,
-      count: d.envios || d.count || 0,
-      pct: ((d.pesoNeto || 0) / totalKg * 100),
-      width: Math.max(((d.pesoNeto || 0) / maxKg) * 100, 8),
+    if (!analytics) return [];
+    const list = analytics.byDestino.slice(0, 5);
+    const maxKg = list.length > 0 ? Math.max(...list.map(d => d.pesoNeto)) : 1;
+    const totalKg = analytics.pesoNetoTotal || 1;
+    return list.map(d => ({
+      name: d.destino,
+      kg: d.pesoNeto,
+      count: d.envios,
+      pct: (d.pesoNeto / totalKg * 100),
+      width: Math.max((d.pesoNeto / maxKg) * 100, 8),
     }));
-  }, [data]);
+  }, [analytics]);
 
   // Top 5 productos
   const topProductos = useMemo(() => {
-    if (!data?.byProducto) return [];
-    const list = (data.byProducto || []).slice(0, 5);
-    const maxKg = list.length > 0 ? Math.max(...list.map((d: any) => d.pesoNeto || 0)) : 1;
-    const totalKg = data.pesoNetoTotal || 1;
-    return list.map((d: any) => ({
-      name: d.producto || d.name || '-',
-      kg: d.pesoNeto || 0,
-      count: d.envios || d.count || 0,
-      pct: ((d.pesoNeto || 0) / totalKg * 100),
-      width: Math.max(((d.pesoNeto || 0) / maxKg) * 100, 8),
+    if (!analytics) return [];
+    const list = analytics.byProducto.slice(0, 5);
+    const maxKg = list.length > 0 ? Math.max(...list.map(d => d.pesoNeto)) : 1;
+    const totalKg = analytics.pesoNetoTotal || 1;
+    return list.map(d => ({
+      name: d.producto,
+      kg: d.pesoNeto,
+      count: d.envios,
+      pct: (d.pesoNeto / totalKg * 100),
+      width: Math.max((d.pesoNeto / maxKg) * 100, 8),
     }));
-  }, [data]);
+  }, [analytics]);
 
-  if (loading || !data) {
+  if (loading || !analytics) {
     return (
       <div className="p-6 space-y-6">
         <Skeleton className="h-8 w-40" />
@@ -133,14 +442,16 @@ export default function Dashboard() {
     );
   }
 
+  const d = analytics;
+
   // KPI cards config — all use navigateAndFilter for proper filter clearing
   const kpis = [
-    { label: 'Total Envíos', value: fmt(data.total), icon: Package, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950', tab: 'depositos' as Tab, filters: {} },
-    { label: 'Peso Neto Total', value: fmt(data.pesoNetoTotal) + ' kg', icon: Weight, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950', tab: 'depositos' as Tab, filters: {} },
-    { label: 'Total Envases', value: fmt(data.envasesTotal), icon: Box, color: 'text-sky-600', bg: 'bg-sky-50 dark:bg-sky-950', tab: 'depositos' as Tab, filters: {} },
-    { label: 'Países Destino', value: String(data.uniquePaisCount), icon: Globe, color: 'text-violet-600', bg: 'bg-violet-50 dark:bg-violet-950', tab: 'comparativa' as Tab, filters: {} },
-    { label: 'Productos Únicos', value: String(data.uniqueProductoCount), icon: Tag, color: 'text-rose-600', bg: 'bg-rose-50 dark:bg-rose-950', tab: 'comparativa' as Tab, filters: {} },
-    { label: 'Último Envío', value: fd(data.lastDate), icon: CalendarDays, color: 'text-teal-600', bg: 'bg-teal-50 dark:bg-teal-950', tab: 'trazabilidad' as Tab, filters: {} },
+    { label: 'Total Envíos', value: fmt(d.total), icon: Package, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950', tab: 'depositos' as Tab, filters: {} },
+    { label: 'Peso Neto Total', value: fmt(d.pesoNetoTotal) + ' kg', icon: Weight, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950', tab: 'depositos' as Tab, filters: {} },
+    { label: 'Total Envases', value: fmt(d.envasesTotal), icon: Box, color: 'text-sky-600', bg: 'bg-sky-50 dark:bg-sky-950', tab: 'depositos' as Tab, filters: {} },
+    { label: 'Países Destino', value: String(d.uniquePaisCount), icon: Globe, color: 'text-violet-600', bg: 'bg-violet-50 dark:bg-violet-950', tab: 'comparativa' as Tab, filters: {} },
+    { label: 'Productos Únicos', value: String(d.uniqueProductoCount), icon: Tag, color: 'text-rose-600', bg: 'bg-rose-50 dark:bg-rose-950', tab: 'comparativa' as Tab, filters: {} },
+    { label: 'Último Envío', value: fd(d.lastDate), icon: CalendarDays, color: 'text-teal-600', bg: 'bg-teal-50 dark:bg-teal-950', tab: 'trazabilidad' as Tab, filters: {} },
   ];
 
   return (
@@ -205,22 +516,22 @@ export default function Dashboard() {
           <CardContent className="px-5 pb-4">
             <div className="grid grid-cols-3 gap-4">
               <div className="text-center">
-                <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">{fmt(tipoSplit.ingreso.count)}</p>
+                <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">{fmt(d.ingresoCount)}</p>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Envíos</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{fmt(tipoSplit.ingreso.kg)}</p>
+                <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{fmt(d.ingresoKg)}</p>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">kg neto</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-sky-600 dark:text-sky-400">{fmt(tipoSplit.ingreso.envases)}</p>
+                <p className="text-2xl font-bold text-sky-600 dark:text-sky-400">{fmt(d.ingresoEnvases)}</p>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Envases</p>
               </div>
             </div>
-            {tipoSplit.ingreso.count > 0 && (
+            {d.ingresoCount > 0 && (
               <div className="mt-3 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
                 <TrendingUp className="h-3.5 w-3.5" />
-                <span>{((tipoSplit.ingreso.count / Math.max(data.total, 1)) * 100).toFixed(1)}% del total</span>
+                <span>{((d.ingresoCount / Math.max(d.total, 1)) * 100).toFixed(1)}% del total</span>
               </div>
             )}
             <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200 font-medium mt-2 block">
@@ -246,22 +557,22 @@ export default function Dashboard() {
           <CardContent className="px-5 pb-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="text-center">
-                <p className="text-2xl font-bold text-sky-700 dark:text-sky-400">{fmt(tipoSplit.exportacion.count)}</p>
+                <p className="text-2xl font-bold text-sky-700 dark:text-sky-400">{fmt(d.exportCount)}</p>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Envíos</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{fmt(tipoSplit.exportacion.kg)}</p>
+                <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{fmt(d.exportKg)}</p>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">kg neto</p>
               </div>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <div className="rounded-lg bg-slate-50 dark:bg-slate-800 p-2">
                 <p className="text-[10px] text-slate-400 uppercase">Top País</p>
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">{tipoSplit.exportacion.topPais}</p>
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">{d.exportTopPais}</p>
               </div>
               <div className="rounded-lg bg-slate-50 dark:bg-slate-800 p-2">
                 <p className="text-[10px] text-slate-400 uppercase">Top Producto</p>
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">{tipoSplit.exportacion.topProducto}</p>
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">{d.exportTopProducto}</p>
               </div>
             </div>
             <span className="text-[10px] text-sky-600 dark:text-sky-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200 font-medium mt-2 block">
@@ -293,31 +604,41 @@ export default function Dashboard() {
             <div className="text-center">
               <p className="text-2xl font-bold text-orange-700 dark:text-orange-400">
                 <Link2 className="inline h-5 w-5 mr-1" />
-                {data.total || 0}
+                {d.cruceCotesVinculados}
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Ingresos Caliral</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">COTEs Vinculados</p>
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-sky-600 dark:text-sky-400">
                 <CheckCircle2 className="inline h-5 w-5 mr-1" />
-                {tipoSplit.exportacion.count || 0}
+                {d.cruceExportsConCruce}
               </p>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Exports con cruce</p>
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="inline h-5 w-5 mr-1" />
-                0
+                {d.cruceExportsSinCruce}
               </p>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Sin COTE</p>
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-orange-500 dark:text-orange-400">
                 <Unlink className="inline h-5 w-5 mr-1" />
-                0
+                {d.crucePendientes}
               </p>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Pendientes</p>
             </div>
+          </div>
+          <div className="mt-3 flex items-center gap-4">
+            {d.cruceConDiferencia > 0 && (
+              <span className="text-xs font-medium text-red-600 flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5" /> {d.cruceConDiferencia} con diferencia
+              </span>
+            )}
+            <span className="text-xs font-medium text-violet-600 flex items-center gap-1">
+              Cobertura: {d.cruceCobertura}%
+            </span>
           </div>
           <span className="text-[10px] text-orange-600 dark:text-orange-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200 font-medium mt-2 block">
             Ver cruce completo →
@@ -346,31 +667,31 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-3">
-              {topDestinos.map((d: any, i: number) => (
-                <Tooltip key={d.name}>
+              {topDestinos.map((dest, i) => (
+                <Tooltip key={dest.name}>
                   <TooltipTrigger asChild>
                     <div
                       className="cursor-pointer group/bar hover:opacity-90 transition-all duration-200"
-                      onClick={() => navigateAndFilter('depositos', { destino: d.name })}
+                      onClick={() => navigateAndFilter('depositos', { destino: dest.name })}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate max-w-[60%] group-hover/bar:text-emerald-700 dark:group-hover/bar:text-emerald-400 transition-colors">
-                          {d.name}
+                          {dest.name}
                         </span>
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-500 dark:text-slate-400">{fmt(d.kg)} kg</span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">{fmt(dest.kg)} kg</span>
                           <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900 px-1.5 py-0.5 rounded">
-                            {d.pct.toFixed(1)}%
+                            {dest.pct.toFixed(1)}%
                           </span>
                         </div>
                       </div>
                       <div className="w-full h-7 bg-slate-100 dark:bg-slate-800 rounded-md overflow-hidden relative">
                         <div
                           className={`h-full ${EMERALD_GRADIENT[i] || 'bg-emerald-500'} rounded-md transition-all duration-500 flex items-center px-3 group-hover/bar:brightness-110`}
-                          style={{ width: `${d.width}%` }}
+                          style={{ width: `${dest.width}%` }}
                         >
                           <span className="text-[10px] font-semibold text-white whitespace-nowrap drop-shadow-sm">
-                            {d.count} envíos
+                            {dest.count} envíos
                           </span>
                         </div>
                       </div>
@@ -378,9 +699,9 @@ export default function Dashboard() {
                   </TooltipTrigger>
                   <TooltipContent>
                     <div className="text-xs space-y-0.5">
-                      <p className="font-semibold">{d.name}</p>
-                      <p>{fmt(d.kg)} kg · {d.count} envíos</p>
-                      <p>{d.pct.toFixed(1)}% del total</p>
+                      <p className="font-semibold">{dest.name}</p>
+                      <p>{fmt(dest.kg)} kg · {dest.count} envíos</p>
+                      <p>{dest.pct.toFixed(1)}% del total</p>
                       <p className="text-emerald-300">Click para ver envíos →</p>
                     </div>
                   </TooltipContent>
@@ -412,31 +733,31 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-3">
-              {topProductos.map((d: any, i: number) => (
-                <Tooltip key={d.name}>
+              {topProductos.map((prod, i) => (
+                <Tooltip key={prod.name}>
                   <TooltipTrigger asChild>
                     <div
                       className="cursor-pointer group/bar hover:opacity-90 transition-all duration-200"
-                      onClick={() => navigateAndFilter('comparativa', { producto: d.name })}
+                      onClick={() => navigateAndFilter('comparativa', { producto: prod.name })}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate max-w-[60%] group-hover/bar:text-sky-700 dark:group-hover/bar:text-sky-400 transition-colors">
-                          {d.name}
+                          {prod.name}
                         </span>
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-500 dark:text-slate-400">{fmt(d.kg)} kg</span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">{fmt(prod.kg)} kg</span>
                           <span className="text-[10px] font-semibold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-900 px-1.5 py-0.5 rounded">
-                            {d.pct.toFixed(1)}%
+                            {prod.pct.toFixed(1)}%
                           </span>
                         </div>
                       </div>
                       <div className="w-full h-7 bg-slate-100 dark:bg-slate-800 rounded-md overflow-hidden relative">
                         <div
                           className={`h-full ${BLUE_GRADIENT[i] || 'bg-sky-500'} rounded-md transition-all duration-500 flex items-center px-3 group-hover/bar:brightness-110`}
-                          style={{ width: `${d.width}%` }}
+                          style={{ width: `${prod.width}%` }}
                         >
                           <span className="text-[10px] font-semibold text-white whitespace-nowrap drop-shadow-sm">
-                            {d.count} envíos
+                            {prod.count} envíos
                           </span>
                         </div>
                       </div>
@@ -444,9 +765,9 @@ export default function Dashboard() {
                   </TooltipTrigger>
                   <TooltipContent>
                     <div className="text-xs space-y-0.5">
-                      <p className="font-semibold">{d.name}</p>
-                      <p>{fmt(d.kg)} kg · {d.count} envíos</p>
-                      <p>{d.pct.toFixed(1)}% del total</p>
+                      <p className="font-semibold">{prod.name}</p>
+                      <p>{fmt(prod.kg)} kg · {prod.count} envíos</p>
+                      <p>{prod.pct.toFixed(1)}% del total</p>
                       <p className="text-sky-300">Click para comparar →</p>
                     </div>
                   </TooltipContent>
@@ -478,7 +799,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-0 divide-y divide-slate-100 dark:divide-slate-800">
-              {recentShipments.map((s: any) => {
+              {recentShipments.map((s) => {
                 const isExport = String(s.tipo || '').toUpperCase().includes('EXPORT');
                 return (
                   <div
