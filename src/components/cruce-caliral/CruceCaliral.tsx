@@ -811,8 +811,59 @@ function PalletAssignRow({ pallet, allCodes, onAssign }: {
   );
 }
 
+// --- Inline Edit Codigo Component ---
+function InlineEditCodigo({ value, allCodes, onSave }: {
+  value: string;
+  allCodes: string[];
+  onSave: (newCode: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(value);
+
+  const handleSave = () => {
+    const trimmed = editValue.trim().toUpperCase();
+    if (trimmed && trimmed !== value) {
+      onSave(trimmed);
+    }
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <Input
+          className="h-6 w-[110px] text-[11px] font-mono"
+          value={editValue}
+          onChange={e => setEditValue(e.target.value.toUpperCase())}
+          onBlur={handleSave}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.preventDefault(); handleSave(); }
+            if (e.key === 'Escape') { setEditing(false); setEditValue(value); }
+          }}
+          autoFocus
+          list={`inline-codes-${value}`}
+        />
+        <datalist id={`inline-codes-${value}`}>
+          {allCodes.map(c => <option key={c} value={c} />)}
+        </datalist>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      className="hover:bg-teal-100 hover:underline px-1 py-0.5 rounded transition-colors cursor-pointer group/code inline-flex items-center gap-1"
+      onClick={() => { setEditing(true); setEditValue(value); }}
+      title="Click para editar codigo"
+    >
+      {value}
+      <Pencil className="h-2.5 w-2.5 text-teal-400 opacity-0 group-hover/code:opacity-100 transition-opacity" />
+    </button>
+  );
+}
+
 // --- Stock Table Component ---
-function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, onAssignPallet, onAddIngresoFromStock }: {
+function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, onAssignPallet, onAddIngresoFromStock, onRenameCodigo }: {
   stockAggMap: Map<string, StockCodigoAgg>;
   ingresoMap: Map<string, IngresoAgg>;
   cruceRows: CruceRow[];
@@ -820,6 +871,7 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
   edits: EditsStore;
   onAssignPallet: (palletId: string, codigo: string, tipo: 'COTE' | 'PASE_SANITARIO') => void;
   onAddIngresoFromStock: (codigo: string, cajas: number, producto: string) => void;
+  onRenameCodigo: (palletId: string, newCodigo: string) => void;
 }) {
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
   const [stockSearch, setStockSearch] = useState('');
@@ -1039,7 +1091,14 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
               return (
                 <React.Fragment key={agg.codigo}>
                   <tr className={`border-b hover:bg-teal-50/40 ${expandedCode === agg.codigo ? 'bg-teal-50/60' : ''}`}>
-                    <td className="px-3 py-2.5 text-xs font-mono font-medium text-teal-700">{agg.codigo}</td>
+                    <td className="px-3 py-2.5 text-xs font-mono font-medium text-teal-700">
+                      <InlineEditCodigo value={agg.codigo} allCodes={allKnownCodes} onSave={(newCode) => {
+                        // Rename all pallets with this codigo
+                        for (const p of agg.pallets) {
+                          onRenameCodigo(p.id, newCode);
+                        }
+                      }} />
+                    </td>
                     <td className="px-3 py-2.5">
                       <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded ${agg.tipo === 'COTE' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
                         {agg.tipo === 'COTE' ? 'COTE' : 'PASE'}
@@ -1174,11 +1233,12 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
 
                           {/* Pallet details */}
                           <div>
-                            <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Pallets en stock ({agg.pallets.length})</p>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Pallets en stock ({agg.pallets.length}) — click en el codigo para editar</p>
                             <div className="max-h-64 overflow-y-auto border rounded">
                               <table className="w-full text-[11px]">
                                 <thead className="sticky top-0 bg-slate-100">
                                   <tr>
+                                    <th className="px-2 py-1 text-left">Codigo</th>
                                     <th className="px-2 py-1 text-left">Contenedor</th>
                                     <th className="px-2 py-1 text-left">Fec Ent</th>
                                     <th className="px-2 py-1 text-right">Cajas</th>
@@ -1191,6 +1251,9 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
                                 <tbody>
                                   {agg.pallets.map(p => (
                                     <tr key={p.id} className="border-t hover:bg-white/50">
+                                      <td className="px-2 py-1">
+                                        <InlineEditCodigo value={agg.codigo} allCodes={allKnownCodes} onSave={(newCode) => onRenameCodigo(p.id, newCode)} />
+                                      </td>
                                       <td className="px-2 py-1 font-mono">{p.contenedor || '-'}</td>
                                       <td className="px-2 py-1">{p.fechaEntrega ? fd(p.fechaEntrega) : '-'}</td>
                                       <td className="px-2 py-1 text-right font-mono">{p.cajas.toLocaleString('es-UY')}</td>
@@ -1614,6 +1677,19 @@ export default function CruceCaliral() {
     });
     toast.success(`Pallet asignado a ${codigo}`);
   }, []);
+
+  // Rename a pallet's codigo (for fixing e.g. "15070" → "P15070")
+  const handleRenameStockCodigo = useCallback((palletId: string, newCodigo: string) => {
+    if (!stockData) return;
+    const tipo: 'COTE' | 'PASE_SANITARIO' = newCodigo.startsWith('B') ? 'PASE_SANITARIO' : 'COTE';
+    // Update pallet assignments (this is how we override the parsed codigo)
+    setPalletAssignments(prev => {
+      const next = { ...prev, [palletId]: { codigo: newCodigo, tipo } };
+      localStorage.setItem('trazabilidad_stock_assignments', JSON.stringify(next));
+      return next;
+    });
+    toast.success(`Codigo cambiado a ${newCodigo}`);
+  }, [stockData]);
 
   // --- Edit handlers ---
   const openExportEdit = (row: CruceRow | SinCruceRow) => {
@@ -2627,6 +2703,7 @@ export default function CruceCaliral() {
                   edits={edits}
                   onAssignPallet={handleAssignPallet}
                   onAddIngresoFromStock={handleAddIngresoFromStock}
+                  onRenameCodigo={handleRenameStockCodigo}
                 />
               </>) : (
                 <div className="text-center py-16 text-slate-400">
