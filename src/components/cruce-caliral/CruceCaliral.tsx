@@ -878,8 +878,7 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
   const [stockFilter, setStockFilter] = useState<'all' | 'con_ingreso' | 'sin_ingreso' | 'con_diff' | 'sin_codigo'>('all');
 
   // Build export cajas map: ingreso COTE -> total cajas exported
-  // Manual links: use specified cajas per COTE
-  // Automatic links: distribute export cajas proportionally by ingreso cajas
+  // Also track the breakdown: COTE -> list of { expCote, tramite, cajas, fecha, pais, isManual }
   const exportCajasMap = useMemo(() => {
     const map = new Map<string, number>();
     // From cruceRows (exports matched to ingreso COTEs)
@@ -911,6 +910,42 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
       if (mc) {
         for (const link of mc) {
           map.set(link.cote, (map.get(link.cote) || 0) + link.cajas);
+        }
+      }
+    }
+    return map;
+  }, [cruceRows, sinCruceRows, edits, ingresoMap]);
+
+  // Build export breakdown: COTE -> list of exports that reference it
+  const exportBreakdownMap = useMemo(() => {
+    const map = new Map<string, Array<{ expCote: string; tramite: number; fecha: string; pais: string; cajas: number; isManual: boolean }>>();
+    for (const r of cruceRows) {
+      if (r.isManualLink && edits.exports[r.exp.id]?.manualCotes) {
+        for (const mc of edits.exports[r.exp.id].manualCotes!) {
+          if (!map.has(mc.cote)) map.set(mc.cote, []);
+          map.get(mc.cote)!.push({ expCote: r.exp.nroCote, tramite: r.exp.nroTramite, fecha: r.exp.fechaTramite, pais: r.exp.paisDestino, cajas: mc.cajas, isManual: true });
+        }
+      } else if (r.ingresoCotes.length > 0) {
+        const totalIngCajas = r.ingresoCotes.reduce((s, c) => s + (ingresoMap.get(c)?.envases || 0), 0);
+        for (const c of r.ingresoCotes) {
+          let share: number;
+          if (totalIngCajas > 0) {
+            const ingCajas = ingresoMap.get(c)?.envases || 0;
+            share = Math.round(r.envasesExp * ingCajas / totalIngCajas);
+          } else {
+            share = Math.floor(r.envasesExp / r.ingresoCotes.length);
+          }
+          if (!map.has(c)) map.set(c, []);
+          map.get(c)!.push({ expCote: r.exp.nroCote, tramite: r.exp.nroTramite, fecha: r.exp.fechaTramite, pais: r.exp.paisDestino, cajas: share, isManual: false });
+        }
+      }
+    }
+    for (const r of sinCruceRows) {
+      const mc = edits.exports[r.exp.id]?.manualCotes;
+      if (mc) {
+        for (const link of mc) {
+          if (!map.has(link.cote)) map.set(link.cote, []);
+          map.get(link.cote)!.push({ expCote: r.exp.nroCote, tramite: r.exp.nroTramite, fecha: r.exp.fechaTramite, pais: r.exp.paisDestino, cajas: link.cajas, isManual: true });
         }
       }
     }
@@ -1195,6 +1230,61 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
                               </div>
                             </div>
                           )}
+
+                          {/* Export breakdown — shows which exports contribute to Cajas Export. */}
+                          {(() => {
+                            const breakdown = exportBreakdownMap.get(agg.codigo);
+                            if (!breakdown || breakdown.length === 0) return null;
+                            return (
+                              <div className="bg-blue-50 rounded-lg p-3">
+                                <p className="text-[10px] text-blue-600 uppercase font-bold mb-1">
+                                  Exportaciones que referencian {agg.codigo} ({breakdown.length})
+                                </p>
+                                <div className="max-h-48 overflow-y-auto">
+                                  <table className="w-full text-[11px]">
+                                    <thead className="sticky top-0 bg-blue-100">
+                                      <tr>
+                                        <th className="px-2 py-1 text-left text-blue-800">COTE Exp.</th>
+                                        <th className="px-2 py-1 text-left text-blue-800">Tramite</th>
+                                        <th className="px-2 py-1 text-left text-blue-800">Fecha</th>
+                                        <th className="px-2 py-1 text-left text-blue-800">Pais</th>
+                                        <th className="px-2 py-1 text-right text-blue-800">Cajas</th>
+                                        <th className="px-2 py-1 text-left text-blue-800">Tipo</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {breakdown.map((b, i) => (
+                                        <tr key={i} className="border-t border-blue-200">
+                                          <td className="px-2 py-1 font-mono font-medium text-blue-700">{b.expCote}</td>
+                                          <td className="px-2 py-1 font-mono">{b.tramite}</td>
+                                          <td className="px-2 py-1">{fd(b.fecha)}</td>
+                                          <td className="px-2 py-1">{b.pais}</td>
+                                          <td className="px-2 py-1 text-right font-mono font-medium text-blue-700">{b.cajas.toLocaleString('es-UY')}</td>
+                                          <td className="px-2 py-1">
+                                            {b.isManual ? (
+                                              <span className="inline-block text-[8px] font-bold px-1 py-0.5 rounded bg-violet-100 text-violet-700">MANUAL</span>
+                                            ) : (
+                                              <span className="inline-block text-[8px] font-bold px-1 py-0.5 rounded bg-blue-100 text-blue-600">AUTO</span>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                    <tfoot>
+                                      <tr className="border-t-2 border-blue-300 bg-blue-100/50">
+                                        <td colSpan={4} className="px-2 py-1 text-right font-bold text-blue-800">Total</td>
+                                        <td className="px-2 py-1 text-right font-mono font-bold text-blue-800">{breakdown.reduce((s, b) => s + b.cajas, 0).toLocaleString('es-UY')}</td>
+                                        <td></td>
+                                      </tr>
+                                    </tfoot>
+                                  </table>
+                                </div>
+                                <p className="text-[10px] text-blue-500 mt-1">
+                                  AUTO = cajas distribuidas proporcionalmente por envases de ingreso. MANUAL = cajas especificadas manualmente.
+                                </p>
+                              </div>
+                            );
+                          })()}
                           {!ing && (
                             (() => {
                               const manual = (edits.ingresosManuales || []).find(m => m.cote === agg.codigo);
