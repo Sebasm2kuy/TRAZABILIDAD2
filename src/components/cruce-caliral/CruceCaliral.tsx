@@ -863,7 +863,7 @@ function InlineEditCodigo({ value, allCodes, onSave }: {
 }
 
 // --- Stock Table Component ---
-function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, onAssignPallet, onAddIngresoFromStock, onRenameCodigo }: {
+function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, onAssignPallet, onAddIngresoFromStock, onRenameCodigo, onUnlinkCote, onEditObs }: {
   stockAggMap: Map<string, StockCodigoAgg>;
   ingresoMap: Map<string, IngresoAgg>;
   cruceRows: CruceRow[];
@@ -872,6 +872,8 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
   onAssignPallet: (palletId: string, codigo: string, tipo: 'COTE' | 'PASE_SANITARIO') => void;
   onAddIngresoFromStock: (codigo: string, cajas: number, producto: string) => void;
   onRenameCodigo: (palletId: string, newCodigo: string) => void;
+  onUnlinkCote: (expId: string, coteToRemove: string) => void;
+  onEditObs: (expId: string) => void;
 }) {
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
   const [stockSearch, setStockSearch] = useState('');
@@ -918,12 +920,12 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
 
   // Build export breakdown: COTE -> list of exports that reference it
   const exportBreakdownMap = useMemo(() => {
-    const map = new Map<string, Array<{ expCote: string; tramite: number; fecha: string; pais: string; cajas: number; isManual: boolean }>>();
+    const map = new Map<string, Array<{ expId: string; expCote: string; tramite: number; fecha: string; pais: string; cajas: number; isManual: boolean }>>();
     for (const r of cruceRows) {
       if (r.isManualLink && edits.exports[r.exp.id]?.manualCotes) {
         for (const mc of edits.exports[r.exp.id].manualCotes!) {
           if (!map.has(mc.cote)) map.set(mc.cote, []);
-          map.get(mc.cote)!.push({ expCote: r.exp.nroCote, tramite: r.exp.nroTramite, fecha: r.exp.fechaTramite, pais: r.exp.paisDestino, cajas: mc.cajas, isManual: true });
+          map.get(mc.cote)!.push({ expId: r.exp.id, expCote: r.exp.nroCote, tramite: r.exp.nroTramite, fecha: r.exp.fechaTramite, pais: r.exp.paisDestino, cajas: mc.cajas, isManual: true });
         }
       } else if (r.ingresoCotes.length > 0) {
         const totalIngCajas = r.ingresoCotes.reduce((s, c) => s + (ingresoMap.get(c)?.envases || 0), 0);
@@ -936,7 +938,7 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
             share = Math.floor(r.envasesExp / r.ingresoCotes.length);
           }
           if (!map.has(c)) map.set(c, []);
-          map.get(c)!.push({ expCote: r.exp.nroCote, tramite: r.exp.nroTramite, fecha: r.exp.fechaTramite, pais: r.exp.paisDestino, cajas: share, isManual: false });
+          map.get(c)!.push({ expId: r.exp.id, expCote: r.exp.nroCote, tramite: r.exp.nroTramite, fecha: r.exp.fechaTramite, pais: r.exp.paisDestino, cajas: share, isManual: false });
         }
       }
     }
@@ -945,7 +947,7 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
       if (mc) {
         for (const link of mc) {
           if (!map.has(link.cote)) map.set(link.cote, []);
-          map.get(link.cote)!.push({ expCote: r.exp.nroCote, tramite: r.exp.nroTramite, fecha: r.exp.fechaTramite, pais: r.exp.paisDestino, cajas: link.cajas, isManual: true });
+          map.get(link.cote)!.push({ expId: r.exp.id, expCote: r.exp.nroCote, tramite: r.exp.nroTramite, fecha: r.exp.fechaTramite, pais: r.exp.paisDestino, cajas: link.cajas, isManual: true });
         }
       }
     }
@@ -1240,7 +1242,7 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
                                 <p className="text-[10px] text-blue-600 uppercase font-bold mb-1">
                                   Exportaciones que referencian {agg.codigo} ({breakdown.length})
                                 </p>
-                                <div className="max-h-48 overflow-y-auto">
+                                <div className="max-h-60 overflow-y-auto">
                                   <table className="w-full text-[11px]">
                                     <thead className="sticky top-0 bg-blue-100">
                                       <tr>
@@ -1250,6 +1252,7 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
                                         <th className="px-2 py-1 text-left text-blue-800">Pais</th>
                                         <th className="px-2 py-1 text-right text-blue-800">Cajas</th>
                                         <th className="px-2 py-1 text-left text-blue-800">Tipo</th>
+                                        <th className="px-2 py-1 text-center text-blue-800 w-[120px]">Acciones</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -1267,6 +1270,26 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
                                               <span className="inline-block text-[8px] font-bold px-1 py-0.5 rounded bg-blue-100 text-blue-600">AUTO</span>
                                             )}
                                           </td>
+                                          <td className="px-2 py-1 text-center">
+                                            <div className="flex items-center justify-center gap-1">
+                                              <button
+                                                className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-colors"
+                                                onClick={() => onUnlinkCote(b.expId, agg.codigo)}
+                                                title="Desvincular este COTE de esta exportacion"
+                                              >
+                                                <Unlink className="h-2.5 w-2.5" />
+                                                Desvincular
+                                              </button>
+                                              <button
+                                                className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 transition-colors"
+                                                onClick={() => onEditObs(b.expId)}
+                                                title="Editar observaciones de esta exportacion"
+                                              >
+                                                <Pencil className="h-2.5 w-2.5" />
+                                                Editar Obs.
+                                              </button>
+                                            </div>
+                                          </td>
                                         </tr>
                                       ))}
                                     </tbody>
@@ -1274,13 +1297,13 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
                                       <tr className="border-t-2 border-blue-300 bg-blue-100/50">
                                         <td colSpan={4} className="px-2 py-1 text-right font-bold text-blue-800">Total</td>
                                         <td className="px-2 py-1 text-right font-mono font-bold text-blue-800">{breakdown.reduce((s, b) => s + b.cajas, 0).toLocaleString('es-UY')}</td>
-                                        <td></td>
+                                        <td colSpan={2}></td>
                                       </tr>
                                     </tfoot>
                                   </table>
                                 </div>
                                 <p className="text-[10px] text-blue-500 mt-1">
-                                  AUTO = cajas distribuidas proporcionalmente por envases de ingreso. MANUAL = cajas especificadas manualmente.
+                                  AUTO = cajas distribuidas proporcionalmente. MANUAL = cajas especificadas. Si un COTE esta mal vinculado, usa "Desvincular" para removerlo de las observaciones.
                                 </p>
                               </div>
                             );
@@ -1780,6 +1803,31 @@ export default function CruceCaliral() {
     });
     toast.success(`Codigo cambiado a ${newCodigo}`);
   }, [stockData]);
+
+  // Unlink a COTE from an export's observaciones (removes the COTE text from obs)
+  const handleUnlinkCote = useCallback((expId: string, coteToRemove: string) => {
+    // Find the export in cruceRows or sinCruceRows
+    const allRows = [...cruceRows, ...sinCruceRows];
+    const row = allRows.find(r => r.exp.id === expId);
+    if (!row) return;
+    const exp = row.exp;
+    const currentObs = edits.exports[expId]?.observaciones ?? exp.observaciones ?? '';
+    // Remove the COTE from observaciones
+    const newObs = currentObs.replace(new RegExp(coteToRemove, 'gi'), '').replace(/\s{2,}/g, ' ').trim();
+    const ne = { ...edits };
+    ne.exports = { ...ne.exports, [expId]: { ...ne.exports[expId], observaciones: newObs } };
+    setEdits(ne);
+    saveEdits(ne);
+    recomputeCruce(ne);
+    toast.success(`${coteToRemove} desvinculado de ${exp.nroCote}`);
+  }, [edits, cruceRows, sinCruceRows]);
+
+  // Open edit form for an export's observaciones (finds the row and opens the full edit sheet)
+  const handleEditObs = useCallback((expId: string) => {
+    const allRows = [...cruceRows, ...sinCruceRows];
+    const row = allRows.find(r => r.exp.id === expId);
+    if (row) openExportEdit(row);
+  }, [cruceRows, sinCruceRows]);
 
   // --- Edit handlers ---
   const openExportEdit = (row: CruceRow | SinCruceRow) => {
@@ -2794,6 +2842,8 @@ export default function CruceCaliral() {
                   onAssignPallet={handleAssignPallet}
                   onAddIngresoFromStock={handleAddIngresoFromStock}
                   onRenameCodigo={handleRenameStockCodigo}
+                  onUnlinkCote={handleUnlinkCote}
+                  onEditObs={handleEditObs}
                 />
               </>) : (
                 <div className="text-center py-16 text-slate-400">
