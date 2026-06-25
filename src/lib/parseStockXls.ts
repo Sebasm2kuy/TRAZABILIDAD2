@@ -38,6 +38,8 @@ export interface StockCodigoAgg {
   pallets: StockPallet[];
   producto: string;
   contenedores: string[];
+  /** Internal grouping key: "codigo||producto" — ensures different products under the same COTE are separated */
+  _groupKey?: string;
 }
 
 // Special key for pallets without any COTE or PASE SANITARIO code
@@ -147,19 +149,23 @@ export function buildStockAggMap(pallets: StockPallet[]): Map<string, StockCodig
   for (const p of pallets) {
     const codigo = p.codigo || SIN_CODIGO_KEY;
     const tipo = p.codigo ? p.codigoTipo : ('NINGUNO' as 'COTE' | 'PASE_SANITARIO');
-    if (!map.has(codigo)) {
-      map.set(codigo, {
+    // Group by codigo + producto so different products under the same COTE are separated
+    const producto = p.contenido.split(' - ')[0]?.substring(0, 80) || p.contenido.substring(0, 80);
+    const groupKey = codigo === SIN_CODIGO_KEY ? SIN_CODIGO_KEY : `${codigo}||${producto}`;
+    if (!map.has(groupKey)) {
+      map.set(groupKey, {
         codigo: codigo === SIN_CODIGO_KEY ? 'S/PASE/COTE' : p.codigo,
         tipo: tipo === 'NINGUNO' ? 'COTE' : tipo,
         totalPallets: 0,
         totalCajas: 0,
         totalKilos: 0,
         pallets: [],
-        producto: p.contenido.split(' - ')[0]?.substring(0, 80) || p.contenido.substring(0, 80),
+        producto,
         contenedores: [],
+        _groupKey: groupKey,
       });
     }
-    const agg = map.get(codigo)!;
+    const agg = map.get(groupKey)!;
     agg.totalPallets += p.pallets;
     agg.totalCajas += p.cajas;
     agg.totalKilos += p.kilos;
