@@ -114,6 +114,20 @@ export default function ImportExportPanel() {
       const updated = [batch, ...batches];
       setBatches(updated);
       saveBatches(updated);
+
+      // ALSO write to the main table keys so data appears in Depositos/Exportaciones tabs
+      if (tipo === 'ingreso') {
+        try {
+          const existing = JSON.parse(localStorage.getItem('trazabilidad_dep_imported') || '[]');
+          localStorage.setItem('trazabilidad_dep_imported', JSON.stringify([...mapped, ...existing]));
+        } catch { localStorage.setItem('trazabilidad_dep_imported', JSON.stringify(mapped)); }
+      } else {
+        try {
+          const existing = JSON.parse(localStorage.getItem('trazabilidad_exp_imported') || '[]');
+          localStorage.setItem('trazabilidad_exp_imported', JSON.stringify([...mapped, ...existing]));
+        } catch { localStorage.setItem('trazabilidad_exp_imported', JSON.stringify(mapped)); }
+      }
+
       setLastResult({ ok: mapped.length, fail, batchId: batch.id });
     } catch (err) {
       console.error(err);
@@ -170,7 +184,7 @@ export default function ImportExportPanel() {
   };
 
   const exportExpOriginal = () => {
-    fetch('data/exportaciones.json').then(r => r.json()).then(async (exports) => {
+    fetch(dataUrl('data/exportaciones.json')).then(r => r.json()).then(async (exports) => {
       const XLSX = await import('xlsx');
       const data = (exports as Record<string, unknown>[]).map(s => ({
         'Nro. Trámite': s.nroTramite, 'Fecha': s.fechaTramite ? new Date(s.fechaTramite as string).toISOString().split('T')[0] : '',
