@@ -70,6 +70,18 @@ async function ensureExp() {
     }
     expCache.loaded = true;
   }
+  // If cache is empty but localStorage has data (race condition with Firebase pull), reload
+  if (expCache.data.length === 0) {
+    const imported = localStorage.getItem(EXP_IMPORTED_KEY);
+    if (imported) {
+      try {
+        const parsed = JSON.parse(imported);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          expCache.data = parsed;
+        }
+      } catch { /* ignore */ }
+    }
+  }
 }
 
 /** Force-reload expCache from localStorage (called after Firebase pull) */
@@ -216,6 +228,7 @@ export default function ExportacionesTable() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [dataVersion, setDataVersion] = useState(0);
   const [detailOpen, setDetailOpen] = useState(false);
   const selectedState = useState<ExpRecord | null>(null);
   const selected = selectedState[0];
@@ -290,7 +303,7 @@ export default function ExportacionesTable() {
   useEffect(() => {
     const handler = () => {
       invalidateExpCache();
-      setLoading(true);
+      setDataVersion(v => v + 1);
     };
     window.addEventListener('trazabilidad-data-ready', handler);
     return () => window.removeEventListener('trazabilidad-data-ready', handler);
@@ -331,7 +344,7 @@ export default function ExportacionesTable() {
       setTotal(t);
     })();
     return () => { cancelled = true; };
-  }, [page, expFilters, EXP_PAGE_LIMIT, edits, deletedIds]);
+  }, [page, expFilters, EXP_PAGE_LIMIT, edits, deletedIds, dataVersion]);
 
   useEffect(() => { setPage(1); }, [expFilters]);
 

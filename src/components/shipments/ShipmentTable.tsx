@@ -176,6 +176,18 @@ async function ensureDep() {
     }
     depCache.loaded = true;
   }
+  // If cache is empty but localStorage has data (race condition with Firebase pull), reload
+  if (depCache.data.length === 0) {
+    const imported = localStorage.getItem(DEP_IMPORTED_KEY);
+    if (imported) {
+      try {
+        const parsed = JSON.parse(imported);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          depCache.data = parsed;
+        }
+      } catch { /* ignore */ }
+    }
+  }
 }
 
 /** Force-reload depCache from localStorage (called after Firebase pull) */
@@ -190,6 +202,7 @@ export default function ShipmentTable() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [dataVersion, setDataVersion] = useState(0);
   const [detailOpen, setDetailOpen] = useState(false);
   const selectedState = useState<Shipment | null>(null);
   const selected = selectedState[0];
@@ -255,7 +268,7 @@ export default function ShipmentTable() {
   useEffect(() => {
     const handler = () => {
       invalidateDepCache();
-      setLoading(true);
+      setDataVersion(v => v + 1);
     };
     window.addEventListener('trazabilidad-data-ready', handler);
     return () => window.removeEventListener('trazabilidad-data-ready', handler);
@@ -264,7 +277,7 @@ export default function ShipmentTable() {
   // Refresh options whenever data changes
   useEffect(() => {
     if (depCache.loaded) refreshOptions();
-  }, [depCache.loaded, refreshOptions]);
+  }, [depCache.loaded, refreshOptions, dataVersion]);
 
   useEffect(() => {
     let cancelled = false;
@@ -309,7 +322,7 @@ export default function ShipmentTable() {
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [page, search, filters, limit, edits, newRecords, deletedIds]);
+  }, [page, search, filters, limit, edits, newRecords, deletedIds, dataVersion]);
 
   useEffect(() => { setPage(1); }, [search, filters]);
 
