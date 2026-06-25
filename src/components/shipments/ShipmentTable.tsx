@@ -8,9 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
-import { Search, X, ChevronLeft, ChevronRight, Eye, FileCheck, Pencil, Save, RotateCcw, CheckCircle2, Plus, Trash2, Download, Upload, Loader2, Check, Globe, Sparkles, ClipboardPaste, Package } from 'lucide-react';
+import { Search, X, ChevronLeft, ChevronRight, Eye, FileCheck, Pencil, Save, RotateCcw, CheckCircle2, Plus, Trash2, Download, Upload, Loader2, Check, Globe, Sparkles, ClipboardPaste, Package, FileText } from 'lucide-react';
 import { fetchShipments, fetchAnalytics, getCotes, dataUrl } from '@/lib/staticData';
 import { parseEnviosExcel } from '@/lib/parseExcelRegistro';
+import { parseCotePdf, coteToShipmentRecord } from '@/lib/parseCotePdf';
 import type { Shipment } from '@/lib/types';
 import { schedulePush } from '@/lib/googleSheets';
 import { toast } from 'sonner';
@@ -199,6 +200,9 @@ export default function ShipmentTable() {
   const [coteSearch, setCoteSearch] = useState('');
   const coteInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const limit = 20;
   const [detailLineas, setDetailLineas] = useState<ProductoCorteLine[]>([]);
@@ -495,6 +499,73 @@ export default function ShipmentTable() {
     setEditMode(true);
   }, [newRecords, handleOpenDetail]);
 
+  // PDF Upload handler
+  const handlePdfUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPdfLoading(true);
+    setPdfError(null);
+    try {
+      const parsed = await parseCotePdf(file);
+      const newRecord = coteToShipmentRecord(parsed);
+
+      // Check if COTE already exists in cache
+      const existing = depCache.data.find(s => s.nroCote === newRecord.nroCote);
+      if (existing) {
+        // Open existing record in edit mode, also load ingreso COTEs from PDF
+        const withEdits = applyEdits([...depCache.data, ...newRecords], edits).find(s => s.nroCote === newRecord.nroCote);
+        if (withEdits) {
+          handleOpenDetail(withEdits);
+          if (withEdits.denominacionMercaderia || withEdits.corte) {
+            setDetailLineas([{
+              id: '1',
+              producto: withEdits.denominacionMercaderia || '',
+              corte: withEdits.corte || '',
+              cajas: withEdits.cantidadEnvases != null ? withEdits.cantidadEnvases : '',
+            }]);
+          }
+          setEditMode(true);
+          setPdfError(null);
+        }
+        setPdfLoading(false);
+        if (pdfInputRef.current) pdfInputRef.current.value = '';
+        return;
+      }
+
+      // Add to new records
+      const updated = [...newRecords, newRecord];
+      setNewRecords(updated);
+      saveNewRecords(updated);
+
+      // Add to depCache and edits so it shows immediately
+      depCache.data = [...depCache.data, newRecord];
+      const newEdits = { ...edits, [newRecord.id]: newRecord as Partial<Shipment> };
+      setEdits(newEdits);
+      saveEdits(newEdits);
+
+      // Update COTEs list
+      const allData = applyEdits([...depCache.data, ...updated], newEdits);
+      setCotes([...new Set(allData.map(s => s.nroCote).filter(Boolean) as string[])].sort());
+
+      // Open in edit mode
+      handleOpenDetail(newRecord);
+      setDetailLineas([{
+        id: '1',
+        producto: newRecord.denominacionMercaderia || '',
+        corte: newRecord.corte || '',
+        cajas: newRecord.cantidadEnvases != null ? newRecord.cantidadEnvases : '',
+      }]);
+      setEditMode(true);
+
+      toast.success(`COTE ${newRecord.nroCote} cargado desde PDF`);
+    } catch (err) {
+      console.error('Error parsing PDF:', err);
+      setPdfError('Error al procesar el PDF. Verificá que sea un COTE válido.');
+    }
+    setPdfLoading(false);
+    if (pdfInputRef.current) pdfInputRef.current.value = '';
+  }, [edits, newRecords, handleOpenDetail]);
+
   const isFieldEdited = useCallback((key: string) => {
     if (!selected || !edits[selected.id]) return false;
     return key in edits[selected.id]!;
@@ -590,13 +661,31 @@ export default function ShipmentTable() {
             </span>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
           <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={importing}>
             {importing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
             {importing ? 'Importando...' : 'Importar Excel'}
           </Button>
-          <Button variant="default" size="sm" className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" onClick={handleCreate}>
+          <input
+            ref={pdfInputRef}
+            type="file"
+            accept=".pdf"
+            className="hidden"
+            onChange={handlePdfUpload}
+          />
+          <Button
+            variant="default"
+            size="sm"
+            className="bg-emerald-600 hover:bg-emerald-700 gap-1.5"
+            disabled={pdfLoading}
+            onClick={() => pdfInputRef.current?.click()}
+          >
+            {pdfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+            {pdfLoading ? 'Procesando...' : 'Cargar PDF'}
+          </Button>
+          {pdfError && <span className="text-xs text-red-500">{pdfError}</span>}
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleCreate}>
             <Plus className="h-4 w-4" />Nuevo
           </Button>
           <Button variant="outline" size="sm" onClick={handleExportXlsx}>

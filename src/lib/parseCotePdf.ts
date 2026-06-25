@@ -740,3 +740,43 @@ export function coteToExpRecord(parsed: CoteParsed): Partial<ExpRecord> & { id: 
     codigoEnvase: parsed.codigoEnvase,
   };
 }
+
+// Convert parsed COTE PDF to a Shipment (ingreso) record
+export function coteToShipmentRecord(parsed: CoteParsed): import('./types').Shipment {
+  const now = new Date().toISOString();
+  return {
+    id: `pdf_${parsed.nroCote || Date.now()}_${Date.now()}`,
+    nroTramite: parsed.nroTramite || 0,
+    nroCote: parsed.nroCote || '',
+    tipo: 'INGRESO',
+    fechaTramite: parsed.fechaEmitidoCote || now,
+    fechaEmitidoCote: parsed.fechaEmitidoCote || null,
+    paisDestino: parsed.paisDestino || 'URUGUAY',
+    denominacionMercaderia: parsed.denominacionMercaderia || '',
+    corte: parsed.corte || '',
+    nombreEstablecimientoDestino: parsed.nombreEstablecimientoDestino || 'CALIRAL',
+    nombreEstablecimientoProd: parsed.nombreEstablecimientoProd || null,
+    nroEstablecimientoProd: parsed.nroEstablecimientoProd ? parseInt(parsed.nroEstablecimientoProd, 10) : null,
+    nombreEstablecimientoCertif: parsed.estabCertificadorNombre || null,
+    nombreMedicoVeterinario: parsed.nombreMedicoVeterinario || null,
+    contenedorSerieNro: parsed.contenedorSerieNro || null,
+    matriculaCamion: null,
+    precinto1: parsed.precinto1 || null,
+    tipoTransporte: parsed.tipoTransporte || null,
+    pesoBruto: parsed.pesoBruto,
+    pesoNeto: parsed.pesoNeto,
+    cantidadEnvases: parsed.cantidadEnvases,
+    pallets: parsed.pallets,
+    temperaturaC: parsed.temperaturaC,
+    tipoMovimiento: parsed.tipoMovimiento || null,
+    observaciones: parsed.observaciones || null,
+    fechaInicioFaena: parsed.fechaInicioFaena,
+    fechaFinFaena: parsed.fechaFinFaena,
+    fechaInicioProduccion: parsed.fechaInicioProduccion,
+    fechaFinProduccion: parsed.fechaFinProduccion,
+    fechaInicioCongelacion: parsed.fechaInicioCongelacion,
+    fechaFinCongelacion: parsed.fechaFinCongelacion,
+    baja: null,
+    codigoEnvase: parsed.codigoEnvase,
+  };
+}
