@@ -222,6 +222,10 @@ export default function ExportacionesTable() {
   const [cotes, setCotes] = useState<string[]>([]);
   const [coteOpen, setCoteOpen] = useState(false);
   const [coteSearch, setCoteSearch] = useState('');
+  const [paisOpen, setPaisOpen] = useState(false);
+  const [paisSearch, setPaisSearch] = useState('');
+  const [productoOpen, setProductoOpen] = useState(false);
+  const [productoSearch, setProductoSearch] = useState('');
   const [showCharts, setShowCharts] = useState(true);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
@@ -777,8 +781,80 @@ export default function ExportacionesTable() {
               </div>
             )}
           </div>
-          <Select value={expFilters.pais} onValueChange={v => setExpFilter('pais', v)}><SelectTrigger className="w-[180px]"><SelectValue placeholder="País" /></SelectTrigger><SelectContent>{options.paises.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select>
-          <Select value={expFilters.producto} onValueChange={v => setExpFilter('producto', v)}><SelectTrigger className="w-[220px]"><SelectValue placeholder="Producto" /></SelectTrigger><SelectContent>{options.productos.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => { setPaisOpen(!paisOpen); setPaisSearch(''); }}
+              className={`flex h-9 w-[180px] items-center justify-between rounded-md border px-3 py-2 text-sm whitespace-nowrap truncate ${expFilters.pais ? 'border-emerald-500 bg-emerald-50 text-emerald-700 font-medium' : 'border-input bg-background text-muted-foreground'}`}
+            >
+              <span className="truncate">{expFilters.pais || 'País'}</span>
+              <X className={`h-3.5 w-3.5 shrink-0 ml-1 ${expFilters.pais ? 'text-emerald-600 hover:text-red-500' : 'text-slate-400'}`} onClick={e => { e.stopPropagation(); setExpFilter('pais', ''); setPaisOpen(false); }} />
+            </button>
+            {paisOpen && (
+              <div className="absolute z-50 top-[100%] left-0 mt-1 w-[220px] bg-white border rounded-lg shadow-xl">
+                <div className="p-2 border-b">
+                  <input
+                    type="text"
+                    placeholder="Buscar país..."
+                    value={paisSearch}
+                    onChange={e => setPaisSearch(e.target.value)}
+                    className="w-full h-8 text-sm border rounded px-2 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    autoFocus
+                  />
+                </div>
+                <div className="max-h-[200px] overflow-y-auto">
+                  {options.paises
+                    .filter(p => !paisSearch || p.toLowerCase().includes(paisSearch.toLowerCase()))
+                    .map(p => (
+                      <button key={p} type="button" onClick={() => { setExpFilter('pais', expFilters.pais === p ? '' : p); setPaisOpen(false); setPaisSearch(''); }}
+                        className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors ${expFilters.pais === p ? 'bg-emerald-50 text-emerald-700 font-medium' : ''}`}>{p}</button>
+                    ))
+                  }
+                  {paisSearch && !options.paises.some(p => p.toLowerCase().includes(paisSearch.toLowerCase())) && (
+                    <button type="button" onClick={() => { setExpFilter('pais', paisSearch); setPaisOpen(false); setPaisSearch(''); }}
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent text-blue-600">Usar: "{paisSearch}"</button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => { setProductoOpen(!productoOpen); setProductoSearch(''); }}
+              className={`flex h-9 w-[220px] items-center justify-between rounded-md border px-3 py-2 text-sm whitespace-nowrap truncate ${expFilters.producto ? 'border-emerald-500 bg-emerald-50 text-emerald-700 font-medium' : 'border-input bg-background text-muted-foreground'}`}
+            >
+              <span className="truncate">{expFilters.producto || 'Producto'}</span>
+              <X className={`h-3.5 w-3.5 shrink-0 ml-1 ${expFilters.producto ? 'text-emerald-600 hover:text-red-500' : 'text-slate-400'}`} onClick={e => { e.stopPropagation(); setExpFilter('producto', ''); setProductoOpen(false); }} />
+            </button>
+            {productoOpen && (
+              <div className="absolute z-50 top-[100%] left-0 mt-1 w-[260px] bg-white border rounded-lg shadow-xl">
+                <div className="p-2 border-b">
+                  <input
+                    type="text"
+                    placeholder="Buscar producto..."
+                    value={productoSearch}
+                    onChange={e => setProductoSearch(e.target.value)}
+                    className="w-full h-8 text-sm border rounded px-2 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    autoFocus
+                  />
+                </div>
+                <div className="max-h-[200px] overflow-y-auto">
+                  {options.productos
+                    .filter(p => !productoSearch || p.toLowerCase().includes(productoSearch.toLowerCase()))
+                    .map(p => (
+                      <button key={p} type="button" onClick={() => { setExpFilter('producto', expFilters.producto === p ? '' : p); setProductoOpen(false); setProductoSearch(''); }}
+                        className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors truncate ${expFilters.producto === p ? 'bg-emerald-50 text-emerald-700 font-medium' : ''}`}>{p}</button>
+                    ))
+                  }
+                  {productoSearch && !options.productos.some(p => p.toLowerCase().includes(productoSearch.toLowerCase())) && (
+                    <button type="button" onClick={() => { setExpFilter('producto', productoSearch); setProductoOpen(false); setProductoSearch(''); }}
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent text-blue-600">Usar: "{productoSearch}"</button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <Input type="date" value={expFilters.fechaDesde} onChange={e => setExpFilter('fechaDesde', e.target.value)} className="w-[150px]" />
           <Input type="date" value={expFilters.fechaHasta} onChange={e => setExpFilter('fechaHasta', e.target.value)} className="w-[150px]" />
         </div>
