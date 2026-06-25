@@ -72,6 +72,13 @@ async function ensureExp() {
   }
 }
 
+/** Force-reload expCache from localStorage (called after Firebase pull) */
+function invalidateExpCache() {
+  expCache.loaded = false;
+  expCache.data = [];
+  expCache.analytics = null;
+}
+
 function loadEdits(): Record<string, Partial<ExpRecord>> {
   try { const r = localStorage.getItem(EXP_EDITS_KEY); return r ? JSON.parse(r) : {}; } catch { return {}; }
 }
@@ -262,16 +269,31 @@ export default function ExportacionesTable() {
         }
       } catch { /* ignore */ }
       const a = expCache.analytics!;
+      // Build options from analytics or from actual data
+      const optPaises = ((a.byPais as any[]) || []).map((p: any) => p.pais).filter(Boolean);
+      const optProductos = ((a.byProducto as any[]) || []).map((p: any) => p.producto).filter(Boolean);
+      const optDestinos = ((a.byDestino as any[]) || []).map((d: any) => d.destino).filter(Boolean);
+      // If analytics is empty, derive options from actual data
       setOptions({
-        paises: ((a.byPais as any[]) || []).map((p: any) => p.pais).filter(Boolean),
-        productos: ((a.byProducto as any[]) || []).map((p: any) => p.producto).filter(Boolean),
-        destinos: ((a.byDestino as any[]) || []).map((d: any) => d.destino).filter(Boolean),
+        paises: optPaises.length > 0 ? optPaises : [...new Set(expCache.data.map(s => s.paisDestino).filter(Boolean) as string[])].sort(),
+        productos: optProductos.length > 0 ? optProductos : [...new Set(expCache.data.map(s => s.denominacionMercaderia).filter(Boolean) as string[])].sort(),
+        destinos: optDestinos.length > 0 ? optDestinos : [...new Set(expCache.data.map(s => s.nombreEstablecimientoDestino).filter(Boolean) as string[])].sort(),
       });
       // Apply edits to cache
       expCache.data = applyEdits(expCache.data, edits);
       setCotes([...new Set(expCache.data.map(s => s.nroCote).filter(Boolean) as string[])].sort());
       setLoading(false);
     })();
+  }, []);
+
+  // Listen for Firebase data-ready event and refresh cache + options
+  useEffect(() => {
+    const handler = () => {
+      invalidateExpCache();
+      setLoading(true);
+    };
+    window.addEventListener('trazabilidad-data-ready', handler);
+    return () => window.removeEventListener('trazabilidad-data-ready', handler);
   }, []);
 
   useEffect(() => {

@@ -178,6 +178,12 @@ async function ensureDep() {
   }
 }
 
+/** Force-reload depCache from localStorage (called after Firebase pull) */
+function invalidateDepCache() {
+  depCache.loaded = false;
+  depCache.data = [];
+}
+
 export default function ShipmentTable() {
   const { search, setSearch, filters, setFilter, clearFilters } = useAppStore();
   const [data, setData] = useState<Shipment[]>([]);
@@ -218,18 +224,47 @@ export default function ShipmentTable() {
     setDetailLineas(prev => prev.map(l => l.id === id ? { ...l, [field]: field === 'cajas' ? (value === '' ? '' : parseInt(value) || 0) : value } : l));
   };
 
+  // Refresh filter options from actual data (not just analytics.json)
+  const refreshOptions = useCallback(() => {
+    const allData = applyEdits([...depCache.data, ...newRecords], edits).filter(s => !deletedIds.has(s.id));
+    const paises = [...new Set(allData.map(s => s.paisDestino).filter(Boolean) as string[])].sort();
+    const productos = [...new Set(allData.map(s => s.denominacionMercaderia).filter(Boolean) as string[])].sort();
+    const destinos = [...new Set(allData.map(s => s.nombreEstablecimientoDestino).filter(Boolean) as string[])].sort();
+    const coteList = [...new Set(allData.map(s => s.nroCote).filter(Boolean) as string[])].sort();
+    setOptions({ paises, productos, destinos });
+    setCotes(coteList);
+  }, [edits, newRecords, deletedIds]);
+
   useEffect(() => {
+    // First try analytics.json, then override with real data
     (async () => {
-      const a = await fetchAnalytics();
-      setOptions({
-        paises: (a.byPais || []).map((p: { pais: string }) => p.pais).filter(Boolean),
-        productos: (a.byProducto || []).map((p: { producto: string }) => p.producto).filter(Boolean),
-        destinos: (a.byDestino || []).map((d: { destino: string }) => d.destino).filter(Boolean),
-      });
-      const c = await getCotes();
-      setCotes(c);
+      try {
+        const a = await fetchAnalytics();
+        setOptions({
+          paises: (a.byPais || []).map((p: { pais: string }) => p.pais).filter(Boolean),
+          productos: (a.byProducto || []).map((p: { producto: string }) => p.producto).filter(Boolean),
+          destinos: (a.byDestino || []).map((d: { destino: string }) => d.destino).filter(Boolean),
+        });
+        const c = await getCotes();
+        setCotes(c);
+      } catch { /* ignore */ }
     })();
   }, []);
+
+  // Listen for Firebase data-ready event and refresh cache + options
+  useEffect(() => {
+    const handler = () => {
+      invalidateDepCache();
+      setLoading(true);
+    };
+    window.addEventListener('trazabilidad-data-ready', handler);
+    return () => window.removeEventListener('trazabilidad-data-ready', handler);
+  }, []);
+
+  // Refresh options whenever data changes
+  useEffect(() => {
+    if (depCache.loaded) refreshOptions();
+  }, [depCache.loaded, refreshOptions]);
 
   useEffect(() => {
     let cancelled = false;
