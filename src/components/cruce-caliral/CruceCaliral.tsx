@@ -1741,7 +1741,7 @@ export default function CruceCaliral() {
       try {
         await ensureData(true);
       } catch (err) {
-        console.error('Error cargando datos de Cruce Caliral:', err);
+        console.error('Error cargando datos de Cruces Frimaral:', err);
       }
       const loadedEdits = loadEdits();
       setEdits(loadedEdits);
@@ -2464,7 +2464,7 @@ export default function CruceCaliral() {
   };
   const isEdited = (type: 'export' | 'ingreso', id: string) => type === 'export' ? !!edits.exports[id] : !!edits.ingresos[id];
 
-  if (loading) return <div className="p-6 space-y-4"><h2 className="text-2xl font-bold text-slate-800">Cruce Caliral</h2><Skeleton className="h-96" /></div>;
+  if (loading) return <div className="p-6 space-y-4"><h2 className="text-2xl font-bold text-slate-800">Cruces Frimaral</h2><Skeleton className="h-96" /></div>;
 
   return (
     <div className="p-6 space-y-4 max-w-[1600px]">
@@ -2472,7 +2472,7 @@ export default function CruceCaliral() {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <ArrowLeftRight className="h-6 w-6 text-orange-600" />
-          Cruce Caliral
+          Cruces Frimaral
           <span className="text-sm font-normal text-slate-400 ml-2">Trazabilidad por cajas (envases)</span>
         </h2>
         <div className="flex gap-2">

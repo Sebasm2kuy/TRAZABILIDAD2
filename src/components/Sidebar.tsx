@@ -13,7 +13,7 @@ const tabs = [
   { id: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
   { id: 'depositos' as const, label: 'A Depósitos', icon: Warehouse },
   { id: 'exportaciones' as const, label: 'Exportaciones', icon: Ship },
-  { id: 'cruce-caliral' as const, label: 'Cruce Caliral', icon: ArrowLeftRight },
+  { id: 'cruce-caliral' as const, label: 'Cruces Frimaral', icon: ArrowLeftRight },
   { id: 'trazabilidad' as const, label: 'Trazabilidad', icon: Search },
   { id: 'comparativa' as const, label: 'Comparativa', icon: GitCompare },
   { id: 'analiticas' as const, label: 'Analíticas', icon: BarChart3 },

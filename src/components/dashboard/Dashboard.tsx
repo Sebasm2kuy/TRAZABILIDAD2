@@ -18,6 +18,7 @@ import { dataUrl } from '@/lib/staticData';
 import { fmt, fd } from '@/lib/utils';
 import { useAppStore, type Tab } from '@/store/useAppStore';
 import type { Shipment, ExpRecord } from '@/lib/types';
+import StockPanel from './StockPanel';
 
 // Emerald gradient stops for bar charts
 const EMERALD_GRADIENT = [
@@ -272,7 +273,7 @@ function computeAnalytics(depositos: Shipment[], exportaciones: ExpRecord[]): An
   if (sortedExpPais.length > 0) exportTopPais = sortedExpPais[0][0];
   if (sortedExpProducto.length > 0) exportTopProducto = sortedExpProducto[0][0];
 
-  // --- Cruce Caliral stats ---
+  // --- Cruces Frimaral stats ---
   // Get Caliral deposits (same logic as CruceCaliral component)
   const caliralDepositos = depositos.filter(s =>
     String(s.nombreEstablecimientoDestino || '').toLowerCase().includes('caliral')
@@ -594,7 +595,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <ArrowLeftRight className="h-5 w-5 text-orange-600" />
-              Cruce Caliral
+              Cruces Frimaral
             </CardTitle>
             <ArrowRight className="h-4 w-4 text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-200" />
           </div>
@@ -645,6 +646,11 @@ export default function Dashboard() {
           </span>
         </CardContent>
       </Card>
+
+      {/* ─── STOCK FRIMARAL ─── */}
+      <div className="lg:col-span-2">
+        <StockPanel />
+      </div>
 
       {/* ─── 3. TOP 5 DESTINOS ─── */}
       <Card>
