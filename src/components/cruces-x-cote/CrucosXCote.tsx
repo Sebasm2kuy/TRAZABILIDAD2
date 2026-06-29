@@ -256,56 +256,16 @@ export default function CrucosXCote() {
         existing.ingresoFecha = ing.fecha;
         existing.ingresoProductos = ing.productos;
         existing.ingresoCortes = ing.cortes;
-      } else {
-        rows.set(cote, {
-          cote,
-          tipo: 'COTE',
-          stockPallets: 0,
-          stockCajas: 0,
-          stockKg: 0,
-          stockProductos: [],
-          stockContenedores: [],
-          stockPalletsList: [],
-          ingresoCajas: ing.envases,
-          ingresoKg: ing.pesoNeto,
-          ingresoTramite: ing.tramite,
-          ingresoFecha: ing.fecha,
-          ingresoProductos: ing.productos,
-          ingresoCortes: ing.cortes,
-          exportCajas: 0,
-          exportRefs: [],
-          diff: null,
-          saldoTeorico: null,
-        });
       }
+      // Do NOT add rows for COTEs that have no stock - only show COTEs that are in stock
     }
     for (const [cote, expCajas] of exportCajasMap) {
       const existing = rows.get(cote);
       if (existing) {
         existing.exportCajas = expCajas;
         existing.exportRefs = exportRefsMap.get(cote) || [];
-      } else {
-        rows.set(cote, {
-          cote,
-          tipo: 'COTE',
-          stockPallets: 0,
-          stockCajas: 0,
-          stockKg: 0,
-          stockProductos: [],
-          stockContenedores: [],
-          stockPalletsList: [],
-          ingresoCajas: 0,
-          ingresoKg: 0,
-          ingresoTramite: 0,
-          ingresoFecha: '',
-          ingresoProductos: [],
-          ingresoCortes: [],
-          exportCajas: expCajas,
-          exportRefs: exportRefsMap.get(cote) || [],
-          diff: null,
-          saldoTeorico: null,
-        });
       }
+      // Do NOT add rows for COTEs that have no stock
     }
     for (const row of rows.values()) {
       if (row.ingresoCajas > 0 || row.stockCajas > 0) {
