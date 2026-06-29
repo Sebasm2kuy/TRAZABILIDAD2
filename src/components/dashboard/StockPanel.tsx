@@ -34,9 +34,10 @@ function aggregateIngresosByCote(shipments: Shipment[]): Map<string, IngresoAgg>
   for (const s of shipments) {
     const cote = s.nroCote?.toUpperCase().trim();
     if (!cote) continue;
-    // Group by cote + producto so each product has its own ingreso count
+    // Group by cote + denominacionMercaderia + corte so each product variant has its own count
     const producto = (s.denominacionMercaderia || '').trim();
-    const key = `${cote}||${producto}`;
+    const corte = (s.corte || '').trim();
+    const key = `${cote}||${producto}||${corte}`;
     const existing = map.get(key);
     if (existing) {
       existing.envases += s.cantidadEnvases || 0;
@@ -59,6 +60,57 @@ function aggregateIngresosByCote(shipments: Shipment[]): Map<string, IngresoAgg>
     }
   }
   return map;
+}
+
+// Match a stock product name to a deposit ingreso record by keywords
+// Returns the matching IngresoAgg or null
+function matchIngresoByProduct(
+  ingresoMap: Map<string, IngresoAgg>,
+  cote: string,
+  stockProducto: string
+): IngresoAgg | null {
+  // First try exact cote||producto match
+  const exactKey = `${cote}||${stockProducto}`;
+  let exact = ingresoMap.get(exactKey);
+  if (exact) return exact;
+  // Also try cote||producto||corte format (search all variants for this cote)
+  const candidates: IngresoAgg[] = [];
+  for (const [k, v] of ingresoMap) {
+    if (k.startsWith(`${cote}||`)) {
+      candidates.push(v);
+    }
+  }
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  // Multiple candidates — match by keywords
+  const stkUpper = stockProducto.toUpperCase();
+  const stkWords = stkUpper.split(/[\s-]+/).filter(w => w.length > 2 && !['CNG','BLQ','IWP','VP','LP','BOV','OVI','ANGUS','VILA','CHINA','PLY','POLY','CL','GF','VL'].includes(w));
+
+  let bestMatch: IngresoAgg | null = null;
+  let bestScore = 0;
+  for (const ing of candidates) {
+    const ingText = `${ing.producto} ${ing.cortes.join(' ')}`.toUpperCase();
+    let score = 0;
+    // Check corte match (highest weight)
+    for (const corte of ing.cortes) {
+      const corteUpper = corte.toUpperCase();
+      // Direct match
+      if (stkUpper.includes(corteUpper)) score += 10;
+      // Keyword match
+      const corteWords = corteUpper.split(/[\s-]+/).filter(w => w.length > 2);
+      for (const cw of corteWords) {
+        if (stkWords.includes(cw)) score += 5;
+      }
+    }
+    // Check producto match
+    if (stkUpper.includes(ing.producto.toUpperCase())) score += 3;
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = ing;
+    }
+  }
+  return bestScore > 0 ? bestMatch : null;
 }
 
 // Aggregate exportaciones cajas by referenced COTE
@@ -349,26 +401,8 @@ export default function StockPanel() {
                     <tr><td colSpan={11} className="text-center py-8 text-slate-400">No se encontraron resultados</td></tr>
                   ) : (
                     filteredItems.map(agg => {
-                      // Lookup ingreso by cote+producto. If exact match fails, try fuzzy match
-                      // (stock product name may differ slightly from deposit denominacionMercaderia)
-                      const lookupKey = `${agg.codigo}||${agg.producto}`;
-                      let ing = ingresoMap.get(lookupKey);
-                      if (!ing) {
-                        // Fuzzy: find any ingreso with same cote where producto matches partially
-                        for (const [k, v] of ingresoMap) {
-                          if (k.startsWith(`${agg.codigo}||`)) {
-                            const ingProducto = v.producto.toUpperCase();
-                            const stkProducto = agg.producto.toUpperCase();
-                            // Check if one contains the other (e.g. "EXTREMO DE HUESO" matches "EXTREMO DE HUESO DE PIERNA OVI CNG BLQ")
-                            if (ingProducto.includes(stkProducto) || stkProducto.includes(ingProducto) ||
-                                // Also check first 20 chars (main product name)
-                                ingProducto.substring(0, 20) === stkProducto.substring(0, 20)) {
-                              ing = v;
-                              break;
-                            }
-                          }
-                        }
-                      }
+                      // Match ingreso by product keywords (handles different naming between stock and deposits)
+                      const ing = matchIngresoByProduct(ingresoMap, agg.codigo, agg.producto);
                       const expCajas = exportCajasMap.get(agg.codigo) || 0;
                       const saldoTeorico = ing ? ing.envases - expCajas : null;
                       const diff = saldoTeorico !== null ? agg.totalCajas - saldoTeorico : null;
