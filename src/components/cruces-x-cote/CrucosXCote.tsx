@@ -107,10 +107,20 @@ function getExportRefsByCote(expRecords: ExpRecord[]): Map<string, ExportRef[]> 
 }
 
 async function loadExportaciones(): Promise<ExpRecord[]> {
+  // First try localStorage (user imports)
   const imported = localStorage.getItem(EXP_IMPORTED_KEY);
   if (imported) {
     try { return JSON.parse(imported); } catch { return []; }
   }
+  // Then try pre-processed JSON from ingresos/exportaciones MGAP files
+  try {
+    const r = await fetch(dataUrl('data/exportaciones_frimaral.json'));
+    if (r.ok) {
+      const data = await r.json();
+      if (Array.isArray(data) && data.length > 0) return data;
+    }
+  } catch { /* ignore */ }
+  // Fallback to empty
   try {
     const r = await fetch(dataUrl('data/exportaciones.json'));
     return await r.json();
@@ -118,10 +128,20 @@ async function loadExportaciones(): Promise<ExpRecord[]> {
 }
 
 async function loadDepositos(): Promise<Shipment[]> {
+  // First try localStorage (user imports)
   const imported = localStorage.getItem(DEP_IMPORTED_KEY);
   if (imported) {
     try { return JSON.parse(imported); } catch { return []; }
   }
+  // Then try pre-processed JSON from ingresos MGAP file
+  try {
+    const r = await fetch(dataUrl('data/ingresos_frimaral.json'));
+    if (r.ok) {
+      const data = await r.json();
+      if (Array.isArray(data) && data.length > 0) return data;
+    }
+  } catch { /* ignore */ }
+  // Fallback to empty
   try {
     const r = await fetch(dataUrl('data/shipments.json'));
     return await r.json();
