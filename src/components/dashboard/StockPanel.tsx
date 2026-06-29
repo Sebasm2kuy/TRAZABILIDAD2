@@ -351,11 +351,14 @@ export default function StockPanel() {
                       const saldoTeorico = ing ? ing.envases - expCajas : null;
                       const diff = saldoTeorico !== null ? agg.totalCajas - saldoTeorico : null;
                       const isExpanded = expandedCode === agg.codigo;
+                      const productoDisplay = agg.productos.length > 1
+                        ? `${agg.productos.length} productos`
+                        : agg.producto;
                       return (
-                        <React.Fragment key={agg.codigo + '|' + agg.producto}>
+                        <React.Fragment key={agg.codigo}>
                           <tr
                             className={`border-b hover:bg-teal-50/40 cursor-pointer ${isExpanded ? 'bg-teal-50/60' : ''}`}
-                            onClick={() => setExpandedCode(isExpanded ? null : agg.codigo + '|' + agg.producto)}
+                            onClick={() => setExpandedCode(isExpanded ? null : agg.codigo)}
                           >
                             <td className="px-3 py-2 text-xs font-mono font-medium text-teal-700">{agg.codigo}</td>
                             <td className="px-3 py-2">
@@ -363,7 +366,7 @@ export default function StockPanel() {
                                 {agg.tipo === 'COTE' ? 'COTE' : 'PASE'}
                               </span>
                             </td>
-                            <td className="px-3 py-2 text-xs hidden md:table-cell max-w-[200px] truncate" title={agg.producto}>{agg.producto}</td>
+                            <td className="px-3 py-2 text-xs hidden md:table-cell max-w-[200px] truncate" title={agg.productos.join(' | ')}>{productoDisplay}</td>
                             <td className="px-3 py-2 text-xs hidden xl:table-cell max-w-[120px] truncate">{agg.contenedores.join(', ') || '-'}</td>
                             <td className="px-3 py-2 text-xs text-right font-mono">{agg.totalPallets}</td>
                             <td className="px-3 py-2 text-xs text-right font-mono font-medium text-teal-700">{agg.totalCajas.toLocaleString('es-UY')}</td>
