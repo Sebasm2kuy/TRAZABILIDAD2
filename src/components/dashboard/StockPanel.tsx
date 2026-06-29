@@ -139,9 +139,22 @@ export default function StockPanel() {
     return () => window.removeEventListener('trazabilidad-data-ready', handler);
   }, []);
 
-  // Reload depósitos/exportaciones when dataVersion changes
+  // Reload stock + depósitos/exportaciones when dataVersion changes (Firebase pull)
   useEffect(() => {
     if (dataVersion === 0) return;
+    // Reload stock from localStorage
+    try {
+      const saved = localStorage.getItem(STOCK_DATA_KEY);
+      if (saved) setStockData(JSON.parse(saved));
+      else setStockData(null);
+    } catch { /* ignore */ }
+    // Reload assignments
+    try {
+      const saved = localStorage.getItem(STOCK_ASSIGN_KEY);
+      if (saved) setPalletAssignments(JSON.parse(saved));
+      else setPalletAssignments({});
+    } catch { /* ignore */ }
+    // Reload depósitos/exportaciones
     (async () => {
       const [deps, exps] = await Promise.all([loadDepositos(), loadExportaciones()]);
       setIngresoMap(aggregateIngresosByCote(deps));
