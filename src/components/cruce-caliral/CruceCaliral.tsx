@@ -1733,6 +1733,18 @@ export default function CruceCaliral() {
           setSearchInput(nav.search);
         }
       }
+      // Force reload stock from localStorage every time tab is activated
+      try {
+        const savedStock = localStorage.getItem('trazabilidad_stock_data');
+        if (savedStock) {
+          const load = JSON.parse(savedStock) as StockLoad;
+          setStockData(prev => {
+            // Only update if different (avoid infinite loops)
+            if (prev && prev.pallets.length === load.pallets.length) return prev;
+            return load;
+          });
+        }
+      } catch { /* ignore */ }
     }
   }, [activeTab, consumeCruceNav]);
 
