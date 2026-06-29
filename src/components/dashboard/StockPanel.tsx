@@ -34,7 +34,10 @@ function aggregateIngresosByCote(shipments: Shipment[]): Map<string, IngresoAgg>
   for (const s of shipments) {
     const cote = s.nroCote?.toUpperCase().trim();
     if (!cote) continue;
-    const existing = map.get(cote);
+    // Group by cote + producto so each product has its own ingreso count
+    const producto = (s.denominacionMercaderia || '').trim();
+    const key = `${cote}||${producto}`;
+    const existing = map.get(key);
     if (existing) {
       existing.envases += s.cantidadEnvases || 0;
       existing.pesoBruto += s.pesoBruto || 0;
@@ -42,11 +45,11 @@ function aggregateIngresosByCote(shipments: Shipment[]): Map<string, IngresoAgg>
       existing.lineCount += 1;
       if (s.corte && !existing.cortes.includes(s.corte)) existing.cortes.push(s.corte);
     } else {
-      map.set(cote, {
+      map.set(key, {
         cote,
         tramite: s.nroTramite || 0,
         fecha: s.fechaTramite || '',
-        producto: s.denominacionMercaderia || '',
+        producto,
         cortes: s.corte ? [s.corte] : [],
         lineCount: 1,
         envases: s.cantidadEnvases || 0,
@@ -346,7 +349,26 @@ export default function StockPanel() {
                     <tr><td colSpan={11} className="text-center py-8 text-slate-400">No se encontraron resultados</td></tr>
                   ) : (
                     filteredItems.map(agg => {
-                      const ing = ingresoMap.get(agg.codigo);
+                      // Lookup ingreso by cote+producto. If exact match fails, try fuzzy match
+                      // (stock product name may differ slightly from deposit denominacionMercaderia)
+                      const lookupKey = `${agg.codigo}||${agg.producto}`;
+                      let ing = ingresoMap.get(lookupKey);
+                      if (!ing) {
+                        // Fuzzy: find any ingreso with same cote where producto matches partially
+                        for (const [k, v] of ingresoMap) {
+                          if (k.startsWith(`${agg.codigo}||`)) {
+                            const ingProducto = v.producto.toUpperCase();
+                            const stkProducto = agg.producto.toUpperCase();
+                            // Check if one contains the other (e.g. "EXTREMO DE HUESO" matches "EXTREMO DE HUESO DE PIERNA OVI CNG BLQ")
+                            if (ingProducto.includes(stkProducto) || stkProducto.includes(ingProducto) ||
+                                // Also check first 20 chars (main product name)
+                                ingProducto.substring(0, 20) === stkProducto.substring(0, 20)) {
+                              ing = v;
+                              break;
+                            }
+                          }
+                        }
+                      }
                       const expCajas = exportCajasMap.get(agg.codigo) || 0;
                       const saldoTeorico = ing ? ing.envases - expCajas : null;
                       const diff = saldoTeorico !== null ? agg.totalCajas - saldoTeorico : null;
