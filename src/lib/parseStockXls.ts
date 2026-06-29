@@ -152,8 +152,9 @@ export function buildStockAggMap(pallets: StockPallet[]): Map<string, StockCodig
     const codigo = p.codigo || SIN_CODIGO_KEY;
     const tipo = p.codigo ? p.codigoTipo : ('NINGUNO' as 'COTE' | 'PASE_SANITARIO');
     const producto = p.contenido.split(' - ')[0]?.substring(0, 80) || p.contenido.substring(0, 80);
-    // Group ONLY by codigo — same COTE = one row, even with multiple products
-    const groupKey = codigo;
+    // Group by codigo + producto — same COTE but different products = separate rows
+    // This lets you see each product's individual stock (e.g. EXTREMO DE HUESO 30 cajas vs CHINGOLO 200+)
+    const groupKey = codigo === SIN_CODIGO_KEY ? SIN_CODIGO_KEY : `${codigo}||${producto}`;
     if (!map.has(groupKey)) {
       map.set(groupKey, {
         codigo: codigo === SIN_CODIGO_KEY ? 'S/PASE/COTE' : p.codigo,
@@ -163,7 +164,7 @@ export function buildStockAggMap(pallets: StockPallet[]): Map<string, StockCodig
         totalKilos: 0,
         pallets: [],
         producto,
-        productos: [],
+        productos: [producto],
         contenedores: [],
         _groupKey: groupKey,
       });
@@ -173,10 +174,6 @@ export function buildStockAggMap(pallets: StockPallet[]): Map<string, StockCodig
     agg.totalCajas += p.cajas;
     agg.totalKilos += p.kilos;
     agg.pallets.push(p);
-    // Track unique products
-    if (producto && !agg.productos.includes(producto)) {
-      agg.productos.push(producto);
-    }
     if (p.contenedor && !agg.contenedores.includes(p.contenedor)) {
       agg.contenedores.push(p.contenedor);
     }
