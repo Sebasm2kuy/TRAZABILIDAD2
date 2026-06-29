@@ -1126,8 +1126,8 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
               const diffStockSaldo = saldoTeorico !== null ? agg.totalCajas - saldoTeorico : null;
 
               return (
-                <React.Fragment key={agg.codigo}>
-                  <tr className={`border-b hover:bg-teal-50/40 ${expandedCode === agg.codigo ? 'bg-teal-50/60' : ''}`}>
+                <React.Fragment key={agg._groupKey || agg.codigo}>
+                  <tr className={`border-b hover:bg-teal-50/40 ${expandedCode === (agg._groupKey || agg.codigo) ? 'bg-teal-50/60' : ''}`}>
                     <td className="px-3 py-2.5 text-xs font-mono font-medium text-teal-700">
                       <InlineEditCodigo value={agg.codigo} allCodes={allKnownCodes} onSave={(newCode) => {
                         // Rename all pallets with this codigo
@@ -1192,13 +1192,13 @@ function StockTable({ stockAggMap, ingresoMap, cruceRows, sinCruceRows, edits, o
                     <td className="px-3 py-2.5 text-center">
                       <button
                         className="p-1 rounded hover:bg-slate-100"
-                        onClick={() => setExpandedCode(expandedCode === agg.codigo ? null : agg.codigo)}
+                        onClick={() => setExpandedCode(expandedCode === (agg._groupKey || agg.codigo) ? null : (agg._groupKey || agg.codigo))}
                       >
-                        <ChevronRight className={`h-3.5 w-3.5 text-slate-400 transition-transform ${expandedCode === agg.codigo ? 'rotate-90' : ''}`} />
+                        <ChevronRight className={`h-3.5 w-3.5 text-slate-400 transition-transform ${expandedCode === (agg._groupKey || agg.codigo) ? 'rotate-90' : ''}`} />
                       </button>
                     </td>
                   </tr>
-                  {expandedCode === agg.codigo && (
+                  {expandedCode === (agg._groupKey || agg.codigo) && (
                     <tr className="border-b bg-teal-50/30">
                       <td colSpan={11} className="px-4 py-3">
                         <div className="space-y-3">
@@ -1764,6 +1764,31 @@ export default function CruceCaliral() {
       } catch { /* ignore */ }
     })();
   }, [recomputeCruce]);
+
+  // Listen for Firebase data-ready event and reload stock + assignments
+  useEffect(() => {
+    const handler = () => {
+      try {
+        const savedStock = localStorage.getItem('trazabilidad_stock_data');
+        if (savedStock) {
+          const load = JSON.parse(savedStock) as StockLoad;
+          setStockData(load);
+        } else {
+          setStockData(null);
+        }
+      } catch { /* ignore */ }
+      try {
+        const savedAssign = localStorage.getItem('trazabilidad_stock_assignments');
+        if (savedAssign) {
+          setPalletAssignments(JSON.parse(savedAssign));
+        } else {
+          setPalletAssignments({});
+        }
+      } catch { /* ignore */ }
+    };
+    window.addEventListener('trazabilidad-data-ready', handler);
+    return () => window.removeEventListener('trazabilidad-data-ready', handler);
+  }, []);
 
   // --- Rebuild stock map with assignments applied ---
   const rebuildStockMap = useCallback((data: StockLoad | null, assignments: Record<string, { codigo: string; tipo: 'COTE' | 'PASE_SANITARIO' }>) => {
