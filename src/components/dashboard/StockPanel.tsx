@@ -64,16 +64,14 @@ function aggregateIngresosByCote(shipments: Shipment[]): Map<string, IngresoAgg>
 
 // Match a stock product name to a deposit ingreso record by keywords
 // Returns the matching IngresoAgg or null
+// Special handling: if an ingreso has corte "Varios", it's a generic bucket that
+// matches multiple stock products — we only match it if no specific match exists
 function matchIngresoByProduct(
   ingresoMap: Map<string, IngresoAgg>,
   cote: string,
   stockProducto: string
 ): IngresoAgg | null {
-  // First try exact cote||producto match
-  const exactKey = `${cote}||${stockProducto}`;
-  let exact = ingresoMap.get(exactKey);
-  if (exact) return exact;
-  // Also try cote||producto||corte format (search all variants for this cote)
+  // Collect all ingreso candidates for this cote
   const candidates: IngresoAgg[] = [];
   for (const [k, v] of ingresoMap) {
     if (k.startsWith(`${cote}||`)) {
@@ -83,34 +81,48 @@ function matchIngresoByProduct(
   if (candidates.length === 0) return null;
   if (candidates.length === 1) return candidates[0];
 
-  // Multiple candidates — match by keywords
+  // Separate specific matches from generic "Varios" matches
+  const specific = candidates.filter(c => {
+    const corteUpper = c.cortes.join(' ').toUpperCase();
+    return !['VARIOS', 'VARIOS', 'MIXTO', 'MIXTOS'].includes(corteUpper);
+  });
+  const generic = candidates.filter(c => {
+    const corteUpper = c.cortes.join(' ').toUpperCase();
+    return ['VARIOS', 'VARIOS', 'MIXTO', 'MIXTOS'].includes(corteUpper);
+  });
+
   const stkUpper = stockProducto.toUpperCase();
   const stkWords = stkUpper.split(/[\s-]+/).filter(w => w.length > 2 && !['CNG','BLQ','IWP','VP','LP','BOV','OVI','ANGUS','VILA','CHINA','PLY','POLY','CL','GF','VL'].includes(w));
 
+  // First try specific matches (non-"Varios")
   let bestMatch: IngresoAgg | null = null;
   let bestScore = 0;
-  for (const ing of candidates) {
-    const ingText = `${ing.producto} ${ing.cortes.join(' ')}`.toUpperCase();
+  for (const ing of specific) {
     let score = 0;
-    // Check corte match (highest weight)
     for (const corte of ing.cortes) {
       const corteUpper = corte.toUpperCase();
-      // Direct match
       if (stkUpper.includes(corteUpper)) score += 10;
-      // Keyword match
       const corteWords = corteUpper.split(/[\s-]+/).filter(w => w.length > 2);
       for (const cw of corteWords) {
         if (stkWords.includes(cw)) score += 5;
       }
     }
-    // Check producto match
     if (stkUpper.includes(ing.producto.toUpperCase())) score += 3;
     if (score > bestScore) {
       bestScore = score;
       bestMatch = ing;
     }
   }
-  return bestScore > 0 ? bestMatch : null;
+  // If specific match found, use it
+  if (bestScore > 0) return bestMatch;
+
+  // No specific match — if stock product is "Varios" or generic, match with generic ingreso
+  if (generic.length > 0) {
+    // Only match generic if the stock product itself is generic
+    // (otherwise we can't know which part of the generic ingreso belongs to this product)
+    return null;
+  }
+  return null;
 }
 
 // Aggregate exportaciones cajas by referenced COTE
