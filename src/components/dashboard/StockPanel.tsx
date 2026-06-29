@@ -34,11 +34,8 @@ function aggregateIngresosByCote(shipments: Shipment[]): Map<string, IngresoAgg>
   for (const s of shipments) {
     const cote = s.nroCote?.toUpperCase().trim();
     if (!cote) continue;
-    // Group by cote + denominacionMercaderia + corte so each product variant has its own count
-    const producto = (s.denominacionMercaderia || '').trim();
-    const corte = (s.corte || '').trim();
-    const key = `${cote}||${producto}||${corte}`;
-    const existing = map.get(key);
+    // Group ONLY by cote — all products/cortes unified
+    const existing = map.get(cote);
     if (existing) {
       existing.envases += s.cantidadEnvases || 0;
       existing.pesoBruto += s.pesoBruto || 0;
@@ -46,11 +43,11 @@ function aggregateIngresosByCote(shipments: Shipment[]): Map<string, IngresoAgg>
       existing.lineCount += 1;
       if (s.corte && !existing.cortes.includes(s.corte)) existing.cortes.push(s.corte);
     } else {
-      map.set(key, {
+      map.set(cote, {
         cote,
         tramite: s.nroTramite || 0,
         fecha: s.fechaTramite || '',
-        producto,
+        producto: s.denominacionMercaderia || '',
         cortes: s.corte ? [s.corte] : [],
         lineCount: 1,
         envases: s.cantidadEnvases || 0,
@@ -413,8 +410,8 @@ export default function StockPanel() {
                     <tr><td colSpan={11} className="text-center py-8 text-slate-400">No se encontraron resultados</td></tr>
                   ) : (
                     filteredItems.map(agg => {
-                      // Match ingreso by product keywords (handles different naming between stock and deposits)
-                      const ing = matchIngresoByProduct(ingresoMap, agg.codigo, agg.producto);
+                      // Lookup ingreso by cote only (unified)
+                      const ing = ingresoMap.get(agg.codigo);
                       const expCajas = exportCajasMap.get(agg.codigo) || 0;
                       const saldoTeorico = ing ? ing.envases - expCajas : null;
                       const diff = saldoTeorico !== null ? agg.totalCajas - saldoTeorico : null;
@@ -431,7 +428,9 @@ export default function StockPanel() {
                                 {agg.tipo === 'COTE' ? 'COTE' : 'PASE'}
                               </span>
                             </td>
-                            <td className="px-3 py-2 text-xs hidden md:table-cell max-w-[200px] truncate" title={agg.producto}>{agg.producto}</td>
+                            <td className="px-3 py-2 text-xs hidden md:table-cell max-w-[200px] truncate" title={agg.productos.join(' | ')}>
+                              {agg.productos.length > 1 ? `${agg.productos.length} productos` : agg.producto}
+                            </td>
                             <td className="px-3 py-2 text-xs hidden xl:table-cell max-w-[120px] truncate">{agg.contenedores.join(', ') || '-'}</td>
                             <td className="px-3 py-2 text-xs text-right font-mono">{agg.totalPallets}</td>
                             <td className="px-3 py-2 text-xs text-right font-mono font-medium text-teal-700">{agg.totalCajas.toLocaleString('es-UY')}</td>
