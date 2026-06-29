@@ -327,7 +327,7 @@ export default function CrucosXCote() {
   if (loading) {
     return (
       <div className="p-6 space-y-4">
-        <h2 className="text-2xl font-bold text-slate-800">Crucos X COTE</h2>
+        <h2 className="text-2xl font-bold text-slate-800">Cruces X COTE</h2>
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-96" />
       </div>
@@ -338,7 +338,7 @@ export default function CrucosXCote() {
     <div className="p-6 space-y-4 max-w-[1600px]">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <h2 className="text-2xl font-bold text-slate-800">Crucos X COTE</h2>
+          <h2 className="text-2xl font-bold text-slate-800">Cruces X COTE</h2>
           <span className="text-xs text-slate-500">{totalCotes} COTEs unificados</span>
         </div>
       </div>

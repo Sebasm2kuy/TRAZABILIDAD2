@@ -14,7 +14,7 @@ const tabs = [
   { id: 'depositos' as const, label: 'A Depósitos', icon: Warehouse },
   { id: 'exportaciones' as const, label: 'Exportaciones', icon: Ship },
   { id: 'cruce-caliral' as const, label: 'Cruces Frimaral', icon: ArrowLeftRight },
-  { id: 'cruces-x-cote' as const, label: 'Crucos X COTE', icon: GitCompare },
+  { id: 'cruces-x-cote' as const, label: 'Cruces X COTE', icon: GitCompare },
   { id: 'trazabilidad' as const, label: 'Trazabilidad', icon: Search },
   { id: 'comparativa' as const, label: 'Comparativa', icon: GitCompare },
   { id: 'analiticas' as const, label: 'Analíticas', icon: BarChart3 },
