@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -371,30 +371,45 @@ export default function Dashboard() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [recentShipments, setRecentShipments] = useState<Shipment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dataVersion, setDataVersion] = useState(0);
 
   const { navigateAndFilter, setCruceNav } = useAppStore();
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [depositos, exportaciones] = await Promise.all([
-          loadAllDepositos(),
-          loadAllExportaciones(),
-        ]);
-        const computed = computeAnalytics(depositos, exportaciones);
-        setAnalytics(computed);
-        // Last 5 shipments (by date)
-        const allSorted = [...depositos, ...exportaciones]
-          .filter(s => s.fechaTramite)
-          .sort((a, b) => b.fechaTramite.localeCompare(a.fechaTramite))
-          .slice(0, 5);
-        setRecentShipments(allSorted);
-      } catch (err) {
-        console.error('Error loading dashboard data:', err);
-      }
-      setLoading(false);
-    })();
+  // Load data (reused on mount and after Firebase pull)
+  const reloadData = useCallback(async () => {
+    try {
+      const [depositos, exportaciones] = await Promise.all([
+        loadAllDepositos(),
+        loadAllExportaciones(),
+      ]);
+      const computed = computeAnalytics(depositos, exportaciones);
+      setAnalytics(computed);
+      // Last 5 shipments (by date)
+      const allSorted = [...depositos, ...exportaciones]
+        .filter(s => s.fechaTramite)
+        .sort((a, b) => b.fechaTramite.localeCompare(a.fechaTramite))
+        .slice(0, 5);
+      setRecentShipments(allSorted);
+    } catch (err) {
+      console.error('Error loading dashboard data:', err);
+    }
+    setLoading(false);
   }, []);
+
+  useEffect(() => { reloadData(); }, [reloadData]);
+
+  // Listen for Firebase data-ready event and reload
+  useEffect(() => {
+    const handler = () => setDataVersion(v => v + 1);
+    window.addEventListener('trazabilidad-data-ready', handler);
+    return () => window.removeEventListener('trazabilidad-data-ready', handler);
+  }, []);
+
+  // Reload when dataVersion changes (after Firebase pull)
+  useEffect(() => {
+    if (dataVersion === 0) return;
+    reloadData();
+  }, [dataVersion, reloadData]);
 
   // Top 5 destinos
   const topDestinos = useMemo(() => {
