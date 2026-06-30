@@ -107,7 +107,8 @@ function getExportRefsByCote(expRecords: ExpRecord[]): Map<string, ExportRef[]> 
 }
 
 async function loadExportaciones(): Promise<ExpRecord[]> {
-  // Start with pre-processed JSON from exportaciones MGAP file (base data)
+  // Use ONLY pre-processed JSON from exportaciones MGAP file as base
+  // (NOT trazabilidad_exp_imported because it has old/duplicate data)
   let baseRecords: ExpRecord[] = [];
   try {
     const r = await fetch(dataUrl('data/exportaciones_frimaral.json'));
@@ -117,21 +118,7 @@ async function loadExportaciones(): Promise<ExpRecord[]> {
     }
   } catch { /* ignore */ }
 
-  // Add records from localStorage 'trazabilidad_exp_imported' (Excel imports)
-  try {
-    const imported = localStorage.getItem(EXP_IMPORTED_KEY);
-    if (imported) {
-      const parsed = JSON.parse(imported);
-      if (Array.isArray(parsed)) {
-        const existingIds = new Set(baseRecords.map((r: ExpRecord) => r.id));
-        for (const r of parsed) {
-          if (!existingIds.has(r.id)) baseRecords.push(r);
-        }
-      }
-    }
-  } catch { /* ignore */ }
-
-  // Add NEW records created from "Exportaciones" (manual + PDF uploads)
+  // Add ONLY NEW records created from "Exportaciones" (manual + PDF uploads)
   try {
     const newRecs = localStorage.getItem('trazabilidad_new_records');
     if (newRecs) {
@@ -158,20 +145,12 @@ async function loadExportaciones(): Promise<ExpRecord[]> {
     }
   } catch { /* ignore */ }
 
-  // Apply deletes
-  try {
-    const delRaw = localStorage.getItem('trazabilidad_exp_deleted');
-    if (delRaw) {
-      const deletedIds = new Set(JSON.parse(delRaw));
-      baseRecords = baseRecords.filter((r: ExpRecord) => !deletedIds.has(r.id));
-    }
-  } catch { /* ignore */ }
-
   return baseRecords;
 }
 
 async function loadDepositos(): Promise<Shipment[]> {
-  // Start with pre-processed JSON from ingresos MGAP file (base data)
+  // Use ONLY pre-processed JSON from ingresos MGAP file as base
+  // (NOT trazabilidad_dep_imported because it has old/duplicate data)
   let baseRecords: Shipment[] = [];
   try {
     const r = await fetch(dataUrl('data/ingresos_frimaral.json'));
@@ -181,22 +160,8 @@ async function loadDepositos(): Promise<Shipment[]> {
     }
   } catch { /* ignore */ }
 
-  // Add records from localStorage 'trazabilidad_dep_imported' (Excel imports)
-  try {
-    const imported = localStorage.getItem(DEP_IMPORTED_KEY);
-    if (imported) {
-      const parsed = JSON.parse(imported);
-      if (Array.isArray(parsed)) {
-        // Merge: only add records not already in baseRecords (by id)
-        const existingIds = new Set(baseRecords.map((r: Shipment) => r.id));
-        for (const r of parsed) {
-          if (!existingIds.has(r.id)) baseRecords.push(r);
-        }
-      }
-    }
-  } catch { /* ignore */ }
-
-  // Add NEW records created from "A Depósitos" (manual + PDF uploads)
+  // Add ONLY NEW records created from "A Depósitos" (manual + PDF uploads)
+  // These have ids starting with 'new_' or 'manual_' or 'pdf_'
   try {
     const newRecs = localStorage.getItem('trazabilidad_dep_new_records');
     if (newRecs) {
@@ -210,7 +175,7 @@ async function loadDepositos(): Promise<Shipment[]> {
     }
   } catch { /* ignore */ }
 
-  // Apply edits (override fields)
+  // Apply edits (override fields) - only for records that exist in baseRecords
   try {
     const editsRaw = localStorage.getItem('trazabilidad_dep_edits');
     if (editsRaw) {
@@ -220,15 +185,6 @@ async function loadDepositos(): Promise<Shipment[]> {
           Object.assign(r, edits[r.id]);
         }
       }
-    }
-  } catch { /* ignore */ }
-
-  // Apply deletes (remove deleted records)
-  try {
-    const delRaw = localStorage.getItem('trazabilidad_dep_deleted');
-    if (delRaw) {
-      const deletedIds = new Set(JSON.parse(delRaw));
-      baseRecords = baseRecords.filter((r: Shipment) => !deletedIds.has(r.id));
     }
   } catch { /* ignore */ }
 
