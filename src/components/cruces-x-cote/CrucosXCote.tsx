@@ -4,12 +4,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Package, Search, X, ChevronRight, ChevronDown, FileCheck, ArrowLeftRight, Truck, Ship, Scale } from 'lucide-react';
+import { Package, Search, X, ChevronRight, ChevronDown, FileCheck, ArrowLeftRight, Truck, Ship, Scale, Plus } from 'lucide-react';
 import { buildStockAggMap, SIN_CODIGO_KEY, type StockLoad, type StockCodigoAgg, type StockPallet } from '@/lib/parseStockXls';
 import { dataUrl } from '@/lib/staticData';
 import type { Shipment, ExpRecord } from '@/lib/types';
 import { fd, fmt } from '@/lib/utils';
 import { toast } from 'sonner';
+import { schedulePush } from '@/lib/googleSheets';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import React from 'react';
 
 const STOCK_DATA_KEY = 'trazabilidad_stock_data';
@@ -202,6 +205,14 @@ export default function CrucosXCote() {
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
   const [filter, setFilter] = useState<'all' | 'con_diff' | 'sin_stock' | 'sin_ingreso'>('all');
+  const [addIngresoOpen, setAddIngresoOpen] = useState(false);
+  const [addIngresoCote, setAddIngresoCote] = useState<string>('');
+  const [addIngresoCajas, setAddIngresoCajas] = useState('');
+  const [addIngresoKg, setAddIngresoKg] = useState('');
+  const [addIngresoTramite, setAddIngresoTramite] = useState('');
+  const [addIngresoFecha, setAddIngresoFecha] = useState('');
+  const [addIngresoProducto, setAddIngresoProducto] = useState('');
+  const [addIngresoCorte, setAddIngresoCorte] = useState('');
 
   const reloadData = useCallback(async () => {
     try {
@@ -233,6 +244,54 @@ export default function CrucosXCote() {
     if (dataVersion === 0) return;
     reloadData();
   }, [dataVersion, reloadData]);
+
+  // Open add ingreso dialog for a COTE
+  const openAddIngreso = (cote: string, stockCajas: number, stockProductos: string[]) => {
+    setAddIngresoCote(cote);
+    setAddIngresoCajas(String(stockCajas)); // Pre-fill with stock cajas
+    setAddIngresoKg('');
+    setAddIngresoTramite('');
+    setAddIngresoFecha(new Date().toISOString().split('T')[0]);
+    setAddIngresoProducto(stockProductos[0] || '');
+    setAddIngresoCorte('');
+    setAddIngresoOpen(true);
+  };
+
+  // Save ingreso to localStorage
+  const saveIngreso = () => {
+    if (!addIngresoCote || !addIngresoCajas) {
+      toast.error('COTE y Cajas son obligatorios');
+      return;
+    }
+    const newRecord: Shipment = {
+      id: `manual_ing_${Date.now()}_${addIngresoCote}`,
+      nroTramite: parseInt(addIngresoTramite) || 0,
+      fechaTramite: addIngresoFecha ? new Date(addIngresoFecha).toISOString() : new Date().toISOString(),
+      nroCote: addIngresoCote,
+      nombreEstablecimientoDestino: 'CALIRAL S.A.',
+      paisDestino: 'URUGUAY',
+      denominacionMercaderia: addIngresoProducto,
+      corte: addIngresoCorte,
+      tipo: 'INGRESO',
+      cantidadEnvases: parseInt(addIngresoCajas) || 0,
+      pesoNeto: parseFloat(addIngresoKg) || 0,
+      pesoBruto: parseFloat(addIngresoKg) || 0,
+      fechaEmitidoCote: addIngresoFecha ? new Date(addIngresoFecha).toISOString() : null,
+    };
+    // Save to trazabilidad_dep_new_records
+    try {
+      const existing = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
+      existing.push(newRecord);
+      localStorage.setItem('trazabilidad_dep_new_records', JSON.stringify(existing));
+      // Also push to Firebase
+      schedulePush();
+      toast.success(`Ingreso añadido: ${addIngresoCote} - ${addIngresoCajas} cajas`);
+      setAddIngresoOpen(false);
+      setDataVersion(v => v + 1); // Trigger reload
+    } catch (err) {
+      toast.error('Error al guardar ingreso');
+    }
+  };
 
   const stockAggMap = useMemo(() => {
     if (!stockData) return new Map<string, StockCodigoAgg>();
@@ -512,7 +571,19 @@ export default function CrucosXCote() {
                           <td className="px-3 py-2 text-xs text-right font-mono">
                             {row.ingresoCajas > 0 ? (
                               <span className="text-emerald-700">{row.ingresoCajas.toLocaleString('es-UY')}</span>
-                            ) : <span className="text-slate-300">—</span>}
+                            ) : (
+                              <button
+                                className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openAddIngreso(row.cote, row.stockCajas, row.stockProductos);
+                                }}
+                                title="Añadir ingreso para este COTE"
+                              >
+                                <Plus className="h-3 w-3" />
+                                +{row.stockCajas.toLocaleString('es-UY')}
+                              </button>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-xs text-right font-mono">
                             {row.exportCajas > 0 ? (
@@ -649,6 +720,55 @@ export default function CrucosXCote() {
         </CardContent>
       </Card>
       <p className="text-xs text-slate-400">{filteredRows.length} COTE(s) — Click en una fila para ver detalle completo (stock, ingreso, exportaciones)</p>
+
+      {/* Add Ingreso Dialog */}
+      <Dialog open={addIngresoOpen} onOpenChange={setAddIngresoOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Añadir Ingreso - COTE {addIngresoCote}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="bg-emerald-50 border border-emerald-200 rounded p-2 text-xs text-emerald-800">
+              <b>COTE:</b> {addIngresoCote} — Este COTE tiene stock pero no tiene ingreso registrado en depósitos.
+              Completá los datos del ingreso para vincularlo.
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="ing-cajas" className="text-xs">Cajas (envases) *</Label>
+                <Input id="ing-cajas" type="number" value={addIngresoCajas} onChange={e => setAddIngresoCajas(e.target.value)} placeholder="1888" />
+              </div>
+              <div>
+                <Label htmlFor="ing-kg" className="text-xs">Peso Neto (kg)</Label>
+                <Input id="ing-kg" type="number" step="0.01" value={addIngresoKg} onChange={e => setAddIngresoKg(e.target.value)} placeholder="28032" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="ing-tramite" className="text-xs">Nro. Trámite</Label>
+                <Input id="ing-tramite" type="number" value={addIngresoTramite} onChange={e => setAddIngresoTramite(e.target.value)} placeholder="500000" />
+              </div>
+              <div>
+                <Label htmlFor="ing-fecha" className="text-xs">Fecha</Label>
+                <Input id="ing-fecha" type="date" value={addIngresoFecha} onChange={e => setAddIngresoFecha(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="ing-producto" className="text-xs">Producto / Denominación</Label>
+              <Input id="ing-producto" value={addIngresoProducto} onChange={e => setAddIngresoProducto(e.target.value)} placeholder="CARNE BOVINA SIN HUESO CONGELADA" />
+            </div>
+            <div>
+              <Label htmlFor="ing-corte" className="text-xs">Corte</Label>
+              <Input id="ing-corte" value={addIngresoCorte} onChange={e => setAddIngresoCorte(e.target.value)} placeholder="Varios" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddIngresoOpen(false)}>Cancelar</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={saveIngreso}>
+              <Plus className="h-4 w-4 mr-1" /> Añadir Ingreso
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
