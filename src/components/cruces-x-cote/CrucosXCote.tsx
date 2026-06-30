@@ -107,45 +107,132 @@ function getExportRefsByCote(expRecords: ExpRecord[]): Map<string, ExportRef[]> 
 }
 
 async function loadExportaciones(): Promise<ExpRecord[]> {
-  // First try localStorage (user imports)
-  const imported = localStorage.getItem(EXP_IMPORTED_KEY);
-  if (imported) {
-    try { return JSON.parse(imported); } catch { return []; }
-  }
-  // Then try pre-processed JSON from ingresos/exportaciones MGAP files
+  // Start with pre-processed JSON from exportaciones MGAP file (base data)
+  let baseRecords: ExpRecord[] = [];
   try {
     const r = await fetch(dataUrl('data/exportaciones_frimaral.json'));
     if (r.ok) {
       const data = await r.json();
-      if (Array.isArray(data) && data.length > 0) return data;
+      if (Array.isArray(data) && data.length > 0) baseRecords = data;
     }
   } catch { /* ignore */ }
-  // Fallback to empty
+
+  // Add records from localStorage 'trazabilidad_exp_imported' (Excel imports)
   try {
-    const r = await fetch(dataUrl('data/exportaciones.json'));
-    return await r.json();
-  } catch { return []; }
+    const imported = localStorage.getItem(EXP_IMPORTED_KEY);
+    if (imported) {
+      const parsed = JSON.parse(imported);
+      if (Array.isArray(parsed)) {
+        const existingIds = new Set(baseRecords.map((r: ExpRecord) => r.id));
+        for (const r of parsed) {
+          if (!existingIds.has(r.id)) baseRecords.push(r);
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Add NEW records created from "Exportaciones" (manual + PDF uploads)
+  try {
+    const newRecs = localStorage.getItem('trazabilidad_new_records');
+    if (newRecs) {
+      const parsed = JSON.parse(newRecs);
+      if (Array.isArray(parsed)) {
+        const existingIds = new Set(baseRecords.map((r: ExpRecord) => r.id));
+        for (const r of parsed) {
+          if (!existingIds.has(r.id)) baseRecords.push(r);
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Apply edits
+  try {
+    const editsRaw = localStorage.getItem('trazabilidad_exp_edits');
+    if (editsRaw) {
+      const edits = JSON.parse(editsRaw);
+      for (const r of baseRecords) {
+        if (edits[r.id]) {
+          Object.assign(r, edits[r.id]);
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Apply deletes
+  try {
+    const delRaw = localStorage.getItem('trazabilidad_exp_deleted');
+    if (delRaw) {
+      const deletedIds = new Set(JSON.parse(delRaw));
+      baseRecords = baseRecords.filter((r: ExpRecord) => !deletedIds.has(r.id));
+    }
+  } catch { /* ignore */ }
+
+  return baseRecords;
 }
 
 async function loadDepositos(): Promise<Shipment[]> {
-  // First try localStorage (user imports)
-  const imported = localStorage.getItem(DEP_IMPORTED_KEY);
-  if (imported) {
-    try { return JSON.parse(imported); } catch { return []; }
-  }
-  // Then try pre-processed JSON from ingresos MGAP file
+  // Start with pre-processed JSON from ingresos MGAP file (base data)
+  let baseRecords: Shipment[] = [];
   try {
     const r = await fetch(dataUrl('data/ingresos_frimaral.json'));
     if (r.ok) {
       const data = await r.json();
-      if (Array.isArray(data) && data.length > 0) return data;
+      if (Array.isArray(data) && data.length > 0) baseRecords = data;
     }
   } catch { /* ignore */ }
-  // Fallback to empty
+
+  // Add records from localStorage 'trazabilidad_dep_imported' (Excel imports)
   try {
-    const r = await fetch(dataUrl('data/shipments.json'));
-    return await r.json();
-  } catch { return []; }
+    const imported = localStorage.getItem(DEP_IMPORTED_KEY);
+    if (imported) {
+      const parsed = JSON.parse(imported);
+      if (Array.isArray(parsed)) {
+        // Merge: only add records not already in baseRecords (by id)
+        const existingIds = new Set(baseRecords.map((r: Shipment) => r.id));
+        for (const r of parsed) {
+          if (!existingIds.has(r.id)) baseRecords.push(r);
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Add NEW records created from "A Depósitos" (manual + PDF uploads)
+  try {
+    const newRecs = localStorage.getItem('trazabilidad_dep_new_records');
+    if (newRecs) {
+      const parsed = JSON.parse(newRecs);
+      if (Array.isArray(parsed)) {
+        const existingIds = new Set(baseRecords.map((r: Shipment) => r.id));
+        for (const r of parsed) {
+          if (!existingIds.has(r.id)) baseRecords.push(r);
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Apply edits (override fields)
+  try {
+    const editsRaw = localStorage.getItem('trazabilidad_dep_edits');
+    if (editsRaw) {
+      const edits = JSON.parse(editsRaw);
+      for (const r of baseRecords) {
+        if (edits[r.id]) {
+          Object.assign(r, edits[r.id]);
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Apply deletes (remove deleted records)
+  try {
+    const delRaw = localStorage.getItem('trazabilidad_dep_deleted');
+    if (delRaw) {
+      const deletedIds = new Set(JSON.parse(delRaw));
+      baseRecords = baseRecords.filter((r: Shipment) => !deletedIds.has(r.id));
+    }
+  } catch { /* ignore */ }
+
+  return baseRecords;
 }
 
 export default function CrucosXCote() {
