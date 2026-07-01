@@ -329,7 +329,8 @@ export default function ExportacionesTable() {
           sh.nombreEstablecimientoDestino?.toLowerCase().includes(s) ||
           sh.denominacionMercaderia?.toLowerCase().includes(s) ||
           sh.paisDestino?.toLowerCase().includes(s) ||
-          sh.contenedorSerieNro?.toLowerCase().includes(s)
+          sh.contenedorSerieNro?.toLowerCase().includes(s) ||
+          sh.observaciones?.toLowerCase().includes(s)
         );
       }
       if (pais) filtered = filtered.filter(sh => sh.paisDestino?.includes(pais));
