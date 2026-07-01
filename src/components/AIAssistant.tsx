@@ -447,7 +447,7 @@ ${cotes.slice(0, 25).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets}
     setImageProcessing(true);
 
     // Extract data from ALL images first
-    const extractedData: { fileName: string; data: any; raw: string }[] = [];
+    const extractedData: { fileName: string; items: any[]; raw: string }[] = [];
 
     for (const file of imagesToProcess) {
       try {
@@ -517,7 +517,7 @@ Respondé SOLO el JSON (sin markdown, sin explicación).`;
 
         extractedData.push({ fileName: file.name, items: parsedItems, raw: extractedText });
       } catch (err) {
-        extractedData.push({ fileName: file.name, data: null, raw: 'Error: ' + (err as Error).message });
+        extractedData.push({ fileName: file.name, items: [], raw: 'Error: ' + (err as Error).message });
       }
     }
 
