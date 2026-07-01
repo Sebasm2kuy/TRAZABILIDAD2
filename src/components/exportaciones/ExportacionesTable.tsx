@@ -346,10 +346,13 @@ export default function ExportacionesTable() {
   }, []);
 
   useEffect(() => {
-    if (!expCache.loaded) return;
     let cancelled = false;
     (async () => {
-      await ensureExp();
+      // Always ensure data is loaded before filtering
+      if (!expCache.loaded || expCache.data.length === 0) {
+        invalidateExpCache();
+        await ensureExp();
+      }
       if (cancelled) return;
       let filtered = applyEdits([...expCache.data], edits);
       // Exclude deleted records
