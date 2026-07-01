@@ -301,6 +301,8 @@ export default function ExportacionesTable() {
 
   useEffect(() => {
     (async () => {
+      // Force reload cache on mount to ensure we get fresh data
+      invalidateExpCache();
       await ensureExp();
       // Load new records from localStorage (PDF uploads) and merge into cache
       try {
