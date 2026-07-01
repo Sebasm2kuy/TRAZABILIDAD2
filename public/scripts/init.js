@@ -3,6 +3,8 @@
 // Script 1: Reset logic - clear localStorage if ?reset=1 is in the URL
 (function () {
   try {
+    // Silence Puter.js console messages
+    window.__puter_quiet = true;
     var p = new URLSearchParams(window.location.search);
     if (p.get('reset') === '1') {
       var keys = [

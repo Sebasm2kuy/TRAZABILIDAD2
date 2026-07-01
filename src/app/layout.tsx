@@ -32,8 +32,9 @@ export default function RootLayout({
         <meta httpEquiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
         <meta httpEquiv="Pragma" content="no-cache" />
         <meta httpEquiv="Expires" content="0" />
-        <script src="/trazabilidad/scripts/init.js" />
+        <script src="/trazabilidad/scripts/init.js?v=2" />
         <script src="https://js.puter.com/v2/" />
+        <script dangerouslySetInnerHTML={{ __html: 'try { window.puter = window.puter || {}; } catch(e) {}' }} />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
