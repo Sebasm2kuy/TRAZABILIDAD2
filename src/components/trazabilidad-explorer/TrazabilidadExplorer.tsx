@@ -6,16 +6,17 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Package, Search, X, ChevronRight, ChevronDown, FileCheck, ArrowLeftRight,
-  Ship, Plus, AlertTriangle, CheckCircle2, Bot, Send, Sparkles,
+  Ship, Plus, AlertTriangle, CheckCircle2,
   ArrowRight, Calendar, Box, Weight, Hash, FileText
 } from 'lucide-react';
 import { dataUrl } from '@/lib/staticData';
-import type { Shipment, ExpRecord } from '@/lib/types';
+import type { Shipment } from '@/lib/types';
 import { fd } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useAppStore } from '@/store/useAppStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import AIAssistant from './AIAssistant';
 import React from 'react';
 
 interface StockPallet {
@@ -40,8 +41,6 @@ interface TrazabilidadData {
   fecha: string; cliente: string; pallets: StockPallet[]; cotes: CoteTrazabilidad[];
 }
 
-interface ChatMessage { role: 'user' | 'assistant'; content: string; }
-
 const CAUSA_COLORS: Record<string, { bg: string; text: string; icon: React.ReactNode; label: string }> = {
   A: { bg: 'bg-purple-100', text: 'text-purple-700', icon: <ArrowLeftRight className="h-3 w-3" />, label: 'Retorno' },
   B: { bg: 'bg-orange-100', text: 'text-orange-700', icon: <FileText className="h-3 w-3" />, label: 'Pase Sanit.' },
@@ -65,10 +64,6 @@ export default function TrazabilidadExplorer() {
   const [expandedCote, setExpandedCote] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'con_diff' | 'sin_ingreso' | 'retorno' | 'diff_zero'>('all');
   const [dataVersion, setDataVersion] = useState(0);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState('');
-  const [chatLoading, setChatLoading] = useState(false);
   const [addIngresoOpen, setAddIngresoOpen] = useState(false);
   const [addIngresoCote, setAddIngresoCote] = useState('');
   const [addIngresoCajas, setAddIngresoCajas] = useState('');
@@ -191,87 +186,6 @@ export default function TrazabilidadExplorer() {
     } catch { toast.error('Error al guardar ingreso'); }
   };
 
-  // ============ ASISTENTE IA ============
-  const analyzeQuestion = (question: string, data: TrazabilidadData, stats: any): string => {
-    const q = question.toLowerCase();
-    // Buscar COTE específico (P + números o B + números)
-    const coteMatch = q.match(/(p\d{4,8}|b\d{4,8})/);
-    if (coteMatch) {
-      const coteUpper = coteMatch[1].toUpperCase();
-      const c = data.cotes.find(c => c.cote === coteUpper);
-      if (c) {
-        let resp = `${c.cote} — ${c.estado === 'RETORNO' ? 'RETORNO DE CHINA' : c.estado}\n\n`;
-        resp += `Stock: ${c.stockCajas.toLocaleString('es-UY')} cajas (${c.stockPallets} pallets, ${c.stockKg.toLocaleString('es-UY')} kg)\n`;
-        resp += `Ingreso: ${c.ingresoCajas > 0 ? c.ingresoCajas.toLocaleString('es-UY') + ' cajas' : 'SIN REGISTRO'}\n`;
-        resp += `Export (referenciado): ${c.expRefCajas > 0 ? c.expRefCajas.toLocaleString('es-UY') + ' cajas en ' + c.expRefCount + ' exportación(es)' : '0'}\n`;
-        resp += `Saldo teórico: ${c.saldoTeorico.toLocaleString('es-UY')}\n`;
-        resp += `Diff: ${c.diff !== null ? (c.diff > 0 ? '+' : '') + c.diff.toLocaleString('es-UY') : 'N/A'} cajas\n\n`;
-        if (c.causaDiff) resp += `Causa del diff (${c.causaDiff}): ${c.causaDiffDesc}\n\n`;
-        if (c.stockProductos.length > 0) resp += `Productos en stock: ${c.stockProductos.slice(0, 3).join(', ')}${c.stockProductos.length > 3 ? '...' : ''}\n`;
-        if (c.ingresoCortes.length > 0) resp += `Cortes de ingreso: ${c.ingresoCortes.join(', ')}\n`;
-        if (c.stockContenedores.length > 0) resp += `Contenedores: ${c.stockContenedores.join(', ')}\n`;
-        if (c.expRefTramites.length > 0) resp += `Exportación que lo referencia: trámite ${c.expRefTramites.join(', ')}\n`;
-        return resp;
-      }
-      return `No encontré el COTE ${coteUpper} en el stock actual. Puede que ya se haya exportado completamente.`;
-    }
-    if (q.includes('diferencia') || q.includes('diff') || q.includes('descuadre')) {
-      const conDiff = data.cotes.filter(c => c.diff !== null && c.diff !== 0).sort((a,b) => Math.abs(b.diff!) - Math.abs(a.diff!));
-      const porCausa: Record<string, number> = {};
-      conDiff.forEach(c => { if (c.causaDiff) porCausa[c.causaDiff] = (porCausa[c.causaDiff] || 0) + 1; });
-      return `Hay ${conDiff.length} COTEs con diferencia.\n\nTOP 8 DESCUADRES:\n${conDiff.slice(0, 8).map(c => `• ${c.cote}: diff ${c.diff! > 0 ? '+' : ''}${c.diff} cajas — ${c.causaDiffDesc}`).join('\n')}\n\nPOR CAUSA:\n${Object.entries(porCausa).map(([k,v]) => `• ${k}: ${v} COTEs`).join('\n')}\n\nEXPLICACIÓN DE CAUSAS:\n• A: Retorno de puerto sin ingreso registrado\n• B: Pase sanitario (no en archivo de COTEs)\n• C: Doble conteo en exportación consolidada\n• D: Exportación sin referencia en observaciones\n• E: Ajuste menor (redondeo/reposicionamiento)`;
-    }
-    if (q.includes('retorno')) {
-      const retornos = data.cotes.filter(c => c.isRetorno).sort((a,b) => b.stockCajas - a.stockCajas);
-      const totalCajas = retornos.reduce((s,c) => s+c.stockCajas, 0);
-      return `Hay ${retornos.length} COTEs de RETORNO de China (${totalCajas.toLocaleString('es-UY')} cajas en stock).\n\nSon pallets que fueron exportados a China, volvieron del puerto, y se les asignó un nuevo COTE (P14651-P14722). No aparecen en el archivo de ingresos porque el reingreso fue por retorno, no por traslado desde San Jacinto.\n\nCOTEs de retorno:\n${retornos.map(c => `• ${c.cote}: ${c.stockCajas} cajas — ${c.stockProductos[0] || 'N/A'}`).join('\n')}\n\nEstos fueron re-exportados parcialmente vía P15060 (11/05/2026) que los referencia como "COTES DE INGRESO RETORNO DE PUERTO".`;
-    }
-    if (q.includes('sin ingreso')) {
-      const sinIng = data.cotes.filter(c => c.ingresoCajas === 0).sort((a,b) => b.stockCajas - a.stockCajas);
-      const retornos = sinIng.filter(c => c.isRetorno);
-      const pases = sinIng.filter(c => c.tipo === 'PASE_SANITARIO');
-      const otros = sinIng.filter(c => !c.isRetorno && c.tipo !== 'PASE_SANITARIO');
-      return `Hay ${sinIng.length} COTEs en stock sin ingreso registrado:\n\nRETORNOS DE CHINA (${retornos.length}):\n${retornos.map(c => `• ${c.cote}: ${c.stockCajas} cajas`).join('\n')}\n\nPASES SANITARIOS (${pases.length}):\n${pases.map(c => `• ${c.cote}: ${c.stockCajas} cajas — ${c.stockProductos[0] || 'N/A'}`).join('\n')}\n\n${otros.length > 0 ? `OTROS (${otros.length}):\n${otros.map(c => `• ${c.cote}: ${c.stockCajas} cajas`).join('\n')}` : ''}\n\nPodés añadirles ingreso manual con el botón verde "+" en la columna Ingreso.`;
-    }
-    if (q.includes('mayor') || q.includes('mayores') || q.includes('top') || q.includes('principal')) {
-      const sorted = data.cotes.filter(c => c.diff !== null).sort((a,b) => Math.abs(b.diff!) - Math.abs(a.diff!)).slice(0, 5);
-      return `TOP 5 COTEs CON MAYOR DIFERENCIA:\n\n${sorted.map((c, i) => `${i+1}. ${c.cote}: diff ${c.diff! > 0 ? '+' : ''}${c.diff!} cajas\n   Stock: ${c.stockCajas} | Ingreso: ${c.ingresoCajas} | Export: ${c.expRefCajas}\n   Causa: ${c.causaDiffDesc}`).join('\n\n')}`;
-    }
-    if (q.includes('ok') || q.includes('perfecto') || q.includes('bien') || q.includes('correcto')) {
-      const ok = data.cotes.filter(c => c.diff === 0);
-      return `Hay ${ok.length} COTEs con diff=0 (trazabilidad perfecta):\n\n${ok.map(c => `• ${c.cote}: ${c.stockCajas} cajas = ${c.ingresoCajas} cajas ingreso`).join('\n')}\n\nEstos COTEs tienen stock = ingreso - export, sin descuadres.`;
-    }
-    if (q.includes('export') || q.includes('exportacion')) {
-      const conExp = data.cotes.filter(c => c.expRefCount > 0).sort((a,b) => b.expRefCajas - a.expRefCajas);
-      return `Hay ${conExp.length} COTEs en stock que fueron referenciados en exportaciones:\n\n${conExp.slice(0, 10).map(c => `• ${c.cote}: ${c.expRefCajas} cajas exportadas en ${c.expRefCount} exportación(es)\n  Trámites: ${c.expRefTramites.join(', ')}`).join('\n\n')}\n\nClick en el número azul de la columna Export para ver las exportaciones en la pestaña Exportaciones.`;
-    }
-    if (q.includes('contenedor')) {
-      const allConts = new Set<string>();
-      data.cotes.forEach(c => c.stockContenedores.forEach(cont => allConts.add(cont)));
-      return `Hay ${allConts.size} contenedores únicos en stock. Usá el buscador de arriba para buscar por contenedor (ej: FMLU 346116-6).`;
-    }
-    if (q.includes('resumen') || q.includes('summary') || q.includes('total')) {
-      return `RESUMEN DE TRAZABILIDAD:\n\n• ${data.cotes.length} COTEs en stock\n• ${stats.stock.toLocaleString('es-UY')} cajas en stock\n• ${stats.ingreso.toLocaleString('es-UY')} cajas ingresadas\n• ${stats.export.toLocaleString('es-UY')} cajas exportadas (referenciadas)\n• ${stats.diffZero} COTEs con diff=0 (perfecto)\n• ${stats.conDiff} COTEs con diff != 0\n• ${data.cotes.filter(c => c.isRetorno).length} retornos de China\n• ${data.cotes.filter(c => c.ingresoCajas === 0).length} COTEs sin ingreso\n\nDiff total: ${stats.diffTotal > 0 ? '+' : ''}${stats.diffTotal.toLocaleString('es-UY')} cajas`;
-    }
-    return `No entendí completamente la pregunta. Probá con:\n\n• "¿Cuáles son los COTEs con mayor diferencia?"\n• "¿Qué son los retornos?"\n• "¿Qué COTEs no tienen ingreso?"\n• "Resumen"\n• "P14722" (un COTE específico)\n• "¿Cuáles están OK?"`;
-  };
-
-  const askAssistant = async (question: string) => {
-    if (!data) return;
-    setChatLoading(true);
-    // Local analysis (no external API needed - works offline)
-    await new Promise(r => setTimeout(r, 400)); // small delay for UX
-    const answer = analyzeQuestion(question, data, stats);
-    setChatMessages(prev => [...prev, { role: 'user', content: question }, { role: 'assistant', content: answer }]);
-    setChatLoading(false);
-  };
-
-  const handleChatSubmit = () => {
-    if (!chatInput.trim()) return;
-    const q = chatInput;
-    setChatInput('');
-    askAssistant(q);
-  };
 
   if (loading) {
     return (
@@ -290,9 +204,6 @@ export default function TrazabilidadExplorer() {
           <h2 className="text-2xl font-bold text-slate-800">Trazabilidad Explorer</h2>
           <span className="text-xs text-slate-500">{data?.fecha} — {stats.total} COTEs</span>
         </div>
-        <Button className="bg-violet-600 hover:bg-violet-700 gap-1.5" onClick={() => setChatOpen(true)}>
-          <Bot className="h-4 w-4" /> Asistente IA
-        </Button>
       </div>
 
       {/* KPIs clickeables */}
@@ -545,43 +456,8 @@ export default function TrazabilidadExplorer() {
         </DialogContent>
       </Dialog>
 
-      {/* Asistente IA Dialog */}
-      <Dialog open={chatOpen} onOpenChange={setChatOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[80vh]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Bot className="h-5 w-5 text-violet-600" /> Asistente de Trazabilidad</DialogTitle>
-          </DialogHeader>
-          <div className="flex flex-col gap-3 py-2 max-h-[55vh]">
-            <div className="flex-1 overflow-y-auto space-y-3 min-h-[300px] max-h-[400px] border rounded p-3 bg-slate-50">
-              {chatMessages.length === 0 ? (
-                <div className="text-center text-slate-400 py-8">
-                  <Sparkles className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                  <p className="text-sm font-medium">Hola! Soy tu asistente de trazabilidad</p>
-                  <p className="text-xs mt-1">Preguntame sobre diferencias, retornos, COTEs sin ingreso, etc.</p>
-                  <div className="mt-4 flex flex-wrap gap-2 justify-center">
-                    {['¿Cuáles son los COTEs con mayor diferencia?', '¿Qué son los retornos?', '¿Qué COTEs no tienen ingreso?', '¿Por qué P14722 tiene diff?'].map(q => (
-                      <button key={q} className="text-[11px] px-2 py-1 rounded-full bg-violet-100 text-violet-700 hover:bg-violet-200 transition-colors" onClick={() => { setChatMessages([]); setChatInput(q); setTimeout(() => askAssistant(q), 100); }}>{q}</button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                chatMessages.map((msg, i) => (
-                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[85%] rounded-lg p-3 text-sm whitespace-pre-wrap ${msg.role === 'user' ? 'bg-violet-600 text-white' : 'bg-white border text-slate-700'}`}>{msg.content}</div>
-                  </div>
-                ))
-              )}
-              {chatLoading && (
-                <div className="flex justify-start"><div className="bg-white border rounded-lg p-3 text-sm text-slate-400 flex items-center gap-2"><Bot className="h-4 w-4 animate-pulse" /> Analizando datos...</div></div>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Input placeholder="Hacé tu pregunta..." value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleChatSubmit(); }} />
-              <Button className="bg-violet-600 hover:bg-violet-700" onClick={handleChatSubmit} disabled={chatLoading || !chatInput.trim()}><Send className="h-4 w-4" /></Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Asistente IA Flotante */}
+      {data && <AIAssistant data={data} stats={stats} />}
     </div>
   );
 }
