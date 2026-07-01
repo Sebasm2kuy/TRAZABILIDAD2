@@ -541,10 +541,29 @@ Si un campo no está visible, poned null.`;
         warning = '\n\n⚠️ ATENCIÓN: Solo detecté 1 caja. Si las capturas muestran una cantidad mayor en "Mercadería Lotes", cargá el ingreso manualmente con el valor correcto.';
       }
 
+      // Safe date parsing — handles DD/MM/YY, DD/MM/YYYY, ISO, etc.
+      const safeDate = (dateStr: string | null | undefined): string => {
+        if (!dateStr || dateStr === 'null') return new Date().toISOString();
+        try {
+          // Try DD/MM/YY or DD/MM/YYYY
+          const m = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+          if (m) {
+            let [_, d, mo, y] = m;
+            if (y.length === 2) y = '20' + y;
+            const dt = new Date(parseInt(y), parseInt(mo) - 1, parseInt(d));
+            if (!isNaN(dt.getTime())) return dt.toISOString();
+          }
+          // Try direct parse
+          const dt = new Date(dateStr);
+          if (!isNaN(dt.getTime())) return dt.toISOString();
+        } catch {}
+        return new Date().toISOString(); // fallback
+      };
+
       const newRecord = {
         id: `img_ing_${Date.now()}_${cote}_${Math.random().toString(36).substr(2, 5)}`,
         nroTramite: parseInt(merged.nroTramite) || 0,
-        fechaTramite: merged.fecha ? new Date(merged.fecha).toISOString() : new Date().toISOString(),
+        fechaTramite: safeDate(merged.fecha),
         nroCote: cote,
         nombreEstablecimientoDestino: 'CALIRAL S.A.',
         nombreEstablecimientoProd: merged.establecimiento || 'SAN JACINTO',
@@ -555,7 +574,7 @@ Si un campo no está visible, poned null.`;
         cantidadEnvases: cajas,
         pesoBruto: parseFloat(merged.pesoBruto) || 0,
         pesoNeto: pesoNeto,
-        fechaEmitidoCote: merged.fecha ? new Date(merged.fecha).toISOString() : null,
+        fechaEmitidoCote: safeDate(merged.fecha),
       };
 
       const existing = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
