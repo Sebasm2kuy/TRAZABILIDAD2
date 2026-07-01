@@ -442,6 +442,9 @@ ${cotes.slice(0, 25).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets}
     setPendingImages([]);
     setImageProcessing(true);
 
+    // Extract data from ALL images first
+    const extractedData: { fileName: string; data: any; raw: string }[] = [];
+
     for (const file of imagesToProcess) {
       try {
         const reader = new FileReader();
@@ -467,6 +470,10 @@ Buscá específicamente:
 - País destino
 - Establecimiento productor
 
+IMPORTANTE: A veces la cantidad de envases está en una ventana separada ("Mercadería Lotes"). 
+Si ves un número grande como 1016 en "Cantidad de Envases", usá ese valor.
+Si solo ves 1, buscá en toda la imagen si hay otro número mayor.
+
 Respondé SOLO en formato JSON (sin markdown, sin explicación):
 {"nroCote":"Pxxxxx","nroTramite":"numero","fecha":"DD/MM/AAAA","producto":"nombre","corte":"nombre","cantidadEnvases":"numero","pesoBruto":"numero","pesoNeto":"numero","paisDestino":"pais","establecimiento":"nombre"}
 
@@ -480,60 +487,102 @@ Si un campo no está visible, poned null.`;
           }
         }
 
-        if (!extractedText || extractedText.includes('"nroCote": null') || extractedText.includes('"nroCote":null')) {
-          setMessages(prev => [...prev, { role: 'user', content: `📷 ${file.name}` }]);
-          setMessages(prev => [...prev, { role: 'assistant', content: '❌ No pude extraer datos de esta imagen. Asegurate de que sea una captura del MGAP con datos visibles.' }]);
-          continue;
-        }
-
         let parsed: any = null;
         try {
           const jsonMatch = extractedText.match(/\{[\s\S]*\}/);
           if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
         } catch {}
 
-        if (!parsed || !parsed.nroCote) {
-          setMessages(prev => [...prev, { role: 'user', content: `📷 ${file.name}` }]);
-          setMessages(prev => [...prev, { role: 'assistant', content: `📝 Datos extraídos:\n\n${extractedText}\n\nNo pude identificar el COTE.` }]);
-          continue;
-        }
-
-        const cote = String(parsed.nroCote).trim().toUpperCase();
-        const newRecord = {
-          id: `img_ing_${Date.now()}_${cote}_${Math.random().toString(36).substr(2, 5)}`,
-          nroTramite: parseInt(parsed.nroTramite) || 0,
-          fechaTramite: parsed.fecha ? new Date(parsed.fecha).toISOString() : new Date().toISOString(),
-          nroCote: cote,
-          nombreEstablecimientoDestino: 'CALIRAL S.A.',
-          nombreEstablecimientoProd: parsed.establecimiento || 'SAN JACINTO',
-          paisDestino: parsed.paisDestino || 'URUGUAY',
-          denominacionMercaderia: parsed.producto || '',
-          corte: parsed.corte || 'Varios',
-          tipo: 'INGRESO',
-          cantidadEnvases: parseInt(parsed.cantidadEnvases) || 0,
-          pesoBruto: parseFloat(parsed.pesoBruto) || 0,
-          pesoNeto: parseFloat(parsed.pesoNeto) || 0,
-          fechaEmitidoCote: parsed.fecha ? new Date(parsed.fecha).toISOString() : null,
-        };
-
-        const existing = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
-        existing.push(newRecord);
-        localStorage.setItem('trazabilidad_dep_new_records', JSON.stringify(existing));
-
-        let resp = `📷 ${file.name}\n\n✅ DATOS EXTRAÍDOS:\n`;
-        resp += `• COTE: ${cote}\n`;
-        resp += `• Trámite: ${newRecord.nroTramite}\n`;
-        resp += `• Producto: ${newRecord.denominacionMercaderia}\n`;
-        resp += `• Cajas: ${newRecord.cantidadEnvases.toLocaleString('es-UY')}\n`;
-        resp += `• Peso Neto: ${newRecord.pesoNeto.toLocaleString('es-UY')} kg\n\n`;
-        resp += `💾 Ingreso guardado en A Depósitos.`;
-
-        setMessages(prev => [...prev, { role: 'user', content: `📷 ${file.name}` }]);
-        setMessages(prev => [...prev, { role: 'assistant', content: resp }]);
+        extractedData.push({ fileName: file.name, data: parsed, raw: extractedText });
       } catch (err) {
-        setMessages(prev => [...prev, { role: 'user', content: `📷 ${file.name}` }]);
-        setMessages(prev => [...prev, { role: 'assistant', content: '❌ Error: ' + (err as Error).message }]);
+        extractedData.push({ fileName: file.name, data: null, raw: 'Error: ' + (err as Error).message });
       }
+    }
+
+    // Group by COTE — merge data from multiple images of the same COTE
+    const coteGroups: Record<string, any[]> = {};
+    const noCoteImages: { fileName: string; raw: string }[] = [];
+
+    for (const item of extractedData) {
+      const cote = item.data?.nroCote;
+      if (cote && cote !== 'null' && cote !== null) {
+        const coteUpper = String(cote).trim().toUpperCase();
+        if (!coteGroups[coteUpper]) coteGroups[coteUpper] = [];
+        coteGroups[coteUpper].push(item.data);
+      } else {
+        noCoteImages.push({ fileName: item.fileName, raw: item.raw });
+      }
+    }
+
+    // Process each COTE group (merge data if multiple images)
+    for (const [cote, dataList] of Object.entries(coteGroups)) {
+      // Merge: take the best value from each image
+      const merged: any = { nroCote: cote };
+      for (const d of dataList) {
+        // For cantidadEnvases: take the MAX value (one image might show 1, another 1016)
+        const cajas = parseInt(d.cantidadEnvases) || 0;
+        if (cajas > 0 && (!merged.cantidadEnvases || cajas > parseInt(merged.cantidadEnvases))) {
+          merged.cantidadEnvases = cajas;
+        }
+        // For other fields: take first non-null
+        for (const key of ['nroTramite', 'fecha', 'producto', 'corte', 'pesoBruto', 'pesoNeto', 'paisDestino', 'establecimiento']) {
+          if (d[key] && d[key] !== 'null' && !merged[key]) {
+            merged[key] = d[key];
+          }
+        }
+      }
+
+      const cajas = merged.cantidadEnvases || 0;
+      const pesoNeto = parseFloat(merged.pesoNeto) || 0;
+
+      // Check if cajas is suspiciously low (1) but we have multiple images
+      let warning = '';
+      if (cajas === 1 && dataList.length > 1) {
+        warning = '\n\n⚠️ ATENCIÓN: Solo detecté 1 caja. Si las capturas muestran una cantidad mayor en "Mercadería Lotes", cargá el ingreso manualmente con el valor correcto.';
+      }
+
+      const newRecord = {
+        id: `img_ing_${Date.now()}_${cote}_${Math.random().toString(36).substr(2, 5)}`,
+        nroTramite: parseInt(merged.nroTramite) || 0,
+        fechaTramite: merged.fecha ? new Date(merged.fecha).toISOString() : new Date().toISOString(),
+        nroCote: cote,
+        nombreEstablecimientoDestino: 'CALIRAL S.A.',
+        nombreEstablecimientoProd: merged.establecimiento || 'SAN JACINTO',
+        paisDestino: merged.paisDestino || 'URUGUAY',
+        denominacionMercaderia: merged.producto || '',
+        corte: merged.corte || 'Varios',
+        tipo: 'INGRESO',
+        cantidadEnvases: cajas,
+        pesoBruto: parseFloat(merged.pesoBruto) || 0,
+        pesoNeto: pesoNeto,
+        fechaEmitidoCote: merged.fecha ? new Date(merged.fecha).toISOString() : null,
+      };
+
+      const existing = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
+      existing.push(newRecord);
+      localStorage.setItem('trazabilidad_dep_new_records', JSON.stringify(existing));
+
+      const imgCount = dataList.length;
+      let resp = `📷 ${imgCount} imagen${imgCount > 1 ? 'es' : ''} procesada${imgCount > 1 ? 's' : ''} para ${cote}\n\n✅ DATOS EXTRAÍDOS Y FUSIONADOS:\n`;
+      resp += `• COTE: ${cote}\n`;
+      resp += `• Trámite: ${newRecord.nroTramite}\n`;
+      resp += `• Producto: ${newRecord.denominacionMercaderia}\n`;
+      resp += `• Corte: ${newRecord.corte}\n`;
+      resp += `• Cajas: ${cajas.toLocaleString('es-UY')}\n`;
+      resp += `• Peso Bruto: ${newRecord.pesoBruto.toLocaleString('es-UY')} kg\n`;
+      resp += `• Peso Neto: ${pesoNeto.toLocaleString('es-UY')} kg\n`;
+      resp += `• País: ${newRecord.paisDestino}\n\n`;
+      resp += `💾 Ingreso guardado en A Depósitos.`;
+      if (warning) resp += warning;
+
+      setMessages(prev => [...prev, { role: 'user', content: `📷 ${imgCount} imagen(es) → ${cote}` }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: resp }]);
+    }
+
+    // Process images without COTE detected
+    for (const item of noCoteImages) {
+      setMessages(prev => [...prev, { role: 'user', content: `📷 ${item.fileName}` }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: `❌ No pude identificar el COTE en esta imagen.\n\nDatos extraídos:\n${item.raw}` }]);
     }
 
     window.dispatchEvent(new CustomEvent('trazabilidad-data-ready'));
