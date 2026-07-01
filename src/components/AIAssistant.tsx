@@ -242,11 +242,16 @@ Podés ayudar a: analizar diferencias, explicar retornos/pases, buscar COTEs esp
     if (puterReady && window.puter?.ai?.chat) {
       try {
         const context = buildContext();
-        const response = await window.puter.ai.chat([
+        // Add timeout: if GPT doesn't respond in 25s, use local analysis
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('GPT timeout')), 25000)
+        );
+        const chatPromise = window.puter.ai.chat([
           { role: 'system', content: context },
-          ...messages.slice(-8).map(m => ({ role: m.role, content: m.content })),
+          ...messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
           { role: 'user', content: question }
         ], { model: 'gpt-4o-mini' });
+        const response = await Promise.race([chatPromise, timeoutPromise]);
         let answer = response?.message?.content || response?.message || '';
         if (typeof answer !== 'string') answer = JSON.stringify(answer);
         if (!answer) answer = 'No pude procesar la consulta.';
@@ -257,6 +262,7 @@ Podés ayudar a: analizar diferencias, explicar retornos/pases, buscar COTEs esp
         console.warn('Puter AI failed, using local:', err);
       }
     }
+    // Fallback to local analysis
     await new Promise(r => setTimeout(r, 400));
     const answer = localAnalysis(question);
     setMessages(prev => [...prev, { role: 'assistant', content: answer }]);
