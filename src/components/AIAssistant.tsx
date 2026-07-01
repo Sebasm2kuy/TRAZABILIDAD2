@@ -441,30 +441,29 @@ ${cotes.slice(0, 25).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets}
       });
 
       // Try Puter.js vision API
+      // Puter.js format: puter.ai.chat(prompt, imageUrl, { model })
       let extractedText = '';
       if (window.puter?.ai?.chat) {
         try {
-          const prompt = `Extraé TODOS los datos visibles de esta captura del MGAP (Sistema de Trazabilidad). 
-Listá en formato JSON:
-{
-  "nroCote": "Pxxxxx o número de COTE",
-  "nroTramite": "número de trámite",
-  "fecha": "fecha del trámite",
-  "producto": "denominación de mercadería",
-  "corte": "corte si está visible",
-  "cantidadEnvases": "número de cajas/envases",
-  "pesoBruto": "peso bruto en kg",
-  "pesoNeto": "peso neto en kg",
-  "paisDestino": "país destino si está visible",
-  "establecimiento": "establecimiento productor si está visible"
-}
+          const prompt = `Extraé TODOS los datos visibles de esta captura del MGAP (Sistema de Trazabilidad de Uruguay).
+Buscá específicamente:
+- Nro. de COTE (empieza con P seguido de números, ej: P14702)
+- Nro. de trámite (número)
+- Fecha del trámite
+- Denominación de la mercadería (producto)
+- Corte
+- Cantidad de envases (cajas)
+- Peso bruto (kg)
+- Peso neto (kg)
+- País destino
+- Establecimiento productor
 
-Si un campo no está visible, dejalo null. Respondé SOLO el JSON.`;
+Respondé SOLO en formato JSON (sin markdown, sin explicación):
+{"nroCote":"Pxxxxx","nroTramite":"numero","fecha":"DD/MM/AAAA","producto":"nombre","corte":"nombre","cantidadEnvases":"numero","pesoBruto":"numero","pesoNeto":"numero","paisDestino":"pais","establecimiento":"nombre"}
 
-          const response = await window.puter.ai.chat(prompt, {
-            type: 'image_url',
-            image_url: { url: dataUrl }
-          });
+Si un campo no está visible, poned null.`;
+
+          const response = await window.puter.ai.chat(prompt, dataUrl, { model: 'gpt-4o' });
           extractedText = response?.message?.content || response?.message || '';
           if (typeof extractedText !== 'string') extractedText = JSON.stringify(extractedText);
         } catch (err) {
