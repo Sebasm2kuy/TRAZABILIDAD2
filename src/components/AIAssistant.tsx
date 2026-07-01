@@ -24,6 +24,7 @@ export default function AIAssistant() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [imageProcessing, setImageProcessing] = useState(false);
+  const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [position, setPosition] = useState({ x: typeof window !== 'undefined' ? window.innerWidth - 420 : 0, y: 100 });
   const [dragging, setDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -423,29 +424,37 @@ ${cotes.slice(0, 25).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets}
   };
 
   // ============ IMAGE ANALYSIS (extract COTE from screenshots) ============
-  const handleImageUpload = async (file: File) => {
+  const addImageToPending = (file: File) => {
     if (!file.type.startsWith('image/')) {
       toast.error('Solo se admiten imágenes');
       return;
     }
+    setPendingImages(prev => [...prev, file]);
+  };
+
+  const removePendingImage = (index: number) => {
+    setPendingImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const processPendingImages = async () => {
+    if (pendingImages.length === 0) return;
+    const imagesToProcess = [...pendingImages];
+    setPendingImages([]);
     setImageProcessing(true);
-    setMessages(prev => [...prev, { role: 'user', content: `📷 Imagen subida: ${file.name}` }]);
 
-    try {
-      // Convert to base64
-      const reader = new FileReader();
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+    for (const file of imagesToProcess) {
+      try {
+        const reader = new FileReader();
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
 
-      // Try Puter.js vision API
-      // Puter.js format: puter.ai.chat(prompt, imageUrl, { model })
-      let extractedText = '';
-      if (window.puter?.ai?.chat) {
-        try {
-          const prompt = `Extraé TODOS los datos visibles de esta captura del MGAP (Sistema de Trazabilidad de Uruguay).
+        let extractedText = '';
+        if (window.puter?.ai?.chat) {
+          try {
+            const prompt = `Extraé TODOS los datos visibles de esta captura del MGAP (Sistema de Trazabilidad de Uruguay).
 Buscá específicamente:
 - Nro. de COTE (empieza con P seguido de números, ej: P14702)
 - Nro. de trámite (número)
@@ -463,83 +472,75 @@ Respondé SOLO en formato JSON (sin markdown, sin explicación):
 
 Si un campo no está visible, poned null.`;
 
-          const response = await window.puter.ai.chat(prompt, dataUrl, { model: 'gpt-4o' });
-          extractedText = response?.message?.content || response?.message || '';
-          if (typeof extractedText !== 'string') extractedText = JSON.stringify(extractedText);
-        } catch (err) {
-          console.warn('Puter vision failed:', err);
+            const response = await window.puter.ai.chat(prompt, dataUrl, { model: 'gpt-4o' });
+            extractedText = response?.message?.content || response?.message || '';
+            if (typeof extractedText !== 'string') extractedText = JSON.stringify(extractedText);
+          } catch (err) {
+            console.warn('Puter vision failed:', err);
+          }
         }
-      }
 
-      if (!extractedText) {
-        setMessages(prev => [...prev, { role: 'assistant', content: '❌ No pude procesar la imagen. Asegurate de que sea una captura del MGAP con datos visibles.\n\nTambién podés cargar los datos manualmente desde A Depósitos → Nuevo.' }]);
-        setImageProcessing(false);
-        return;
-      }
-
-      // Parse JSON from response
-      let parsed: any = null;
-      try {
-        // Extract JSON from response (might be wrapped in markdown)
-        const jsonMatch = extractedText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          parsed = JSON.parse(jsonMatch[0]);
+        if (!extractedText || extractedText.includes('"nroCote": null') || extractedText.includes('"nroCote":null')) {
+          setMessages(prev => [...prev, { role: 'user', content: `📷 ${file.name}` }]);
+          setMessages(prev => [...prev, { role: 'assistant', content: '❌ No pude extraer datos de esta imagen. Asegurate de que sea una captura del MGAP con datos visibles.' }]);
+          continue;
         }
-      } catch {}
 
-      if (!parsed || !parsed.nroCote) {
-        setMessages(prev => [...prev, { role: 'assistant', content: `📝 Datos extraídos de la imagen:\n\n${extractedText}\n\nNo pude identificar el COTE automáticamente. Por favor cargá los datos manualmente.` }]);
-        setImageProcessing(false);
-        return;
+        let parsed: any = null;
+        try {
+          const jsonMatch = extractedText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
+        } catch {}
+
+        if (!parsed || !parsed.nroCote) {
+          setMessages(prev => [...prev, { role: 'user', content: `📷 ${file.name}` }]);
+          setMessages(prev => [...prev, { role: 'assistant', content: `📝 Datos extraídos:\n\n${extractedText}\n\nNo pude identificar el COTE.` }]);
+          continue;
+        }
+
+        const cote = String(parsed.nroCote).trim().toUpperCase();
+        const newRecord = {
+          id: `img_ing_${Date.now()}_${cote}_${Math.random().toString(36).substr(2, 5)}`,
+          nroTramite: parseInt(parsed.nroTramite) || 0,
+          fechaTramite: parsed.fecha ? new Date(parsed.fecha).toISOString() : new Date().toISOString(),
+          nroCote: cote,
+          nombreEstablecimientoDestino: 'CALIRAL S.A.',
+          nombreEstablecimientoProd: parsed.establecimiento || 'SAN JACINTO',
+          paisDestino: parsed.paisDestino || 'URUGUAY',
+          denominacionMercaderia: parsed.producto || '',
+          corte: parsed.corte || 'Varios',
+          tipo: 'INGRESO',
+          cantidadEnvases: parseInt(parsed.cantidadEnvases) || 0,
+          pesoBruto: parseFloat(parsed.pesoBruto) || 0,
+          pesoNeto: parseFloat(parsed.pesoNeto) || 0,
+          fechaEmitidoCote: parsed.fecha ? new Date(parsed.fecha).toISOString() : null,
+        };
+
+        const existing = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
+        existing.push(newRecord);
+        localStorage.setItem('trazabilidad_dep_new_records', JSON.stringify(existing));
+
+        let resp = `📷 ${file.name}\n\n✅ DATOS EXTRAÍDOS:\n`;
+        resp += `• COTE: ${cote}\n`;
+        resp += `• Trámite: ${newRecord.nroTramite}\n`;
+        resp += `• Producto: ${newRecord.denominacionMercaderia}\n`;
+        resp += `• Cajas: ${newRecord.cantidadEnvases.toLocaleString('es-UY')}\n`;
+        resp += `• Peso Neto: ${newRecord.pesoNeto.toLocaleString('es-UY')} kg\n\n`;
+        resp += `💾 Ingreso guardado en A Depósitos.`;
+
+        setMessages(prev => [...prev, { role: 'user', content: `📷 ${file.name}` }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: resp }]);
+      } catch (err) {
+        setMessages(prev => [...prev, { role: 'user', content: `📷 ${file.name}` }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: '❌ Error: ' + (err as Error).message }]);
       }
-
-      // Create ingreso record
-      const cote = String(parsed.nroCote).trim().toUpperCase();
-      const newRecord = {
-        id: `img_ing_${Date.now()}_${cote}`,
-        nroTramite: parseInt(parsed.nroTramite) || 0,
-        fechaTramite: parsed.fecha ? new Date(parsed.fecha).toISOString() : new Date().toISOString(),
-        nroCote: cote,
-        nombreEstablecimientoDestino: 'CALIRAL S.A.',
-        nombreEstablecimientoProd: parsed.establecimiento || 'SAN JACINTO',
-        paisDestino: parsed.paisDestino || 'URUGUAY',
-        denominacionMercaderia: parsed.producto || '',
-        corte: parsed.corte || 'Varios',
-        tipo: 'INGRESO',
-        cantidadEnvases: parseInt(parsed.cantidadEnvases) || 0,
-        pesoBruto: parseFloat(parsed.pesoBruto) || 0,
-        pesoNeto: parseFloat(parsed.pesoNeto) || 0,
-        fechaEmitidoCote: parsed.fecha ? new Date(parsed.fecha).toISOString() : null,
-      };
-
-      // Save to localStorage
-      const existing = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
-      existing.push(newRecord);
-      localStorage.setItem('trazabilidad_dep_new_records', JSON.stringify(existing));
-
-      // Dispatch event so Trazabilidad Explorer reloads
-      window.dispatchEvent(new CustomEvent('trazabilidad-data-ready'));
-
-      let resp = `✅ DATOS EXTRAÍDOS DE LA IMAGEN:\n\n`;
-      resp += `• COTE: ${cote}\n`;
-      resp += `• Trámite: ${newRecord.nroTramite}\n`;
-      resp += `• Producto: ${newRecord.denominacionMercaderia}\n`;
-      resp += `• Corte: ${newRecord.corte}\n`;
-      resp += `• Cajas: ${newRecord.cantidadEnvases.toLocaleString('es-UY')}\n`;
-      resp += `• Peso Bruto: ${newRecord.pesoBruto.toLocaleString('es-UY')} kg\n`;
-      resp += `• Peso Neto: ${newRecord.pesoNeto.toLocaleString('es-UY')} kg\n`;
-      resp += `• País: ${newRecord.paisDestino}\n\n`;
-      resp += `💾 Ingreso guardado en A Depósitos.\n`;
-      resp += `Andá a la pestaña Trazabilidad para verlo reflejado.`;
-
-      setMessages(prev => [...prev, { role: 'assistant', content: resp }]);
-    } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', content: '❌ Error procesando imagen: ' + (err as Error).message }]);
     }
+
+    window.dispatchEvent(new CustomEvent('trazabilidad-data-ready'));
     setImageProcessing(false);
   };
 
-  // Paste handler
+  // Paste handler - accumulates images
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
       if (!open) return;
@@ -550,8 +551,7 @@ Si un campo no está visible, poned null.`;
           const file = item.getAsFile();
           if (file) {
             e.preventDefault();
-            handleImageUpload(file);
-            return;
+            addImageToPending(file);
           }
         }
       }
@@ -609,6 +609,12 @@ Si un campo no está visible, poned null.`;
   };
 
   const handleSubmit = () => {
+    // If there are pending images, process them (Enter = submit images)
+    if (pendingImages.length > 0) {
+      processPendingImages();
+      setInput('');
+      return;
+    }
     if (!input.trim() || loading) return;
     const q = input;
     setInput('');
@@ -711,14 +717,33 @@ Si un campo no está visible, poned null.`;
             <div ref={messagesEndRef} />
           </div>
           <div className="p-3 border-t bg-white rounded-b-lg">
+            {/* Pending images preview */}
+            {pendingImages.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2 p-2 bg-violet-50 rounded border border-violet-200">
+                {pendingImages.map((img, i) => (
+                  <div key={i} className="relative group">
+                    <img src={URL.createObjectURL(img)} alt={img.name} className="h-16 w-16 object-cover rounded border" />
+                    <button
+                      className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full h-4 w-4 flex items-center justify-center text-[10px] hover:bg-red-600"
+                      onClick={() => removePendingImage(i)}
+                    >×</button>
+                    <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] px-1 truncate rounded-b">{img.name}</span>
+                  </div>
+                ))}
+                <div className="flex items-center text-[11px] text-violet-700 font-medium ml-1">
+                  {pendingImages.length} imagen{pendingImages.length !== 1 ? 'es' : ''} → Enter para procesar
+                </div>
+              </div>
+            )}
             <div className="flex gap-2">
               <input
                 type="file"
                 accept="image/*"
+                multiple
                 className="hidden"
                 onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleImageUpload(file);
+                  const files = Array.from(e.target.files || []);
+                  files.forEach(f => addImageToPending(f));
                   e.target.value = '';
                 }}
                 id="ai-image-upload"
@@ -729,14 +754,23 @@ Si un campo no está visible, poned null.`;
                 className="shrink-0"
                 onClick={() => document.getElementById('ai-image-upload')?.click()}
                 disabled={imageProcessing || loading}
-                title="Subir captura del MGAP para extraer datos"
+                title="Subir capturas del MGAP (puede seleccionar múltiples)"
               >
                 {imageProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
               </Button>
-              <Input placeholder="Hacé tu pregunta o pegá una captura (Ctrl+V)..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }} disabled={loading} className="text-sm" />
-              <Button className="bg-violet-600 hover:bg-violet-700" onClick={handleSubmit} disabled={loading || !input.trim()} size="sm"><Send className="h-4 w-4" /></Button>
+              <Input
+                placeholder={pendingImages.length > 0 ? `Presioná Enter para procesar ${pendingImages.length} imagen(es)...` : "Hacé tu pregunta o pegá capturas (Ctrl+V)..."}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
+                disabled={loading}
+                className="text-sm"
+              />
+              <Button className="bg-violet-600 hover:bg-violet-700" onClick={handleSubmit} disabled={loading || (!input.trim() && pendingImages.length === 0)} size="sm">
+                {imageProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </Button>
             </div>
-            {imageProcessing && <p className="text-[10px] text-violet-600 mt-1">📷 Analizando imagen con GPT-4o Vision...</p>}
+            {imageProcessing && <p className="text-[10px] text-violet-600 mt-1">📷 Analizando imágenes con GPT-4o Vision...</p>}
           </div>
         </>
       )}
