@@ -16,7 +16,6 @@ import { toast } from 'sonner';
 import { useAppStore } from '@/store/useAppStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import AIAssistant from './AIAssistant';
 import React from 'react';
 
 interface StockPallet {
@@ -455,9 +454,6 @@ export default function TrazabilidadExplorer() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Asistente IA Flotante */}
-      {data && <AIAssistant data={data} stats={stats} />}
     </div>
   );
 }

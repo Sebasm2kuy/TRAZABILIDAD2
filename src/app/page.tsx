@@ -14,6 +14,7 @@ import AnalyticsCharts from '@/components/analytics/AnalyticsCharts';
 import ProductoDestino from '@/components/comparativa/ProductoDestino';
 import ImportExportPanel from '@/components/import-export/ImportExportPanel';
 import NewRecordForm from '@/components/new-record/NewRecordForm';
+import AIAssistant from '@/components/AIAssistant';
 import { initialPull } from '@/lib/googleSheets';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
@@ -52,6 +53,7 @@ export default function Home() {
           </ErrorBoundary>
         </main>
       </div>
+      <AIAssistant />
     </ErrorBoundary>
   );
 }
