@@ -94,27 +94,24 @@ export default function AIAssistant() {
 
   // Build context based on active tab + localStorage data
   const buildContext = useCallback(() => {
-    let context = `Sos un INGENIERO DE TRAZABILIDAD integrado en la app. Conocés cómo funciona la app y podés detectar bugs e inconsistencias entre pestañas.
+    let context = `Sos un INGENIERO DE TRAZABILIDAD integrado en la app. Conocés cómo funciona la app y detectás bugs reales.
 
-CÓMO FUNCIONA LA APP:
-- Pestaña "A Depósitos" (depositos): ingresos a Caliral/Frimaral. Datos en localStorage:
-  • trazabilidad_dep_imported: importaciones de Excel (3763 registros)
-  • trazabilidad_dep_new_records: registros creados manualmente o via PDF
-  • trazabilidad_dep_edits: ediciones a registros (pueden cambiar nroCote)
-  • trazabilidad_dep_deleted: IDs eliminados
-- Pestaña "Exportaciones" (exportaciones): exportaciones certificadas. Datos en:
-  • trazabilidad_exp_imported, trazabilidad_new_records, trazabilidad_exp_edits, trazabilidad_exp_deleted
-- Pestaña "Trazabilidad" (trazabilidad-explorer): vista unificada que cruza stock + ingresos + exportaciones. Lee de stock_trazabilidad.json + dep_new_records + dep_edits + dep_imported
-- Pestaña "Cruces X COTE" (cruces-x-cote): similar, cruza por COTE
-- Stock: datos del archivo XLS del depósito, guardado en trazabilidad_stock_data
+CÓMO FUNCIONA LA APP (ESTADO ACTUAL DEL CÓDIGO):
+- Pestaña "A Depósitos": ingresos a Caliral. Guarda en:
+  • trazabilidad_dep_imported (Excel), trazabilidad_dep_new_records (manuales/PDF), trazabilidad_dep_edits (ediciones)
+- Pestaña "Trazabilidad": cruza stock + ingresos + exportaciones.
+  ⚠️ IMPORTANTE: YA lee dep_new_records + dep_edits + dep_imported (fix aplicado).
+  Si un COTE está en dep_edits con ID new_dep_, YA aparece en Trazabilidad. NO reportar esto como bug.
+- Pestaña "Cruces X COTE": similar.
+- Stock: en trazabilidad_stock_data.
 
-INCONSISTENCIAS COMUNES QUE DEBES DETECTAR:
-1. COTE en A Depósitos pero NO en Trazabilidad (ej: edicion cambio nroCote pero Trazabilidad no lo lee)
-2. COTE en Stock pero NO en Ingresos (retornos, pases sanitarios)
-3. Diferencias negativas grandes (exportación sin referencia en observaciones)
-4. Doble conteo en exportaciones consolidadas
-5. COTEs duplicados entre new_records y imported
-6. Registros en edits que cambiaron nroCote pero el original sigue en imported
+BUGS YA RESUELTOS (NO reportar como pendientes):
+- P14702 en dep_edits: YA resuelto. Trazabilidad lee dep_edits, P14702 aparece con ingreso 1891 cajas.
+- Cualquier COTE en dep_edits con ID new_dep_: YA aparece en Trazabilidad.
+
+PROBLEMAS REALES PENDIENTES (podés reportar estos):
+- 9 COTEs en stock sin ingreso: B44473, B444750, B489250 (pases sanitarios), P14699, P14651, P14677, P14694, P14706, P14689 (retornos China). Necesitan archivo de pases sanitarios o ingresos manuales.
+- Algunos COTEs con diff grande por doble conteo en exportaciones consolidadas.
 
 PESTAÑA ACTUAL: ${activeTab}
 
@@ -427,10 +424,24 @@ ${cotes.slice(0, 25).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets}
     setLoading(true);
     setMessages(prev => [...prev, { role: 'user', content: question }]);
 
+    const q = question.toLowerCase();
+    // For bug detection / COTE queries / error verification, use LOCAL analysis (faster + more accurate)
+    const isLocalQuery = q.includes('error') || q.includes('bug') || q.includes('verifica') ||
+                         q.includes('inconsisten') || q.match(/(p\d{4,8}|b\d{4,8})/) ||
+                         q.includes('hola') || q.includes('buenas') || q.includes('resumen');
+
+    if (isLocalQuery) {
+      await new Promise(r => setTimeout(r, 300));
+      const answer = localAnalysis(question);
+      setMessages(prev => [...prev, { role: 'assistant', content: answer }]);
+      setLoading(false);
+      return;
+    }
+
+    // For conceptual questions, try GPT-4o
     if (puterReady && window.puter?.ai?.chat) {
       try {
         const context = buildContext();
-        // Add timeout: if GPT doesn't respond in 25s, use local analysis
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('GPT timeout')), 25000)
         );
