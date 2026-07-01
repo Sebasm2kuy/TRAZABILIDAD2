@@ -42,3 +42,30 @@ if (new URLSearchParams(window.location.search).get('reset') === '1') {
     }
   } catch (e) { }
 })();
+
+// Script 4: Force HTML reload via fetch + compare - bypasses CDN cache
+(function () {
+  try {
+    if (window.__TRZ_HTML_CHECKED) return;
+    window.__TRZ_HTML_CHECKED = true;
+    // Fetch the HTML fresh (bypass browser cache) and check if chunk hashes changed
+    fetch(window.location.pathname + '?_trz_check=' + Date.now(), {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' }
+    })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        // Extract chunk hashes from the fetched HTML
+        var newHashes = (html.match(/chunks\/([a-f0-9]{16})\.js/g) || []).sort().join(',');
+        var oldHashes = sessionStorage.getItem('_trz_chunks');
+        if (oldHashes && oldHashes !== newHashes) {
+          sessionStorage.setItem('_trz_chunks', newHashes);
+          // Force hard reload to get new HTML + new chunks
+          window.location.reload(true);
+        } else if (!oldHashes) {
+          sessionStorage.setItem('_trz_chunks', newHashes);
+        }
+      })
+      .catch(function () { });
+  } catch (e) { }
+})();
