@@ -273,17 +273,20 @@ ${cotes.slice(0, 25).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets}
       if (inEdits) resp += `• edits: ${editCajas.toLocaleString('es-UY')} cajas\n`;
 
       // Detect bug
-      if ((inNew || inEdits || inImported) && !inStock) {
-        resp += `\n⚠️ BUG: ${coteUpper} tiene ingreso pero NO está en stock. Posiblemente ya se exportó completamente.\n`;
+      const hasIngreso = inNew || inEdits || inImported;
+      if (hasIngreso && !inStock) {
+        resp += `\n⚠️ ${coteUpper} tiene ingreso pero NO está en stock. Posiblemente ya se exportó.\n`;
       }
-      if (inStock && !inNew && !inEdits && !inImported) {
-        resp += `\n⚠️ BUG: ${coteUpper} está en stock pero NO tiene ingreso en ningún lado. Puede ser retorno o pase sanitario.\n`;
+      if (inStock && !hasIngreso) {
+        resp += `\n⚠️ ${coteUpper} está en stock pero NO tiene ingreso. Puede ser retorno o pase sanitario.\n`;
+        resp += `   Solución: usá el botón 📷 para subir capturas del MGAP y crear el ingreso.\n`;
       }
-      if (inEdits && !inNew) {
-        resp += `\n⚠️ BUG DETECTADO: ${coteUpper} está en EDITS pero NO en NEW_RECORDS.\n`;
-        resp += `Esto significa que el registro fue creado en A Depósitos (como new_dep_) y luego editado, pero la edición se guardó en dep_edits y no en dep_new_records.\n`;
-        resp += `Trazabilidad Explorer DEBERÍA leer dep_edits para verlo. Si no lo hace, es un bug.\n`;
-        resp += `Fix: Trazabilidad Explorer debe combinar dep_new_records + dep_edits (para IDs new_dep_) + dep_imported.\n`;
+      if (inEdits) {
+        resp += `\n✅ ${coteUpper} está en EDITS (${editCajas.toLocaleString('es-UY')} cajas). `;
+        resp += `Trazabilidad YA lee dep_edits, debería aparecer correctamente.\n`;
+      }
+      if (inNew) {
+        resp += `\n✅ ${coteUpper} está en NEW_RECORDS (${newCajas.toLocaleString('es-UY')} cajas).\n`;
       }
       return resp;
     }
@@ -416,6 +419,64 @@ ${cotes.slice(0, 25).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets}
       return resp;
     }
 
+    // Delete a COTE's manual records
+    if (q.includes('borrar') || q.includes('eliminar') || q.includes('borra')) {
+      const coteMatch2 = q.match(/(p\d{4,8}|b\d{4,8})/);
+      if (coteMatch2) {
+        const cote = coteMatch2[1].toUpperCase();
+        const newRecs2 = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
+        const edits2 = JSON.parse(localStorage.getItem('trazabilidad_dep_edits') || '{}');
+        let deleted = 0;
+        // Delete from new_records
+        const filtered = newRecs2.filter((r:any) => r.nroCote !== cote);
+        deleted += newRecs2.length - filtered.length;
+        localStorage.setItem('trazabilidad_dep_new_records', JSON.stringify(filtered));
+        // Delete from edits
+        for (const [id, ed] of Object.entries(edits2)) {
+          if ((ed as any).nroCote === cote) {
+            delete edits2[id];
+            deleted++;
+          }
+        }
+        localStorage.setItem('trazabilidad_dep_edits', JSON.stringify(edits2));
+        window.dispatchEvent(new CustomEvent('trazabilidad-data-ready'));
+        return `✅ Borrados ${deleted} registro(s) de ${cote}.\nAndá a Trazabilidad para verificar.`;
+      }
+      return 'Especificá el COTE a borrar. Ej: "borrar P14702"';
+    }
+
+    // Correct cajas for a COTE
+    if (q.includes('corregir') || q.includes('corregí') || q.includes('actualizá') || q.includes('actualizar')) {
+      const coteMatch3 = q.match(/(p\d{4,8}|b\d{4,8})/);
+      const cajasMatch = q.match(/(\d+)\s*cajas?/);
+      if (coteMatch3 && cajasMatch) {
+        const cote = coteMatch3[1].toUpperCase();
+        const nuevasCajas = parseInt(cajasMatch[1]);
+        // Update in new_records
+        const newRecs3 = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
+        let updated = 0;
+        for (const r of newRecs3) {
+          if (r.nroCote === cote) {
+            r.cantidadEnvases = nuevasCajas;
+            updated++;
+          }
+        }
+        localStorage.setItem('trazabilidad_dep_new_records', JSON.stringify(newRecs3));
+        // Update in edits
+        const edits3 = JSON.parse(localStorage.getItem('trazabilidad_dep_edits') || '{}');
+        for (const [id, ed] of Object.entries(edits3)) {
+          if ((ed as any).nroCote === cote) {
+            (edits3[id] as any).cantidadEnvases = nuevasCajas;
+            updated++;
+          }
+        }
+        localStorage.setItem('trazabilidad_dep_edits', JSON.stringify(edits3));
+        window.dispatchEvent(new CustomEvent('trazabilidad-data-ready'));
+        return `✅ ${cote} actualizado a ${nuevasCajas.toLocaleString('es-UY')} cajas (${updated} registro(s) modificados).`;
+      }
+      return 'Especificá COTE y cajas. Ej: "corregir P14702 1888 cajas"';
+    }
+
     if (q.includes('hola') || q.includes('buenas') || q.includes('hey')) {
       return `Hola! Soy tu ingeniero de trazabilidad. Monitoreo los datos en tiempo real y detecto bugs.\n\nSoy consciente de cómo funciona la app:\n- A Depósitos guarda en dep_imported, dep_new_records, dep_edits\n- Trazabilidad cruza stock + ingresos + exportaciones\n- Si un COTE está en un lado y no en otro, lo detecto\n\nPreguntame sobre un COTE específico (ej: P14702) o pedime "verifica errores".`;
     }
@@ -491,7 +552,7 @@ Si hay múltiples lotes, respondé: [{"nroCote":"Pxxxxx","corte":"CHUCK ROLL","c
 
 Respondé SOLO el JSON (sin markdown, sin explicación).`;
 
-            const response = await window.puter.ai.chat(prompt, dataUrl, { model: 'gpt-4o' });
+            const response = await window.puter.ai.chat(prompt, dataUrl, { model: 'gpt-5.4-nano' });
             extractedText = response?.message?.content || response?.message || '';
             if (typeof extractedText !== 'string') extractedText = JSON.stringify(extractedText);
           } catch (err) {
@@ -581,6 +642,13 @@ Respondé SOLO el JSON (sin markdown, sin explicación).`;
       let warning = '';
       if (cajas === 1 && lots.length > 1) {
         warning = '\n\n⚠️ ATENCIÓN: Solo detecté 1 caja total. Si las capturas muestran cantidades mayores, cargá el ingreso manualmente.';
+      }
+      // Detect hallucination: if all lots have the same cajas, GPT probably couldn't read the table
+      if (lots.length > 1) {
+        const allSame = lots.every((l: any) => parseInt(l.cantidadEnvases) === parseInt(lots[0].cantidadEnvases));
+        if (allSame && parseInt(lots[0].cantidadEnvases) > 1) {
+          warning = `\n\n⚠️ ALUCINACIÓN DETECTADA: Todos los cortes tienen ${lots[0].cantidadEnvases} cajas. GPT probablemente no pudo leer la tabla correctamente.\nLas cantidades reales pueden ser diferentes. Revisá y corregí manualmente en A Depósitos.`;
+        }
       }
 
       // Safe date parsing — handles DD/MM/YY, DD/MM/YYYY, ISO, etc.
@@ -684,7 +752,9 @@ Respondé SOLO el JSON (sin markdown, sin explicación).`;
     // For bug detection / COTE queries / error verification, use LOCAL analysis (faster + more accurate)
     const isLocalQuery = q.includes('error') || q.includes('bug') || q.includes('verifica') ||
                          q.includes('inconsisten') || q.match(/(p\d{4,8}|b\d{4,8})/) ||
-                         q.includes('hola') || q.includes('buenas') || q.includes('resumen');
+                         q.includes('hola') || q.includes('buenas') || q.includes('resumen') ||
+                         q.includes('borrar') || q.includes('eliminar') || q.includes('corregir') ||
+                         q.includes('actualizá') || q.includes('actualizar');
 
     if (isLocalQuery) {
       await new Promise(r => setTimeout(r, 300));
@@ -810,7 +880,7 @@ Respondé SOLO el JSON (sin markdown, sin explicación).`;
                 <p className="text-xs mt-1">{puterReady ? 'Conectado a GPT-4o-mini' : 'Análisis local activo'}</p>
                 <p className="text-[10px] mt-1 text-violet-500">Viendo: {activeTab}</p>
                 <div className="mt-4 flex flex-wrap gap-2 justify-center">
-                  {['Verifica errores', 'P14702', '¿Qué COTEs no están en Trazabilidad?', 'Dame un resumen', 'bugs'].map(q => (
+                  {['Verifica errores', 'P14702', 'borrar P14702', 'corregir P14702 1888 cajas', 'bugs'].map(q => (
                     <button key={q} className="text-[11px] px-2 py-1 rounded-full bg-violet-100 text-violet-700 hover:bg-violet-200 transition-colors" onClick={() => askAI(q)}>{q}</button>
                   ))}
                 </div>
