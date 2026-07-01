@@ -58,17 +58,28 @@ async function ensureExp() {
   if (!expCache.loaded) {
     // Try localStorage first (user imports)
     const imported = localStorage.getItem(EXP_IMPORTED_KEY);
+    let hasLocalData = false;
     if (imported) {
-      try { expCache.data = JSON.parse(imported); } catch { expCache.data = []; }
+      try {
+        const parsed = JSON.parse(imported);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          expCache.data = parsed;
+          hasLocalData = true;
+        } else {
+          expCache.data = [];
+        }
+      } catch { expCache.data = []; }
       expCache.analytics = { total: 0, pesoNetoTotal: 0, pesoBrutoTotal: 0, envasesTotal: 0, uniquePaisCount: 0, uniqueProductoCount: 0, uniqueDestinoCount: 0, lastDate: null, byPais: [], byProducto: [], byDestino: [] };
-    } else {
-      // Try pre-processed JSON from MGAP exportaciones file
+    }
+    // If no local data, try pre-processed JSON from MGAP exportaciones file
+    if (!hasLocalData) {
       try {
         const expR = await fetch(dataUrl('data/exportaciones_frimaral.json'));
         if (expR.ok) {
-          expCache.data = await expR.json();
-          if (!Array.isArray(expCache.data) || expCache.data.length === 0) {
-            // Fallback to empty analytics
+          const data = await expR.json();
+          if (Array.isArray(data) && data.length > 0) {
+            expCache.data = data;
+          } else {
             expCache.data = [];
           }
         } else {
@@ -81,7 +92,7 @@ async function ensureExp() {
     }
     expCache.loaded = true;
   }
-  // If cache is empty but localStorage has data (race condition with Firebase pull), reload
+  // If cache is empty, try localStorage again (race condition with Firebase pull)
   if (expCache.data.length === 0) {
     const imported = localStorage.getItem(EXP_IMPORTED_KEY);
     if (imported) {
