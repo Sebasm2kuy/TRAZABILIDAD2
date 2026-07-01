@@ -56,17 +56,28 @@ const expCache: { data: ExpRecord[]; loaded: boolean; analytics: Record<string, 
 
 async function ensureExp() {
   if (!expCache.loaded) {
+    // Try localStorage first (user imports)
     const imported = localStorage.getItem(EXP_IMPORTED_KEY);
     if (imported) {
       try { expCache.data = JSON.parse(imported); } catch { expCache.data = []; }
       expCache.analytics = { total: 0, pesoNetoTotal: 0, pesoBrutoTotal: 0, envasesTotal: 0, uniquePaisCount: 0, uniqueProductoCount: 0, uniqueDestinoCount: 0, lastDate: null, byPais: [], byProducto: [], byDestino: [] };
     } else {
-      const [expR, anaR] = await Promise.all([
-        fetch(dataUrl('data/exportaciones.json')),
-        fetch(dataUrl('data/exportaciones-analytics.json')),
-      ]);
-      expCache.data = await expR.json();
-      expCache.analytics = await anaR.json();
+      // Try pre-processed JSON from MGAP exportaciones file
+      try {
+        const expR = await fetch(dataUrl('data/exportaciones_frimaral.json'));
+        if (expR.ok) {
+          expCache.data = await expR.json();
+          if (!Array.isArray(expCache.data) || expCache.data.length === 0) {
+            // Fallback to empty analytics
+            expCache.data = [];
+          }
+        } else {
+          expCache.data = [];
+        }
+      } catch {
+        expCache.data = [];
+      }
+      expCache.analytics = { total: 0, pesoNetoTotal: 0, pesoBrutoTotal: 0, envasesTotal: 0, uniquePaisCount: 0, uniqueProductoCount: 0, uniqueDestinoCount: 0, lastDate: null, byPais: [], byProducto: [], byDestino: [] };
     }
     expCache.loaded = true;
   }
@@ -81,6 +92,18 @@ async function ensureExp() {
         }
       } catch { /* ignore */ }
     }
+  }
+  // Also try pre-processed JSON if still empty
+  if (expCache.data.length === 0) {
+    try {
+      const r = await fetch(dataUrl('data/exportaciones_frimaral.json'));
+      if (r.ok) {
+        const data = await r.json();
+        if (Array.isArray(data) && data.length > 0) {
+          expCache.data = data;
+        }
+      }
+    } catch { /* ignore */ }
   }
 }
 
