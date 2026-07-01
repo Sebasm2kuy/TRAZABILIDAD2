@@ -420,7 +420,11 @@ ${cotes.slice(0, 25).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets}
       return `Hola! Soy tu ingeniero de trazabilidad. Monitoreo los datos en tiempo real y detecto bugs.\n\nSoy consciente de cómo funciona la app:\n- A Depósitos guarda en dep_imported, dep_new_records, dep_edits\n- Trazabilidad cruza stock + ingresos + exportaciones\n- Si un COTE está en un lado y no en otro, lo detecto\n\nPreguntame sobre un COTE específico (ej: P14702) o pedime "verifica errores".`;
     }
 
-    return `Pregunta: "${question}"\n\nSoy un ingeniero que analiza datos reales. Probá:\n• "P14702" - analiza un COTE específico\n• "verifica errores" - escanea inconsistencias\n• "bugs" - detecta problemas entre pestañas\n• 📷 Subí una captura del MGAP para extraer datos automáticamente`;
+    if (q.includes('hazlo') || q.includes('hacelo') || q.includes('ingresalo') || q.includes('ingresá') || q.includes('cargalo') || q.includes('cargá') || q.includes('guardalo') || q.includes('guardá')) {
+      return `No puedo guardar datos directamente desde el chat.\n\nPara cargar un ingreso:\n1. Usá el botón 📷 para subir capturas del MGAP\n2. Pegá capturas con Ctrl+V\n3. Presioná Enter para procesar\n\nEl sistema extrae los datos automáticamente con GPT-4o Vision y los guarda en A Depósitos.`;
+    }
+
+    return `Pregunta: "${question}"\n\nSoy un ingeniero que analiza datos reales. Probá:\n• "P14702" - analiza un COTE específico\n• "verifica errores" - escanea inconsistencias\n• "bugs" - detecta problemas entre pestañas\n• 📷 Subí capturas del MGAP para extraer datos automáticamente`;
   };
 
   // ============ IMAGE ANALYSIS (extract COTE from screenshots) ============
@@ -457,27 +461,35 @@ ${cotes.slice(0, 25).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets}
         let extractedText = '';
         if (window.puter?.ai?.chat) {
           try {
-            const prompt = `Extraé TODOS los datos visibles de esta captura del MGAP (Sistema de Trazabilidad de Uruguay).
-Buscá específicamente:
-- Nro. de COTE (empieza con P seguido de números, ej: P14702)
-- Nro. de trámite (número)
-- Fecha del trámite
-- Denominación de la mercadería (producto)
-- Corte
-- Cantidad de envases (cajas)
-- Peso bruto (kg)
-- Peso neto (kg)
-- País destino
-- Establecimiento productor
+            const prompt = `Analizá esta captura del MGAP (Sistema de Trazabilidad de Uruguay).
 
-IMPORTANTE: A veces la cantidad de envases está en una ventana separada ("Mercadería Lotes"). 
-Si ves un número grande como 1016 en "Cantidad de Envases", usá ese valor.
-Si solo ves 1, buscá en toda la imagen si hay otro número mayor.
+IMPORTANTE: Esta captura puede mostrar:
+- La pantalla principal del COTE (con trámite, fecha, producto)
+- O la ventana "Mercadería Lotes" que muestra MÚLTIPLES LOTES del mismo COTE
 
-Respondé SOLO en formato JSON (sin markdown, sin explicación):
-{"nroCote":"Pxxxxx","nroTramite":"numero","fecha":"DD/MM/AAAA","producto":"nombre","corte":"nombre","cantidadEnvases":"numero","pesoBruto":"numero","pesoNeto":"numero","paisDestino":"pais","establecimiento":"nombre"}
+Si ves una tabla con múltiples filas, cada fila es un LOTE (corte) del MISMO COTE, no COTEs diferentes.
+El "Nro. de C.O.T.E." en cada fila puede mostrar números como P14702, P14703 — pero son sub-lotes del mismo trámite.
 
-Si un campo no está visible, poned null.`;
+Extraé TODOS los lotes visibles. Si hay una sola fila, devolvé un objeto. Si hay múltiples filas, devolvé un array.
+
+Para cada lote extraé:
+- nroCote: el COTE principal (ej: P14702)
+- nroTramite: número de trámite
+- fecha: fecha
+- producto: denominación de mercadería
+- corte: nombre del corte (ej: CHUCK ROLL, FAJADA, etc.)
+- cantidadEnvases: cantidad de cajas/envases de ESE lote (NO el Id Linea)
+- pesoBruto: peso bruto de ese lote
+- pesoNeto: peso neto de ese lote
+- paisDestino: país
+- establecimiento: establecimiento
+
+IMPORTANTE: "Cantidad de Envases" es el número REAL de cajas (ej: 101, 437, 570), NO el "Id Linea" (que es 1, 2, 3...).
+
+Si hay un solo lote, respondé: {"nroCote":"Pxxxxx",...}
+Si hay múltiples lotes, respondé: [{"nroCote":"Pxxxxx","corte":"CHUCK ROLL","cantidadEnvases":"101",...},{...}]
+
+Respondé SOLO el JSON (sin markdown, sin explicación).`;
 
             const response = await window.puter.ai.chat(prompt, dataUrl, { model: 'gpt-4o' });
             extractedText = response?.message?.content || response?.message || '';
@@ -487,58 +499,88 @@ Si un campo no está visible, poned null.`;
           }
         }
 
-        let parsed: any = null;
+        // Parse JSON — can be a single object or an array of lots
+        let parsedItems: any[] = [];
         try {
-          const jsonMatch = extractedText.match(/\{[\s\S]*\}/);
-          if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
+          // Remove markdown code blocks if present
+          const cleanText = extractedText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+          const jsonMatch = cleanText.match(/[\[{][\s\S]*[\]}]/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (Array.isArray(parsed)) {
+              parsedItems = parsed;
+            } else {
+              parsedItems = [parsed];
+            }
+          }
         } catch {}
 
-        extractedData.push({ fileName: file.name, data: parsed, raw: extractedText });
+        extractedData.push({ fileName: file.name, items: parsedItems, raw: extractedText });
       } catch (err) {
         extractedData.push({ fileName: file.name, data: null, raw: 'Error: ' + (err as Error).message });
       }
     }
 
-    // Group by COTE — merge data from multiple images of the same COTE
+    // Group ALL lots by COTE — sum cajas from all lots/images
     const coteGroups: Record<string, any[]> = {};
     const noCoteImages: { fileName: string; raw: string }[] = [];
 
     for (const item of extractedData) {
-      const cote = item.data?.nroCote;
-      if (cote && cote !== 'null' && cote !== null) {
-        const coteUpper = String(cote).trim().toUpperCase();
-        if (!coteGroups[coteUpper]) coteGroups[coteUpper] = [];
-        coteGroups[coteUpper].push(item.data);
+      if (item.items && item.items.length > 0) {
+        for (const lot of item.items) {
+          const cote = lot.nroCote;
+          if (cote && cote !== 'null' && cote !== null) {
+            const coteUpper = String(cote).trim().toUpperCase();
+            if (!coteGroups[coteUpper]) coteGroups[coteUpper] = [];
+            coteGroups[coteUpper].push(lot);
+          }
+        }
       } else {
         noCoteImages.push({ fileName: item.fileName, raw: item.raw });
       }
     }
 
-    // Process each COTE group (merge data if multiple images)
-    for (const [cote, dataList] of Object.entries(coteGroups)) {
-      // Merge: take the best value from each image
-      const merged: any = { nroCote: cote };
-      for (const d of dataList) {
-        // For cantidadEnvases: take the MAX value (one image might show 1, another 1016)
-        const cajas = parseInt(d.cantidadEnvases) || 0;
-        if (cajas > 0 && (!merged.cantidadEnvases || cajas > parseInt(merged.cantidadEnvases))) {
-          merged.cantidadEnvases = cajas;
-        }
-        // For other fields: take first non-null
-        for (const key of ['nroTramite', 'fecha', 'producto', 'corte', 'pesoBruto', 'pesoNeto', 'paisDestino', 'establecimiento']) {
-          if (d[key] && d[key] !== 'null' && !merged[key]) {
-            merged[key] = d[key];
-          }
-        }
+    // Process each COTE group — SUM all cajas, store lot details
+    for (const [cote, lots] of Object.entries(coteGroups)) {
+      // Sum all cajas and pesos from all lots
+      let totalCajas = 0;
+      let totalPesoBruto = 0;
+      let totalPesoNeto = 0;
+      let nroTramite = 0;
+      let fecha = '';
+      let producto = '';
+      let paisDestino = '';
+      let establecimiento = '';
+      const lineas: any[] = [];
+
+      for (const lot of lots) {
+        const cajas = parseInt(lot.cantidadEnvases) || 0;
+        const pb = parseFloat(lot.pesoBruto) || 0;
+        const pn = parseFloat(lot.pesoNeto) || 0;
+        totalCajas += cajas;
+        totalPesoBruto += pb;
+        totalPesoNeto += pn;
+        if (!nroTramite) nroTramite = parseInt(lot.nroTramite) || 0;
+        if (!fecha && lot.fecha) fecha = lot.fecha;
+        if (!producto && lot.producto) producto = lot.producto;
+        if (!paisDestino && lot.paisDestino) paisDestino = lot.paisDestino;
+        if (!establecimiento && lot.establecimiento) establecimiento = lot.establecimiento;
+        // Store each lot/corte as a linea
+        lineas.push({
+          id: String(Date.now() + Math.random()),
+          producto: lot.producto || producto,
+          corte: lot.corte || 'Varios',
+          cajas: cajas,
+        });
       }
 
-      const cajas = merged.cantidadEnvases || 0;
-      const pesoNeto = parseFloat(merged.pesoNeto) || 0;
+      const cajas = totalCajas;
+      const pesoNeto = totalPesoNeto;
 
-      // Check if cajas is suspiciously low (1) but we have multiple images
+      // Check if cajas is suspiciously low (1) but we have multiple lots
       let warning = '';
-      if (cajas === 1 && dataList.length > 1) {
-        warning = '\n\n⚠️ ATENCIÓN: Solo detecté 1 caja. Si las capturas muestran una cantidad mayor en "Mercadería Lotes", cargá el ingreso manualmente con el valor correcto.';
+      if (cajas === 1 && lots.length > 1) {
+        warning = '\n\n⚠️ ATENCIÓN: Solo detecté 1 caja total. Si las capturas muestran cantidades mayores, cargá el ingreso manualmente.';
       }
 
       // Safe date parsing — handles DD/MM/YY, DD/MM/YYYY, ISO, etc.
@@ -562,39 +604,45 @@ Si un campo no está visible, poned null.`;
 
       const newRecord = {
         id: `img_ing_${Date.now()}_${cote}_${Math.random().toString(36).substr(2, 5)}`,
-        nroTramite: parseInt(merged.nroTramite) || 0,
-        fechaTramite: safeDate(merged.fecha),
+        nroTramite: nroTramite,
+        fechaTramite: safeDate(fecha),
         nroCote: cote,
         nombreEstablecimientoDestino: 'CALIRAL S.A.',
-        nombreEstablecimientoProd: merged.establecimiento || 'SAN JACINTO',
-        paisDestino: merged.paisDestino || 'URUGUAY',
-        denominacionMercaderia: merged.producto || '',
-        corte: merged.corte || 'Varios',
+        nombreEstablecimientoProd: establecimiento || 'SAN JACINTO',
+        paisDestino: paisDestino || 'URUGUAY',
+        denominacionMercaderia: producto || '',
+        corte: lots.length > 1 ? `${lots.length} cortes` : (lots[0]?.corte || 'Varios'),
         tipo: 'INGRESO',
         cantidadEnvases: cajas,
-        pesoBruto: parseFloat(merged.pesoBruto) || 0,
+        pesoBruto: totalPesoBruto,
         pesoNeto: pesoNeto,
-        fechaEmitidoCote: safeDate(merged.fecha),
+        fechaEmitidoCote: safeDate(fecha),
+        lineas: lineas,
       };
 
       const existing = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
       existing.push(newRecord);
       localStorage.setItem('trazabilidad_dep_new_records', JSON.stringify(existing));
 
-      const imgCount = dataList.length;
-      let resp = `📷 ${imgCount} imagen${imgCount > 1 ? 'es' : ''} procesada${imgCount > 1 ? 's' : ''} para ${cote}\n\n✅ DATOS EXTRAÍDOS Y FUSIONADOS:\n`;
+      const imgCount = lots.length;
+      let resp = `📷 ${imgCount} lote${imgCount > 1 ? 's' : ''} procesado${imgCount > 1 ? 's' : ''} para ${cote}\n\n✅ DATOS EXTRAÍDOS Y SUMADOS:\n`;
       resp += `• COTE: ${cote}\n`;
-      resp += `• Trámite: ${newRecord.nroTramite}\n`;
-      resp += `• Producto: ${newRecord.denominacionMercaderia}\n`;
-      resp += `• Corte: ${newRecord.corte}\n`;
-      resp += `• Cajas: ${cajas.toLocaleString('es-UY')}\n`;
-      resp += `• Peso Bruto: ${newRecord.pesoBruto.toLocaleString('es-UY')} kg\n`;
+      resp += `• Trámite: ${nroTramite}\n`;
+      resp += `• Producto: ${producto}\n`;
+      resp += `• Total Cajas: ${cajas.toLocaleString('es-UY')}\n`;
+      resp += `• Peso Bruto: ${totalPesoBruto.toLocaleString('es-UY')} kg\n`;
       resp += `• Peso Neto: ${pesoNeto.toLocaleString('es-UY')} kg\n`;
-      resp += `• País: ${newRecord.paisDestino}\n\n`;
-      resp += `💾 Ingreso guardado en A Depósitos.`;
+      resp += `• País: ${paisDestino || 'URUGUAY'}\n`;
+      if (lots.length > 1) {
+        resp += `\nDETALLE DE CORTES (${lots.length}):\n`;
+        for (const l of lineas) {
+          resp += `  • ${l.corte}: ${l.cajas} cajas\n`;
+        }
+      }
+      resp += `\n💾 Ingreso guardado en A Depósitos con ${lots.length} línea(s).`;
       if (warning) resp += warning;
 
-      setMessages(prev => [...prev, { role: 'user', content: `📷 ${imgCount} imagen(es) → ${cote}` }]);
+      setMessages(prev => [...prev, { role: 'user', content: `📷 ${lots.length} lote(s) → ${cote}` }]);
       setMessages(prev => [...prev, { role: 'assistant', content: resp }]);
     }
 
