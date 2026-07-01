@@ -2,8 +2,9 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Bot, Send, Sparkles, X, Minus, Trash2 } from 'lucide-react';
+import { Bot, Send, Sparkles, X, Minus, Trash2, ImagePlus, Loader2 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
+import { toast } from 'sonner';
 import React from 'react';
 
 interface ChatMessage { role: 'user' | 'assistant'; content: string; }
@@ -22,6 +23,7 @@ export default function AIAssistant() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [imageProcessing, setImageProcessing] = useState(false);
   const [position, setPosition] = useState({ x: typeof window !== 'undefined' ? window.innerWidth - 420 : 0, y: 100 });
   const [dragging, setDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -417,8 +419,147 @@ ${cotes.slice(0, 25).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets}
       return `Hola! Soy tu ingeniero de trazabilidad. Monitoreo los datos en tiempo real y detecto bugs.\n\nSoy consciente de cómo funciona la app:\n- A Depósitos guarda en dep_imported, dep_new_records, dep_edits\n- Trazabilidad cruza stock + ingresos + exportaciones\n- Si un COTE está en un lado y no en otro, lo detecto\n\nPreguntame sobre un COTE específico (ej: P14702) o pedime "verifica errores".`;
     }
 
-    return `Pregunta: "${question}"\n\nSoy un ingeniero que analiza datos reales. Probá:\n• "P14702" - analiza un COTE específico\n• "verifica errores" - escanea inconsistencias\n• "bugs" - detecta problemas entre pestañas`;
+    return `Pregunta: "${question}"\n\nSoy un ingeniero que analiza datos reales. Probá:\n• "P14702" - analiza un COTE específico\n• "verifica errores" - escanea inconsistencias\n• "bugs" - detecta problemas entre pestañas\n• 📷 Subí una captura del MGAP para extraer datos automáticamente`;
   };
+
+  // ============ IMAGE ANALYSIS (extract COTE from screenshots) ============
+  const handleImageUpload = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Solo se admiten imágenes');
+      return;
+    }
+    setImageProcessing(true);
+    setMessages(prev => [...prev, { role: 'user', content: `📷 Imagen subida: ${file.name}` }]);
+
+    try {
+      // Convert to base64
+      const reader = new FileReader();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      // Try Puter.js vision API
+      let extractedText = '';
+      if (window.puter?.ai?.chat) {
+        try {
+          const prompt = `Extraé TODOS los datos visibles de esta captura del MGAP (Sistema de Trazabilidad). 
+Listá en formato JSON:
+{
+  "nroCote": "Pxxxxx o número de COTE",
+  "nroTramite": "número de trámite",
+  "fecha": "fecha del trámite",
+  "producto": "denominación de mercadería",
+  "corte": "corte si está visible",
+  "cantidadEnvases": "número de cajas/envases",
+  "pesoBruto": "peso bruto en kg",
+  "pesoNeto": "peso neto en kg",
+  "paisDestino": "país destino si está visible",
+  "establecimiento": "establecimiento productor si está visible"
+}
+
+Si un campo no está visible, dejalo null. Respondé SOLO el JSON.`;
+
+          const response = await window.puter.ai.chat(prompt, {
+            type: 'image_url',
+            image_url: { url: dataUrl }
+          });
+          extractedText = response?.message?.content || response?.message || '';
+          if (typeof extractedText !== 'string') extractedText = JSON.stringify(extractedText);
+        } catch (err) {
+          console.warn('Puter vision failed:', err);
+        }
+      }
+
+      if (!extractedText) {
+        setMessages(prev => [...prev, { role: 'assistant', content: '❌ No pude procesar la imagen. Asegurate de que sea una captura del MGAP con datos visibles.\n\nTambién podés cargar los datos manualmente desde A Depósitos → Nuevo.' }]);
+        setImageProcessing(false);
+        return;
+      }
+
+      // Parse JSON from response
+      let parsed: any = null;
+      try {
+        // Extract JSON from response (might be wrapped in markdown)
+        const jsonMatch = extractedText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsed = JSON.parse(jsonMatch[0]);
+        }
+      } catch {}
+
+      if (!parsed || !parsed.nroCote) {
+        setMessages(prev => [...prev, { role: 'assistant', content: `📝 Datos extraídos de la imagen:\n\n${extractedText}\n\nNo pude identificar el COTE automáticamente. Por favor cargá los datos manualmente.` }]);
+        setImageProcessing(false);
+        return;
+      }
+
+      // Create ingreso record
+      const cote = String(parsed.nroCote).trim().toUpperCase();
+      const newRecord = {
+        id: `img_ing_${Date.now()}_${cote}`,
+        nroTramite: parseInt(parsed.nroTramite) || 0,
+        fechaTramite: parsed.fecha ? new Date(parsed.fecha).toISOString() : new Date().toISOString(),
+        nroCote: cote,
+        nombreEstablecimientoDestino: 'CALIRAL S.A.',
+        nombreEstablecimientoProd: parsed.establecimiento || 'SAN JACINTO',
+        paisDestino: parsed.paisDestino || 'URUGUAY',
+        denominacionMercaderia: parsed.producto || '',
+        corte: parsed.corte || 'Varios',
+        tipo: 'INGRESO',
+        cantidadEnvases: parseInt(parsed.cantidadEnvases) || 0,
+        pesoBruto: parseFloat(parsed.pesoBruto) || 0,
+        pesoNeto: parseFloat(parsed.pesoNeto) || 0,
+        fechaEmitidoCote: parsed.fecha ? new Date(parsed.fecha).toISOString() : null,
+      };
+
+      // Save to localStorage
+      const existing = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
+      existing.push(newRecord);
+      localStorage.setItem('trazabilidad_dep_new_records', JSON.stringify(existing));
+
+      // Dispatch event so Trazabilidad Explorer reloads
+      window.dispatchEvent(new CustomEvent('trazabilidad-data-ready'));
+
+      let resp = `✅ DATOS EXTRAÍDOS DE LA IMAGEN:\n\n`;
+      resp += `• COTE: ${cote}\n`;
+      resp += `• Trámite: ${newRecord.nroTramite}\n`;
+      resp += `• Producto: ${newRecord.denominacionMercaderia}\n`;
+      resp += `• Corte: ${newRecord.corte}\n`;
+      resp += `• Cajas: ${newRecord.cantidadEnvases.toLocaleString('es-UY')}\n`;
+      resp += `• Peso Bruto: ${newRecord.pesoBruto.toLocaleString('es-UY')} kg\n`;
+      resp += `• Peso Neto: ${newRecord.pesoNeto.toLocaleString('es-UY')} kg\n`;
+      resp += `• País: ${newRecord.paisDestino}\n\n`;
+      resp += `💾 Ingreso guardado en A Depósitos.\n`;
+      resp += `Andá a la pestaña Trazabilidad para verlo reflejado.`;
+
+      setMessages(prev => [...prev, { role: 'assistant', content: resp }]);
+    } catch (err) {
+      setMessages(prev => [...prev, { role: 'assistant', content: '❌ Error procesando imagen: ' + (err as Error).message }]);
+    }
+    setImageProcessing(false);
+  };
+
+  // Paste handler
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (!open) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            handleImageUpload(file);
+            return;
+          }
+        }
+      }
+    };
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [open]);
 
   const askAI = async (question: string) => {
     setLoading(true);
@@ -572,9 +713,31 @@ ${cotes.slice(0, 25).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets}
           </div>
           <div className="p-3 border-t bg-white rounded-b-lg">
             <div className="flex gap-2">
-              <Input placeholder="Hacé tu pregunta..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }} disabled={loading} className="text-sm" />
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleImageUpload(file);
+                  e.target.value = '';
+                }}
+                id="ai-image-upload"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => document.getElementById('ai-image-upload')?.click()}
+                disabled={imageProcessing || loading}
+                title="Subir captura del MGAP para extraer datos"
+              >
+                {imageProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+              </Button>
+              <Input placeholder="Hacé tu pregunta o pegá una captura (Ctrl+V)..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }} disabled={loading} className="text-sm" />
               <Button className="bg-violet-600 hover:bg-violet-700" onClick={handleSubmit} disabled={loading || !input.trim()} size="sm"><Send className="h-4 w-4" /></Button>
             </div>
+            {imageProcessing && <p className="text-[10px] text-violet-600 mt-1">📷 Analizando imagen con GPT-4o Vision...</p>}
           </div>
         </>
       )}
