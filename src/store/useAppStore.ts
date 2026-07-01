@@ -70,17 +70,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSelectedShipmentId: (id) => set({ selectedShipmentId: id }),
   navigateAndFilter: (tab, filters, search) => {
     const state: Partial<AppState> = { activeTab: tab };
-    if (search !== undefined) state.search = search;
+    if (search !== undefined && tab !== 'exportaciones') state.search = search;
     // Clear filters for the target tab, then apply new ones
     if (tab === 'exportaciones') {
       state.expFilters = { ...emptyExpFilters };
+      const newExpFilters = { ...emptyExpFilters };
       if (filters) {
-        const newExpFilters = { ...emptyExpFilters };
         Object.entries(filters).forEach(([k, v]) => {
           if (k in newExpFilters) (newExpFilters as any)[k] = v;
         });
-        state.expFilters = newExpFilters;
       }
+      // Apply search to expFilters.search
+      if (search !== undefined) newExpFilters.search = search;
+      state.expFilters = newExpFilters;
     } else if (tab === 'depositos' || tab === 'trazabilidad') {
       state.filters = { ...emptyFilters };
       if (filters) {
