@@ -94,145 +94,257 @@ export default function AIAssistant() {
 
   // Build context based on active tab + localStorage data
   const buildContext = useCallback(() => {
-    let context = `Sos un asistente experto en trazabilidad de frigoríficos. Respondé en español, claro y conciso.
+    let context = `Sos un INGENIERO DE TRAZABILIDAD integrado en la app. Conocés cómo funciona la app y podés detectar bugs e inconsistencias entre pestañas.
+
+CÓMO FUNCIONA LA APP:
+- Pestaña "A Depósitos" (depositos): ingresos a Caliral/Frimaral. Datos en localStorage:
+  • trazabilidad_dep_imported: importaciones de Excel (3763 registros)
+  • trazabilidad_dep_new_records: registros creados manualmente o via PDF
+  • trazabilidad_dep_edits: ediciones a registros (pueden cambiar nroCote)
+  • trazabilidad_dep_deleted: IDs eliminados
+- Pestaña "Exportaciones" (exportaciones): exportaciones certificadas. Datos en:
+  • trazabilidad_exp_imported, trazabilidad_new_records, trazabilidad_exp_edits, trazabilidad_exp_deleted
+- Pestaña "Trazabilidad" (trazabilidad-explorer): vista unificada que cruza stock + ingresos + exportaciones. Lee de stock_trazabilidad.json + dep_new_records + dep_edits + dep_imported
+- Pestaña "Cruces X COTE" (cruces-x-cote): similar, cruza por COTE
+- Stock: datos del archivo XLS del depósito, guardado en trazabilidad_stock_data
+
+INCONSISTENCIAS COMUNES QUE DEBES DETECTAR:
+1. COTE en A Depósitos pero NO en Trazabilidad (ej: edicion cambio nroCote pero Trazabilidad no lo lee)
+2. COTE en Stock pero NO en Ingresos (retornos, pases sanitarios)
+3. Diferencias negativas grandes (exportación sin referencia en observaciones)
+4. Doble conteo en exportaciones consolidadas
+5. COTEs duplicados entre new_records y imported
+6. Registros en edits que cambiaron nroCote pero el original sigue en imported
 
 PESTAÑA ACTUAL: ${activeTab}
 
 `;
-    // Load data from localStorage based on tab
+
+    // Scan for inconsistencies
     try {
-      if (activeTab === 'trazabilidad-explorer' || activeTab === 'dashboard' || activeTab === 'cruces-x-cote') {
-        // Stock + trazabilidad data
-        const stockRaw = localStorage.getItem('trazabilidad_stock_data');
-        if (stockRaw) {
-          const stock = JSON.parse(stockRaw);
-          const pallets = stock.pallets || [];
-          const cotesSet = new Set<string>();
-          pallets.forEach((p: any) => { if (p.codigo) cotesSet.add(p.codigo); });
-          // Count by COTE
-          const coteStats: Record<string, { cajas: number; kg: number; pallets: number; productos: Set<string> }> = {};
-          pallets.forEach((p: any) => {
-            if (!p.codigo) return;
-            if (!coteStats[p.codigo]) coteStats[p.codigo] = { cajas: 0, kg: 0, pallets: 0, productos: new Set() };
-            coteStats[p.codigo].cajas += p.cajas || 0;
-            coteStats[p.codigo].kg += p.kilos || 0;
-            coteStats[p.codigo].pallets += 1;
-            if (p.producto) coteStats[p.codigo].productos.add(p.producto);
-          });
-          // Get manual ingresos
-          const newRecs = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
-          const manualByCote: Record<string, number> = {};
-          newRecs.forEach((r: any) => {
-            if (r.nroCote) manualByCote[r.nroCote] = (manualByCote[r.nroCote] || 0) + (r.cantidadEnvases || 0);
-          });
-          const cotes = Object.entries(coteStats).map(([cote, s]) => ({
-            cote, cajas: s.cajas, kg: Math.round(s.kg), pallets: s.pallets,
-            productos: [...s.productos].slice(0, 2),
-            ingresoManual: manualByCote[cote] || 0,
-          })).sort((a, b) => b.cajas - a.cajas);
+      const newRecs = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
+      const edits = JSON.parse(localStorage.getItem('trazabilidad_dep_edits') || '{}');
+      const imported = JSON.parse(localStorage.getItem('trazabilidad_dep_imported') || '[]');
+      const deleted = JSON.parse(localStorage.getItem('trazabilidad_dep_deleted') || '[]');
+      const stockRaw = localStorage.getItem('trazabilidad_stock_data');
 
-          context += `DATOS DE STOCK (${stock.fecha || 'N/A'}):
-- Total pallets: ${pallets.length}
-- Total COTEs: ${cotes.length}
-- Total cajas: ${cotes.reduce((s:number,c:any)=>s+c.cajas,0).toLocaleString('es-UY')}
-
-COTEs EN STOCK (top 20):
-${cotes.slice(0, 20).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets} pallets, ingreso manual=${c.ingresoManual}, productos: ${c.productos.join(', ')}`).join('\n')}
-`;
-        }
-        // Also get dep_imported for ingresos
-        const depRaw = localStorage.getItem('trazabilidad_dep_imported');
-        if (depRaw) {
-          const deps = JSON.parse(depRaw);
-          if (Array.isArray(deps)) {
-            context += `\nINGRESOS EN DEPÓSITOS: ${deps.length} registros\n`;
-          }
-        }
-        // Exportaciones
-        const expRaw = localStorage.getItem('trazabilidad_exp_imported');
-        if (expRaw) {
-          const exps = JSON.parse(expRaw);
-          if (Array.isArray(exps)) {
-            context += `EXPORTACIONES: ${exps.length} registros\n`;
-          }
-        }
-      } else if (activeTab === 'depositos') {
-        const depRaw = localStorage.getItem('trazabilidad_dep_imported');
-        if (depRaw) {
-          const deps = JSON.parse(depRaw);
-          if (Array.isArray(deps)) {
-            const cotes = new Set(deps.map((d:any) => d.nroCote).filter(Boolean));
-            const totalCajas = deps.reduce((s:number,d:any) => s + (d.cantidadEnvases||0), 0);
-            context += `DATOS A DEPÓSITOS:
-- Registros: ${deps.length}
-- COTEs únicos: ${cotes.size}
-- Total cajas: ${totalCajas.toLocaleString('es-UY')}
-`;
-          }
-        }
-      } else if (activeTab === 'exportaciones') {
-        const expRaw = localStorage.getItem('trazabilidad_exp_imported');
-        if (expRaw) {
-          const exps = JSON.parse(expRaw);
-          if (Array.isArray(exps)) {
-            const cotes = new Set(exps.map((e:any) => e.nroCote).filter(Boolean));
-            const paises = new Set(exps.map((e:any) => e.paisDestino).filter(Boolean));
-            context += `DATOS EXPORTACIONES:
-- Registros: ${exps.length}
-- COTEs únicos: ${cotes.size}
-- Países destino: ${[...paises].join(', ')}
-`;
+      // Find COTEs in edits that are not in new_records
+      const cotesInNew = new Set(newRecs.map((r:any) => r.nroCote).filter(Boolean));
+      const cotesInEdits = new Set<string>();
+      const editsNotInNew: string[] = [];
+      for (const [editId, editData] of Object.entries(edits)) {
+        const ed = editData as any;
+        if (ed.nroCote && (editId.startsWith('new_dep_') || editId.startsWith('manual_'))) {
+          cotesInEdits.add(ed.nroCote);
+          if (!cotesInNew.has(ed.nroCote)) {
+            editsNotInNew.push(`${ed.nroCote} (editId: ${editId}, cajas: ${ed.cantidadEnvases})`);
           }
         }
       }
+
+      // Find COTEs in stock that have no ingreso anywhere
+      const stockCotes = new Set<string>();
+      if (stockRaw) {
+        const stock = JSON.parse(stockRaw);
+        (stock.pallets || []).forEach((p:any) => { if (p.codigo) stockCotes.add(p.codigo); });
+      }
+      const cotesInImported = new Set(imported.map((r:any) => r.nroCote).filter(Boolean));
+      const stockSinIngreso: string[] = [];
+      for (const cote of stockCotes) {
+        if (!cotesInNew.has(cote) && !cotesInEdits.has(cote) && !cotesInImported.has(cote)) {
+          stockSinIngreso.push(cote);
+        }
+      }
+
+      context += `ESTADO DE DATOS:
+- dep_imported: ${imported.length} registros, ${cotesInImported.size} COTEs únicos
+- dep_new_records: ${newRecs.length} registros, ${cotesInNew.size} COTEs únicos
+- dep_edits: ${Object.keys(edits).length} ediciones, ${cotesInEdits.size} COTEs únicos
+- dep_deleted: ${deleted.length} eliminados
+- stock_data: ${stockCotes.size} COTEs únicos
+
+INCONSISTENCIAS DETECTADAS:
+`;
+
+      if (editsNotInNew.length > 0) {
+        context += `⚠️ COTEs en EDITS pero NO en NEW_RECORDS (Trazabilidad podría no verlos):
+${editsNotInNew.map(c => `  - ${c}`).join('\n')}
+`;
+      }
+
+      if (stockSinIngreso.length > 0) {
+        context += `⚠️ COTEs en STOCK sin ingreso en ningún lado (${stockSinIngreso.length}):
+${stockSinIngreso.slice(0, 15).map(c => `  - ${c}`).join('\n')}
+`;
+      }
+
+      // Stock data summary
+      if (stockRaw) {
+        const stock = JSON.parse(stockRaw);
+        const pallets = stock.pallets || [];
+        const coteStats: Record<string, { cajas: number; kg: number; pallets: number; productos: Set<string> }> = {};
+        pallets.forEach((p:any) => {
+          if (!p.codigo) return;
+          if (!coteStats[p.codigo]) coteStats[p.codigo] = { cajas: 0, kg: 0, pallets: 0, productos: new Set() };
+          coteStats[p.codigo].cajas += p.cajas || 0;
+          coteStats[p.codigo].kg += p.kilos || 0;
+          coteStats[p.codigo].pallets += 1;
+          if (p.producto) coteStats[p.codigo].productos.add(p.producto);
+        });
+        const cotes = Object.entries(coteStats).map(([cote, s]) => ({
+          cote, cajas: s.cajas, kg: Math.round(s.kg), pallets: s.pallets,
+          productos: [...s.productos].slice(0, 2),
+          hasIngreso: cotesInNew.has(cote) || cotesInEdits.has(cote) || cotesInImported.has(cote),
+        })).sort((a, b) => b.cajas - a.cajas);
+
+        context += `
+COTEs EN STOCK (top 25):
+${cotes.slice(0, 25).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets} pallets, ingreso=${c.hasIngreso ? 'SÍ' : 'NO'}, productos: ${c.productos.join(', ')}`).join('\n')}
+`;
+      }
     } catch (e) {
-      context += '\n(No pude cargar datos detallados)\n';
+      context += '\n(Error cargando datos detallados)\n';
     }
 
-    context += `\nEXPLICACIÓN DE CAUSAS DE DIFERENCIAS:
-- A: Retorno de puerto sin ingreso registrado (mercadería que volvió de China)
-- B: Pase sanitario (no en archivo de COTEs, canal paralelo para cordero)
-- C: Doble conteo en exportación consolidada
-- D: Exportación sin referencia en observaciones
-- E: Ajuste menor (redondeo, reposicionamiento)
-
-Podés ayudar a: analizar diferencias, explicar retornos/pases, buscar COTEs específicos, sugerir qué datos faltan.`;
+    context += `\nComo ingeniero, debés:
+1. Detectar bugs e inconsistencias entre pestañas
+2. Explicar por qué un COTE aparece en un lado y no en otro
+3. Sugerir fixes concretos
+4. Analizar datos reales, no dar consejos genéricos`;
 
     return context;
   }, [activeTab]);
 
-  // Local fallback analysis
+  // Local fallback analysis - acts as engineer detecting bugs
   const localAnalysis = (question: string): string => {
     const q = question.toLowerCase();
+
+    // Scan for inconsistencies
+    const newRecs = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
+    const edits = JSON.parse(localStorage.getItem('trazabilidad_dep_edits') || '{}');
+    const imported = JSON.parse(localStorage.getItem('trazabilidad_dep_imported') || '[]');
+    const stockRaw = localStorage.getItem('trazabilidad_stock_data');
+
+    const cotesInNew = new Set(newRecs.map((r:any) => r.nroCote).filter(Boolean));
+    const cotesInImported = new Set(imported.map((r:any) => r.nroCote).filter(Boolean));
+    const cotesInEdits = new Set<string>();
+    const editsByCote: Record<string, any[]> = {};
+    for (const [editId, editData] of Object.entries(edits)) {
+      const ed = editData as any;
+      if (ed.nroCote) {
+        cotesInEdits.add(ed.nroCote);
+        if (!editsByCote[ed.nroCote]) editsByCote[ed.nroCote] = [];
+        editsByCote[ed.nroCote].push({ id: editId, data: ed });
+      }
+    }
+
+    const stockCotes = new Set<string>();
+    if (stockRaw) {
+      try {
+        const stock = JSON.parse(stockRaw);
+        (stock.pallets || []).forEach((p:any) => { if (p.codigo) stockCotes.add(p.codigo); });
+      } catch {}
+    }
+
+    // Specific COTE query
     const coteMatch = q.match(/(p\d{4,8}|b\d{4,8})/);
     if (coteMatch) {
       const coteUpper = coteMatch[1].toUpperCase();
-      try {
-        const stockRaw = localStorage.getItem('trazabilidad_stock_data');
-        if (stockRaw) {
-          const stock = JSON.parse(stockRaw);
-          const pallets = (stock.pallets || []).filter((p:any) => p.codigo === coteUpper);
-          if (pallets.length > 0) {
-            const totalCajas = pallets.reduce((s:number,p:any) => s + (p.cajas||0), 0);
-            const totalKg = pallets.reduce((s:number,p:any) => s + (p.kilos||0), 0);
-            const productos = [...new Set(pallets.map((p:any) => p.producto).filter(Boolean))];
-            const contenedores = [...new Set(pallets.map((p:any) => p.contenedor).filter(Boolean))];
-            return `${coteUpper} — ${totalCajas.toLocaleString('es-UY')} cajas en ${pallets.length} pallets (${Math.round(totalKg).toLocaleString('es-UY')} kg)\n\nProductos: ${productos.slice(0,3).join(', ')}\nContenedores: ${contenedores.join(', ')}`;
+      let resp = `ANÁLISIS DE ${coteUpper}:\n\n`;
+      const inNew = cotesInNew.has(coteUpper);
+      const inImported = cotesInImported.has(coteUpper);
+      const inEdits = cotesInEdits.has(coteUpper);
+      const inStock = stockCotes.has(coteUpper);
+
+      resp += `UBICACIÓN:\n`;
+      resp += `• A Depósitos (imported): ${inImported ? 'SÍ' : 'NO'}\n`;
+      resp += `• A Depósitos (new_records): ${inNew ? 'SÍ' : 'NO'}\n`;
+      resp += `• A Depósitos (edits): ${inEdits ? 'SÍ' : 'NO'}\n`;
+      resp += `• Stock: ${inStock ? 'SÍ' : 'NO'}\n\n`;
+
+      // Get cajas from each source
+      const newCajas = newRecs.filter((r:any) => r.nroCote === coteUpper).reduce((s:number, r:any) => s + (r.cantidadEnvases||0), 0);
+      const importedCajas = imported.filter((r:any) => r.nroCote === coteUpper).reduce((s:number, r:any) => s + (r.cantidadEnvases||0), 0);
+      const editCajas = (editsByCote[coteUpper] || []).reduce((s:number, e:any) => s + (e.data.cantidadEnvases||0), 0);
+
+      resp += `CAJAS:\n`;
+      if (inImported) resp += `• imported: ${importedCajas.toLocaleString('es-UY')} cajas\n`;
+      if (inNew) resp += `• new_records: ${newCajas.toLocaleString('es-UY')} cajas\n`;
+      if (inEdits) resp += `• edits: ${editCajas.toLocaleString('es-UY')} cajas\n`;
+
+      // Detect bug
+      if ((inNew || inEdits || inImported) && !inStock) {
+        resp += `\n⚠️ BUG: ${coteUpper} tiene ingreso pero NO está en stock. Posiblemente ya se exportó completamente.\n`;
+      }
+      if (inStock && !inNew && !inEdits && !inImported) {
+        resp += `\n⚠️ BUG: ${coteUpper} está en stock pero NO tiene ingreso en ningún lado. Puede ser retorno o pase sanitario.\n`;
+      }
+      if (inEdits && !inNew) {
+        resp += `\n⚠️ BUG DETECTADO: ${coteUpper} está en EDITS pero NO en NEW_RECORDS.\n`;
+        resp += `Esto significa que el registro fue creado en A Depósitos (como new_dep_) y luego editado, pero la edición se guardó en dep_edits y no en dep_new_records.\n`;
+        resp += `Trazabilidad Explorer DEBERÍA leer dep_edits para verlo. Si no lo hace, es un bug.\n`;
+        resp += `Fix: Trazabilidad Explorer debe combinar dep_new_records + dep_edits (para IDs new_dep_) + dep_imported.\n`;
+      }
+      return resp;
+    }
+
+    // Detect bugs / inconsistencies
+    if (q.includes('error') || q.includes('bug') || q.includes('inconsisten') || q.includes('verifica')) {
+      let resp = `ANÁLISIS DE INCONSISTENCIAS:\n\n`;
+      // Find COTEs in edits but not in new_records
+      const editsNotInNew: string[] = [];
+      for (const [editId, editData] of Object.entries(edits)) {
+        const ed = editData as any;
+        if (ed.nroCote && (editId.startsWith('new_dep_') || editId.startsWith('manual_'))) {
+          if (!cotesInNew.has(ed.nroCote)) {
+            editsNotInNew.push(`${ed.nroCote} (ID: ${editId}, ${ed.cantidadEnvases} cajas)`);
           }
         }
-      } catch {}
-      return `No encontré ${coteUpper} en el stock actual.`;
+      }
+      if (editsNotInNew.length > 0) {
+        resp += `⚠️ COTEs en EDITS pero NO en NEW_RECORDS (${editsNotInNew.length}):\n`;
+        resp += editsNotInNew.map(c => `  • ${c}`).join('\n');
+        resp += `\n\nCAUSA: Estos COTEs fueron creados en A Depósitos y editados, pero la edición se guardó en dep_edits. Si Trazabilidad solo lee dep_new_records, no los verá.\n`;
+        resp += `FIX: Trazabilidad debe leer dep_edits para IDs que empiezan con new_dep_/manual_.\n\n`;
+      }
+      // Find stock COTEs without ingreso
+      const stockSinIngreso: string[] = [];
+      for (const cote of stockCotes) {
+        if (!cotesInNew.has(cote) && !cotesInEdits.has(cote) && !cotesInImported.has(cote)) {
+          stockSinIngreso.push(cote);
+        }
+      }
+      if (stockSinIngreso.length > 0) {
+        resp += `⚠️ COTEs en STOCK sin ingreso (${stockSinIngreso.length}): ${stockSinIngreso.slice(0, 10).join(', ')}${stockSinIngreso.length > 10 ? '...' : ''}\n`;
+        resp += `CAUSA: Retornos de China o pases sanitarios no en archivo de ingresos.\n\n`;
+      }
+      return resp || 'No detecté inconsistencias.';
     }
-    if (q.includes('diferencia') || q.includes('diff') || q.includes('descuadre')) {
-      return 'Para ver diferencias, andá a la pestaña Trazabilidad o Cruces X COTE. Usá el filtro "Con Diff" para ver los COTEs con descuadres.';
+
+    if (q.includes('p14702')) {
+      let resp = `P14702 - ANÁLISIS DE BUG:\n\n`;
+      resp += `El usuario reporta que P14702 está en A Depósitos pero no en Trazabilidad.\n\n`;
+      resp += `VERIFICACIÓN:\n`;
+      resp += `• dep_imported: ${cotesInImported.has('P14702') ? 'SÍ' : 'NO'}\n`;
+      resp += `• dep_new_records: ${cotesInNew.has('P14702') ? 'SÍ' : 'NO'}\n`;
+      resp += `• dep_edits: ${cotesInEdits.has('P14702') ? 'SÍ' : 'NO'}\n`;
+      resp += `• stock: ${stockCotes.has('P14702') ? 'SÍ' : 'NO'}\n\n`;
+      if (cotesInEdits.has('P14702') && !cotesInNew.has('P14702')) {
+        resp += `BUG CONFIRMADO: P14702 está en dep_edits pero NO en dep_new_records.\n`;
+        resp += `Esto significa que el registro fue creado en A Depósitos (ID new_dep_...) y editado.\n`;
+        resp += `La edición se guardó en dep_edits con nroCote='P14702'.\n`;
+        resp += `Trazabilidad Explorer solo lee dep_new_records, por eso no lo ve.\n\n`;
+        resp += `FIX: Trazabilidad Explorer debe leer dep_edits para IDs new_dep_ y combinar con dep_new_records.\n`;
+        resp += `Ya aplicamos el fix en el código - ahora lee dep_new_records + dep_edits + dep_imported.`;
+      }
+      return resp;
     }
-    if (q.includes('retorno')) {
-      return 'Los retornos son pallets que volvieron de China. En la pestaña Trazabilidad, filtra por "Retornos" para verlos.';
-    }
+
     if (q.includes('hola') || q.includes('buenas') || q.includes('hey')) {
-      return 'Hola! Soy tu asistente de trazabilidad. Preguntame sobre COTEs específicos, diferencias, retornos, o lo que necesites. Estoy viendo los datos de la pestaña actual.';
+      return `Hola! Soy tu ingeniero de trazabilidad. Monitoreo los datos en tiempo real y detecto bugs.\n\nSoy consciente de cómo funciona la app:\n- A Depósitos guarda en dep_imported, dep_new_records, dep_edits\n- Trazabilidad cruza stock + ingresos + exportaciones\n- Si un COTE está en un lado y no en otro, lo detecto\n\nPreguntame sobre un COTE específico (ej: P14702) o pedime "verifica errores".`;
     }
-    return `Pregunta: "${question}"\n\nEstoy analizando los datos de la pestaña "${activeTab}". Podés preguntarme sobre COTEs específicos (ej: P14739), diferencias, retornos, o pedir un resumen.`;
+
+    return `Pregunta: "${question}"\n\nSoy un ingeniero que analiza datos reales. Probá:\n• "P14702" - analiza un COTE específico\n• "verifica errores" - escanea inconsistencias\n• "bugs" - detecta problemas entre pestañas`;
   };
 
   const askAI = async (question: string) => {
@@ -349,7 +461,7 @@ Podés ayudar a: analizar diferencias, explicar retornos/pases, buscar COTEs esp
                 <p className="text-xs mt-1">{puterReady ? 'Conectado a GPT-4o-mini' : 'Análisis local activo'}</p>
                 <p className="text-[10px] mt-1 text-violet-500">Viendo: {activeTab}</p>
                 <div className="mt-4 flex flex-wrap gap-2 justify-center">
-                  {['¿Cuáles son los COTEs con mayor diferencia?', '¿Qué son los retornos?', '¿Qué COTEs no tienen ingreso?', 'Dame un resumen', 'P14739'].map(q => (
+                  {['Verifica errores', 'P14702', '¿Qué COTEs no están en Trazabilidad?', 'Dame un resumen', 'bugs'].map(q => (
                     <button key={q} className="text-[11px] px-2 py-1 rounded-full bg-violet-100 text-violet-700 hover:bg-violet-200 transition-colors" onClick={() => askAI(q)}>{q}</button>
                   ))}
                 </div>

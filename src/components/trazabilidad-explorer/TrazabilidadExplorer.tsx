@@ -74,22 +74,76 @@ export default function TrazabilidadExplorer() {
       const r = await fetch(dataUrl('data/stock_trazabilidad.json'));
       if (r.ok) {
         const d = await r.json();
+        // Merge multiple data sources for ingresos:
+        // 1. dep_new_records (manual + PDF uploads)
+        // 2. dep_edits (edits to existing records, including new_dep_ ones)
+        // 3. dep_imported (Excel imports)
         const newRecs = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
-        if (newRecs.length > 0) {
-          for (const cote of d.cotes) {
-            const manualIngresos = newRecs.filter((r: Shipment) => r.nroCote === cote.cote);
-            if (manualIngresos.length > 0) {
-              const manualCajas = manualIngresos.reduce((s: number, r: Shipment) => s + (r.cantidadEnvases || 0), 0);
-              if (cote.ingresoCajas === 0) {
-                cote.ingresoCajas = manualCajas;
-                cote.ingresoTramites = manualIngresos.map((r: Shipment) => r.nroTramite);
-                cote.estado = 'EN_STOCK';
-                cote.causaDiff = null;
-                cote.causaDiffDesc = 'Ingreso manual';
-                cote.saldoTeorico = cote.ingresoCajas - cote.expRefCajas;
-                cote.diff = cote.stockCajas - cote.saldoTeorico;
-              }
+        const edits = JSON.parse(localStorage.getItem('trazabilidad_dep_edits') || '{}');
+        const imported = JSON.parse(localStorage.getItem('trazabilidad_dep_imported') || '[]');
+
+        // Build a map of all ingresos by COTE
+        const allIngresosByCote: Record<string, { cajas: number; tramites: number[]; kg: number; fecha: string; denom: string; corte: string }> = {};
+
+        // From new_records
+        for (const r of newRecs) {
+          if (r.nroCote) {
+            if (!allIngresosByCote[r.nroCote]) allIngresosByCote[r.nroCote] = { cajas: 0, tramites: [], kg: 0, fecha: '', denom: '', corte: '' };
+            allIngresosByCote[r.nroCote].cajas += r.cantidadEnvases || 0;
+            allIngresosByCote[r.nroCote].kg += r.pesoNeto || 0;
+            if (r.nroTramite) allIngresosByCote[r.nroCote].tramites.push(r.nroTramite);
+            if (r.fechaEmitidoCote && !allIngresosByCote[r.nroCote].fecha) allIngresosByCote[r.nroCote].fecha = r.fechaEmitidoCote;
+            if (r.denominacionMercaderia && !allIngresosByCote[r.nroCote].denom) allIngresosByCote[r.nroCote].denom = r.denominacionMercaderia;
+            if (r.corte && !allIngresosByCote[r.nroCote].corte) allIngresosByCote[r.nroCote].corte = r.corte;
+          }
+        }
+
+        // From edits (edits can change nroCote of a record, creating "new" ingresos)
+        for (const [editId, editData] of Object.entries(edits)) {
+          const ed = editData as any;
+          if (ed.nroCote) {
+            if (!allIngresosByCote[ed.nroCote]) allIngresosByCote[ed.nroCote] = { cajas: 0, tramites: [], kg: 0, fecha: '', denom: '', corte: '' };
+            // Only add if this edit is for a new_dep_ record (manual creation) or has cantidadEnvases
+            if (editId.startsWith('new_dep_') || editId.startsWith('manual_') || editId.startsWith('pdf_')) {
+              allIngresosByCote[ed.nroCote].cajas += ed.cantidadEnvases || 0;
+              allIngresosByCote[ed.nroCote].kg += ed.pesoNeto || 0;
+              if (ed.nroTramite) allIngresosByCote[ed.nroCote].tramites.push(ed.nroTramite);
+              if (ed.fechaEmitidoCote && !allIngresosByCote[ed.nroCote].fecha) allIngresosByCote[ed.nroCote].fecha = ed.fechaEmitidoCote;
+              if (ed.denominacionMercaderia && !allIngresosByCote[ed.nroCote].denom) allIngresosByCote[ed.nroCote].denom = ed.denominacionMercaderia;
+              if (ed.corte && !allIngresosByCote[ed.nroCote].corte) allIngresosByCote[ed.nroCote].corte = ed.corte;
             }
+          }
+        }
+
+        // From imported (Excel imports) - only add COTEs not already in newRecs/edits
+        for (const r of imported) {
+          if (r.nroCote && !allIngresosByCote[r.nroCote]) {
+            allIngresosByCote[r.nroCote] = {
+              cajas: r.cantidadEnvases || 0,
+              tramites: r.nroTramite ? [r.nroTramite] : [],
+              kg: r.pesoNeto || 0,
+              fecha: r.fechaEmitidoCote || '',
+              denom: r.denominacionMercaderia || '',
+              corte: r.corte || '',
+            };
+          }
+        }
+
+        // Apply to cotes
+        for (const cote of d.cotes) {
+          const ingresoData = allIngresosByCote[cote.cote];
+          if (ingresoData && cote.ingresoCajas === 0) {
+            cote.ingresoCajas = ingresoData.cajas;
+            cote.ingresoKg = Math.round(ingresoData.kg);
+            cote.ingresoTramites = ingresoData.tramites;
+            cote.ingresoFechas = ingresoData.fecha ? [ingresoData.fecha] : [];
+            cote.ingresoDenoms = ingresoData.denom ? [ingresoData.denom] : [];
+            cote.ingresoCortes = ingresoData.corte ? [ingresoData.corte] : [];
+            cote.estado = 'EN_STOCK';
+            cote.causaDiff = null;
+            cote.causaDiffDesc = 'Ingreso manual';
+            cote.saldoTeorico = cote.ingresoCajas - cote.expRefCajas;
+            cote.diff = cote.stockCajas - cote.saldoTeorico;
           }
         }
         setData(d);
