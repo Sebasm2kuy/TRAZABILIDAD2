@@ -55,45 +55,13 @@ const EXP_IMPORTED_KEY = 'trazabilidad_exp_imported';
 const expCache: { data: ExpRecord[]; loaded: boolean; analytics: Record<string, unknown> | null } = { data: [], loaded: false, analytics: null };
 
 async function ensureExp() {
-  if (!expCache.loaded) {
+  // Always check if we have data, reload if empty
+  if (!expCache.loaded || expCache.data.length === 0) {
+    expCache.loaded = false;
+    expCache.data = [];
+    expCache.analytics = { total: 0, pesoNetoTotal: 0, pesoBrutoTotal: 0, envasesTotal: 0, uniquePaisCount: 0, uniqueProductoCount: 0, uniqueDestinoCount: 0, lastDate: null, byPais: [], byProducto: [], byDestino: [] };
+
     // Try localStorage first (user imports)
-    const imported = localStorage.getItem(EXP_IMPORTED_KEY);
-    let hasLocalData = false;
-    if (imported) {
-      try {
-        const parsed = JSON.parse(imported);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          expCache.data = parsed;
-          hasLocalData = true;
-        } else {
-          expCache.data = [];
-        }
-      } catch { expCache.data = []; }
-      expCache.analytics = { total: 0, pesoNetoTotal: 0, pesoBrutoTotal: 0, envasesTotal: 0, uniquePaisCount: 0, uniqueProductoCount: 0, uniqueDestinoCount: 0, lastDate: null, byPais: [], byProducto: [], byDestino: [] };
-    }
-    // If no local data, try pre-processed JSON from MGAP exportaciones file
-    if (!hasLocalData) {
-      try {
-        const expR = await fetch(dataUrl('data/exportaciones_frimaral.json'));
-        if (expR.ok) {
-          const data = await expR.json();
-          if (Array.isArray(data) && data.length > 0) {
-            expCache.data = data;
-          } else {
-            expCache.data = [];
-          }
-        } else {
-          expCache.data = [];
-        }
-      } catch {
-        expCache.data = [];
-      }
-      expCache.analytics = { total: 0, pesoNetoTotal: 0, pesoBrutoTotal: 0, envasesTotal: 0, uniquePaisCount: 0, uniqueProductoCount: 0, uniqueDestinoCount: 0, lastDate: null, byPais: [], byProducto: [], byDestino: [] };
-    }
-    expCache.loaded = true;
-  }
-  // If cache is empty, try localStorage again (race condition with Firebase pull)
-  if (expCache.data.length === 0) {
     const imported = localStorage.getItem(EXP_IMPORTED_KEY);
     if (imported) {
       try {
@@ -103,18 +71,32 @@ async function ensureExp() {
         }
       } catch { /* ignore */ }
     }
-  }
-  // Also try pre-processed JSON if still empty
-  if (expCache.data.length === 0) {
+
+    // If no local data, ALWAYS load from pre-processed JSON
+    if (expCache.data.length === 0) {
+      try {
+        const expR = await fetch(dataUrl('data/exportaciones_frimaral.json'));
+        if (expR.ok) {
+          const data = await expR.json();
+          if (Array.isArray(data) && data.length > 0) {
+            expCache.data = data;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Also merge new_records (manual/PDF)
     try {
-      const r = await fetch(dataUrl('data/exportaciones_frimaral.json'));
-      if (r.ok) {
-        const data = await r.json();
-        if (Array.isArray(data) && data.length > 0) {
-          expCache.data = data;
+      const newRecs = JSON.parse(localStorage.getItem('trazabilidad_new_records') || '[]');
+      if (Array.isArray(newRecs) && newRecs.length > 0) {
+        const existingIds = new Set(expCache.data.map((r: ExpRecord) => r.id));
+        for (const r of newRecs) {
+          if (!existingIds.has(r.id)) expCache.data.push(r);
         }
       }
     } catch { /* ignore */ }
+
+    expCache.loaded = true;
   }
 }
 
