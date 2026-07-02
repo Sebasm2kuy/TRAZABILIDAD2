@@ -482,7 +482,7 @@ ${cotes.slice(0, 25).map((c:any) => `- ${c.cote}: ${c.cajas} cajas, ${c.pallets}
     }
 
     if (q.includes('hazlo') || q.includes('hacelo') || q.includes('ingresalo') || q.includes('ingresá') || q.includes('cargalo') || q.includes('cargá') || q.includes('guardalo') || q.includes('guardá')) {
-      return `No puedo guardar datos directamente desde el chat.\n\nPara cargar un ingreso:\n1. Usá el botón 📷 para subir capturas del MGAP\n2. Pegá capturas con Ctrl+V\n3. Presioná Enter para procesar\n\nEl sistema extrae los datos automáticamente con GPT-4o Vision y los guarda en A Depósitos.`;
+      return `No puedo guardar datos directamente desde el chat.\n\nPara cargar un ingreso:\n1. Usá el botón 📷 para subir capturas del MGAP\n2. Pegá capturas con Ctrl+V\n3. Presioná Enter para procesar\n\nEl sistema extrae los datos automáticamente con GPT-5.4 Vision y los guarda en A Depósitos.`;
     }
 
     return `Pregunta: "${question}"\n\nSoy un ingeniero que analiza datos reales. Probá:\n• "P14702" - analiza un COTE específico\n• "verifica errores" - escanea inconsistencias\n• "bugs" - detecta problemas entre pestañas\n• 📷 Subí capturas del MGAP para extraer datos automáticamente`;
@@ -848,7 +848,7 @@ Respondé SOLO el JSON (sin markdown, sin explicación).`;
           <Bot className="h-4 w-4" />
           <span className="text-sm font-semibold">Asistente IA</span>
           {puterReady ? (
-            <span className="text-[9px] bg-emerald-400 text-emerald-900 px-1.5 py-0.5 rounded-full">GPT-4o</span>
+            <span className="text-[9px] bg-emerald-400 text-emerald-900 px-1.5 py-0.5 rounded-full">GPT-5.4</span>
           ) : (
             <span className="text-[9px] bg-amber-400 text-amber-900 px-1.5 py-0.5 rounded-full">Local</span>
           )}
@@ -877,7 +877,7 @@ Respondé SOLO el JSON (sin markdown, sin explicación).`;
               <div className="text-center text-slate-400 py-8">
                 <Sparkles className="h-8 w-8 mx-auto mb-2 opacity-40" />
                 <p className="text-sm font-medium">Hola! Soy tu asistente de trazabilidad</p>
-                <p className="text-xs mt-1">{puterReady ? 'Conectado a GPT-4o-mini' : 'Análisis local activo'}</p>
+                <p className="text-xs mt-1">{puterReady ? 'Conectado a GPT-5.4' : 'Análisis local activo'}</p>
                 <p className="text-[10px] mt-1 text-violet-500">Viendo: {activeTab}</p>
                 <div className="mt-4 flex flex-wrap gap-2 justify-center">
                   {['Verifica errores', 'P14702', 'borrar P14702', 'corregir P14702 1888 cajas', 'bugs'].map(q => (
@@ -896,7 +896,7 @@ Respondé SOLO el JSON (sin markdown, sin explicación).`;
               <div className="flex justify-start">
                 <div className="bg-white border rounded-lg p-3 text-sm text-slate-400 flex items-center gap-2">
                   <Bot className="h-4 w-4 animate-pulse" />
-                  {puterReady ? 'Consultando GPT-4o...' : 'Analizando datos...'}
+                  {puterReady ? 'Consultando GPT-5.4...' : 'Analizando datos...'}
                 </div>
               </div>
             )}
@@ -956,7 +956,7 @@ Respondé SOLO el JSON (sin markdown, sin explicación).`;
                 {imageProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </Button>
             </div>
-            {imageProcessing && <p className="text-[10px] text-violet-600 mt-1">📷 Analizando imágenes con GPT-4o Vision...</p>}
+            {imageProcessing && <p className="text-[10px] text-violet-600 mt-1">📷 Analizando imágenes con GPT-5.4 Vision...</p>}
           </div>
         </>
       )}
