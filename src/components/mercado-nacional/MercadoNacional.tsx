@@ -775,25 +775,32 @@ export default function MercadoNacional() {
   // DEPÓSITOS TAB — COMPUTATIONS (all filtered by tipoProductoFilter)
   // ============================================================
 
-  /** Records where productor != certificador (isDeposito=true) AND the deposito is NOT a primary producer */
-  const producerAutoCertCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const r of filteredRecords) {
-      if (r.p && r.p === r.cf) {
-        counts[r.p] = (counts[r.p] || 0) + 1;
-      }
-    }
-    return counts;
-  }, [filteredRecords]);
+  /** Definitive list of PRODUCERS (from user). Any certificador NOT in this list = deposit. */
+  const PRODUCTORES_SET = useMemo(() => new Set([
+    'Frigorífico Las Piedras S.A.', 'Frigorífico La Caballada (Cledinor S.A.)',
+    'Yarus S.A.', 'Frigosalto (Somicar S.A.)', 'Frigoyí (Bilacor S.A.)',
+    'Frigorífico Sirsil S.A. (Sirsil S.A.)', 'Frigorífico Pul (Pulsa S.A.)',
+    'Frigorífico El Amanecer (Agroindustrial Del Este S.A.)', 'Breeders & Packers Uruguay S.A.',
+    'Frigorífico San Jacinto (Nirea S.A.)', 'Frigorífico Matadero Pando (Ontilcor S.A.)',
+    'Solís Meat Uruguay (Ersinal S.A.)', 'Frigorífico Casa Blanca', 'Copayan S.A.',
+    'Frigorífico Tacuarembó S.A.', 'Establecimientos Colonia S.A.', 'Frigorífico Canelones S.A.',
+    'Frigorífico Clay S.A.', 'Frigorífico Las Moras (Chiadel S.A.)', 'Frigorífico Sarel S.A.',
+    'Inaler S.A.', 'Berdick S.A.', 'Despro S.A.', 'Frigorífico Durazno (Frigocerro S.A.)',
+    'Frigorífico La Trinidad (Oferan S.A.)', 'Coltirey S.A.', 'Zutfray S.A.', 'Cardama S.A.',
+    'Establecimientos Juan Sarubbi S.A.', 'Granja Tres Arroyos Uruguay S.A.', 'Grinsol S.A.',
+    'Artica Biotech', 'Tecnoblen S.A.', 'Montesera S.A.', 'Mvdmart S.A.',
+    'LONSA SCIENCE S.R.L.', 'Frigorífico Carrasco S.A.', 'Probiomont S.A.', 'Fanaphru S.A.',
+  ]), []);
 
+  /** A record is a deposit record when certificador is NOT a producer */
   const depositRecords = useMemo<MovRecord[]>(() => {
     return filteredRecords.filter(r => {
-      if (!r.isd || !r.dep) return false;
-      // Exclude if the deposito name autocertifies >10 records (it's a producer, not a deposit)
-      if ((producerAutoCertCounts[r.dep] || 0) > 10) return false;
+      if (!r.cf) return false;
+      // Deposit = certificador is NOT in the producer list
+      if (PRODUCTORES_SET.has(r.cf)) return false;
       return true;
     });
-  }, [filteredRecords, producerAutoCertCounts]);
+  }, [filteredRecords, PRODUCTORES_SET]);
 
   /** Total peso neto of the deposit market (filtered). */
   const totalDepositPn = useMemo(() => {
@@ -803,7 +810,7 @@ export default function MercadoNacional() {
   // ---------- Section A: Caliral as deposit ----------
 
   const caliralDepositoStats = useMemo(() => {
-    const caliralRecs = depositRecords.filter(r => r.dep === DEFAULT_COMPANY);
+    const caliralRecs = depositRecords.filter(r => r.cf === DEFAULT_COMPANY);
     const productoresSet = new Set<string>();
     const meses: Record<string, number> = {};
     const productoresPn: Record<string, number> = {};
@@ -842,30 +849,17 @@ export default function MercadoNacional() {
   }
 
   const depositosRanking = useMemo<DepositoRow[]>(() => {
-    // Build map of how many times each establishment appears as producer (autocert)
-    const producerCounts: Record<string, number> = {};
-    for (const r of filteredRecords) {
-      if (r.p && r.p === r.cf) {
-        producerCounts[r.p] = (producerCounts[r.p] || 0) + 1;
-      }
-    }
-
     const map: Record<string, {
       regs: number; pn: number;
       productores: Set<string>; clientes: Set<string>;
     }> = {};
     for (const r of depositRecords) {
-      const dep = r.dep || '';
+      const dep = r.cf || '';
       if (!dep) continue;
-      // EXCLUDE establishments that are primarily producers (autocertify)
-      // If they appear as autocertifying producer more than as deposit, they're not a real deposit
-      const autoCertCount = producerCounts[dep] || 0;
-      if (autoCertCount > 10) continue; // If they autocertify >10 records, they're a producer not a deposit
       if (!map[dep]) map[dep] = { regs: 0, pn: 0, productores: new Set(), clientes: new Set() };
       map[dep].regs++;
       map[dep].pn += r.pn || 0;
       if (r.p) map[dep].productores.add(r.p);
-      if (r.cf) map[dep].clientes.add(r.cf);
     }
     const totalPn = Object.values(map).reduce((s, v) => s + v.pn, 0) || 1;
     return Object.entries(map)
@@ -887,7 +881,7 @@ export default function MercadoNacional() {
     const otrosCortesPn: Record<string, number> = {};
 
     for (const r of depositRecords) {
-      if (r.dep === DEFAULT_COMPANY) {
+      if (r.cf === DEFAULT_COMPANY) {
         if (r.pa) caliralPaises.add(r.pa);
         if (r.co) caliralCortes.add(r.co);
       } else {
@@ -921,7 +915,7 @@ export default function MercadoNacional() {
     // Find producers who DO use Caliral as a deposit
     const caliralProductores = new Set<string>();
     for (const r of depositRecords) {
-      if (r.dep === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
+      if (r.cf === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
     }
 
     const map: Record<string, {
@@ -942,7 +936,7 @@ export default function MercadoNacional() {
       agg.regs++;
       if (r.pa) agg.paises.add(r.pa);
       if (r.ed) agg.clientes.add(r.ed);
-      const dep = r.dep || '';
+      const dep = r.cf || '';
       if (dep) agg.depositos[dep] = (agg.depositos[dep] || 0) + (r.pn || 0);
       agg.embarques++;
     }
@@ -999,7 +993,7 @@ export default function MercadoNacional() {
     // Producers using Caliral — excluded from opportunity index
     const caliralProductores = new Set<string>();
     for (const r of depositRecords) {
-      if (r.dep === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
+      if (r.cf === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
     }
 
     interface ProdAgg {
@@ -1025,7 +1019,7 @@ export default function MercadoNacional() {
       if (r.pa) agg.paises.add(r.pa);
       if (r.ed) agg.clientes.add(r.ed);
       if (r.d) agg.denoms.add(r.d);
-      const depKey = r.dep || '';
+      const depKey = r.cf || '';
       if (depKey) agg.depositoPn[depKey] = (agg.depositoPn[depKey] || 0) + (r.pn || 0);
       if (r.f) {
         const m = r.f.substring(0, 7);
@@ -1102,11 +1096,11 @@ export default function MercadoNacional() {
       if (!prodMap[r.p]) prodMap[r.p] = { caliralPn: 0, otrosPn: 0, total: 0, otrosDepositos: {} };
       const agg = prodMap[r.p];
       agg.total += r.pn || 0;
-      if (r.dep === DEFAULT_COMPANY) {
+      if (r.cf === DEFAULT_COMPANY) {
         agg.caliralPn += r.pn || 0;
       } else {
         agg.otrosPn += r.pn || 0;
-        const od = r.dep || '';
+        const od = r.cf || '';
         if (od) agg.otrosDepositos[od] = (agg.otrosDepositos[od] || 0) + (r.pn || 0);
       }
     }
@@ -1136,7 +1130,7 @@ export default function MercadoNacional() {
     const caliralProductores = new Set<string>();
     for (const r of depositRecords) {
       if (r.p) totalProductores.add(r.p);
-      if (r.dep === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
+      if (r.cf === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
     }
     const pctProductores = totalProductores.size > 0
       ? (caliralProductores.size / totalProductores.size) * 100
