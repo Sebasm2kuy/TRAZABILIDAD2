@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { dataUrl } from '@/lib/staticData';
 import { fd, fmt } from '@/lib/utils';
+import { toast } from 'sonner';
 import React from 'react';
 
 interface Analytics {
@@ -114,19 +115,40 @@ export default function MercadoNacional() {
 
   // Run comparison
   const runComparison = useCallback(async () => {
-    if (!compareEst1 || !compareEst2 || compareEst1 === compareEst2) return;
+    if (!compareEst1 || !compareEst2 || compareEst1 === compareEst2) {
+      toast.error('Seleccioná dos establecimientos diferentes');
+      return;
+    }
     setCompareLoading(true);
-    if (!recordsLoaded) await loadRecords();
 
-    const recs1 = records.filter(r => r.p === compareEst1 || r.cf === compareEst1);
-    const recs2 = records.filter(r => r.p === compareEst2 || r.cf === compareEst2);
+    // Ensure records are loaded
+    let recs = records;
+    if (!recordsLoaded) {
+      try {
+        const r = await fetch(dataUrl('data/nacional_mgmp.json'));
+        if (r.ok) {
+          recs = await r.json();
+          setRecords(recs);
+          setRecordsLoaded(true);
+        }
+      } catch (err) { console.error('Error loading records:', err); }
+    }
+
+    const recs1 = recs.filter(r => r.p === compareEst1 || r.cf === compareEst1);
+    const recs2 = recs.filter(r => r.p === compareEst2 || r.cf === compareEst2);
+
+    if (recs1.length === 0 && recs2.length === 0) {
+      toast.error('No se encontraron registros para los establecimientos seleccionados');
+      setCompareLoading(false);
+      return;
+    }
 
     setCompareData({
       est1: computeEstStats(recs1, compareEst1),
       est2: computeEstStats(recs2, compareEst2),
     });
     setCompareLoading(false);
-  }, [compareEst1, compareEst2, records, recordsLoaded, loadRecords, computeEstStats]);
+  }, [compareEst1, compareEst2, records, recordsLoaded, computeEstStats]);
 
   // Filter records
   const filteredRecords = useMemo(() => {
