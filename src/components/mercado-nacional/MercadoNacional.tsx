@@ -832,11 +832,13 @@ export default function MercadoNacional() {
       productores: Set<string>; clientes: Set<string>;
     }> = {};
     for (const r of depositRecords) {
-      if (!map[r.dep]) map[r.dep] = { regs: 0, pn: 0, productores: new Set(), clientes: new Set() };
-      map[r.dep].regs++;
-      map[r.dep].pn += r.pn || 0;
-      if (r.p) map[r.dep].productores.add(r.p);
-      if (r.cf) map[r.dep].clientes.add(r.cf);
+      const dep = r.dep || '';
+      if (!dep) continue;
+      if (!map[dep]) map[dep] = { regs: 0, pn: 0, productores: new Set(), clientes: new Set() };
+      map[dep].regs++;
+      map[dep].pn += r.pn || 0;
+      if (r.p) map[dep].productores.add(r.p);
+      if (r.cf) map[dep].clientes.add(r.cf);
     }
     const totalPn = Object.values(map).reduce((s, v) => s + v.pn, 0) || 1;
     return Object.entries(map)
