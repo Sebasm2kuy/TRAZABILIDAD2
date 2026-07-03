@@ -775,10 +775,25 @@ export default function MercadoNacional() {
   // DEPÓSITOS TAB — COMPUTATIONS (all filtered by tipoProductoFilter)
   // ============================================================
 
-  /** Records where productor != certificador (isDeposito=true) — real deposits */
-  const depositRecords = useMemo<MovRecord[]>(() => {
-    return filteredRecords.filter(r => r.isd === true && r.dep);
+  /** Records where productor != certificador (isDeposito=true) AND the deposito is NOT a primary producer */
+  const producerAutoCertCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const r of filteredRecords) {
+      if (r.p && r.p === r.cf) {
+        counts[r.p] = (counts[r.p] || 0) + 1;
+      }
+    }
+    return counts;
   }, [filteredRecords]);
+
+  const depositRecords = useMemo<MovRecord[]>(() => {
+    return filteredRecords.filter(r => {
+      if (!r.isd || !r.dep) return false;
+      // Exclude if the deposito name autocertifies >10 records (it's a producer, not a deposit)
+      if ((producerAutoCertCounts[r.dep] || 0) > 10) return false;
+      return true;
+    });
+  }, [filteredRecords, producerAutoCertCounts]);
 
   /** Total peso neto of the deposit market (filtered). */
   const totalDepositPn = useMemo(() => {
@@ -827,6 +842,14 @@ export default function MercadoNacional() {
   }
 
   const depositosRanking = useMemo<DepositoRow[]>(() => {
+    // Build map of how many times each establishment appears as producer (autocert)
+    const producerCounts: Record<string, number> = {};
+    for (const r of filteredRecords) {
+      if (r.p && r.p === r.cf) {
+        producerCounts[r.p] = (producerCounts[r.p] || 0) + 1;
+      }
+    }
+
     const map: Record<string, {
       regs: number; pn: number;
       productores: Set<string>; clientes: Set<string>;
@@ -834,6 +857,10 @@ export default function MercadoNacional() {
     for (const r of depositRecords) {
       const dep = r.dep || '';
       if (!dep) continue;
+      // EXCLUDE establishments that are primarily producers (autocertify)
+      // If they appear as autocertifying producer more than as deposit, they're not a real deposit
+      const autoCertCount = producerCounts[dep] || 0;
+      if (autoCertCount > 10) continue; // If they autocertify >10 records, they're a producer not a deposit
       if (!map[dep]) map[dep] = { regs: 0, pn: 0, productores: new Set(), clientes: new Set() };
       map[dep].regs++;
       map[dep].pn += r.pn || 0;
