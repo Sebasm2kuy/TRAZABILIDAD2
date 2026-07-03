@@ -10,6 +10,7 @@ import {
   Download, Loader2, BarChart3, Users, Award, Target, Lightbulb,
   Crown, AlertCircle, CheckCircle2, ArrowUpRight, ArrowDownRight,
   Building2, PieChart as PieIcon, Layers, Sparkles,
+  Warehouse, Boxes, Network,
 } from 'lucide-react';
 import { dataUrl } from '@/lib/staticData';
 import { fmt } from '@/lib/utils';
@@ -23,6 +24,7 @@ interface MovRecord {
   t: string; f: string; c: string; cf: string; p: string; np: string;
   ed: string; tm: string; pa: string; d: string; co: string;
   pa2: number; e: number; pb: number; pn: number; tt: string; sh: string;
+  tpd?: string;
 }
 
 interface Analytics {
@@ -37,7 +39,8 @@ interface Analytics {
   meses: Record<string, number>;
 }
 
-type Tab = 'dashboard' | 'competencia' | 'clientes' | 'cortes' | 'insights';
+type Tab = 'dashboard' | 'competencia' | 'clientes' | 'cortes' | 'insights' | 'depositos';
+type TipoProductoFilter = 'todos' | 'congelado' | 'fresco';
 
 interface Insight {
   type: 'positive' | 'warning' | 'info' | 'opportunity';
@@ -58,10 +61,12 @@ const PALETTE_HEX = [
   '#f43f5e', '#06b6d4', '#f97316',
 ];
 
-const COMPANY_COLOR = '#10b981'; // emerald — highlight for selected company
+const COMPANY_COLOR = '#10b981'; // emerald — highlight for selected company / Caliral
 const COMPETITOR_COLOR = '#3b82f6'; // blue — competitors
+const DEPOSIT_OTHER_COLOR = '#8b5cf6'; // violet — other deposits
+const OPPORTUNITY_COLOR = '#f59e0b'; // amber — opportunities
 
-/** Logistics nodes excluded from "real client" analysis */
+/** Logistics nodes excluded from "real client" / "real deposit" analysis */
 function isLogisticsEd(ed: string): boolean {
   if (!ed) return true;
   const e = ed.trim();
@@ -342,6 +347,9 @@ export default function MercadoNacional() {
   const [selectedCompany, setSelectedCompany] = useState(DEFAULT_COMPANY);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [topN, setTopN] = useState<5 | 10 | 20>(10);
+  const [tipoProductoFilter, setTipoProductoFilter] = useState<TipoProductoFilter>('todos');
+  const [depositSortKey, setDepositSortKey] = useState<'pn' | 'regs' | 'paises' | 'clientes' | 'embarques'>('pn');
+  const [depositSortDir, setDepositSortDir] = useState<'asc' | 'desc'>('desc');
 
   // --- Load analytics (fast) + records (heavy) on mount ---
   useEffect(() => {
@@ -380,23 +388,34 @@ export default function MercadoNacional() {
     return [...set].sort((a, b) => a.localeCompare(b, 'es'));
   }, [analytics]);
 
-  // --- Total market peso neto (denominator for market share) ---
+  // ============================================================
+  // GLOBAL TipoProducto FILTER — applied to ALL downstream memos
+  // ============================================================
+
+  const filteredRecords = useMemo<MovRecord[]>(() => {
+    if (!records.length) return [];
+    if (tipoProductoFilter === 'todos') return records;
+    const target = tipoProductoFilter === 'congelado' ? 'Congelado' : 'Fresco';
+    return records.filter(r => r.tpd === target);
+  }, [records, tipoProductoFilter]);
+
+  // --- Total market peso neto (filtered) ---
   const totalMarketPn = useMemo(() => {
-    if (records.length) return records.reduce((s, r) => s + (r.pn || 0), 0);
+    if (filteredRecords.length) return filteredRecords.reduce((s, r) => s + (r.pn || 0), 0);
     return analytics?.totalPeso || 0;
-  }, [records, analytics]);
+  }, [filteredRecords, analytics]);
 
   // ============================================================
   // COMPUTATION: selected company's records + stats
   // ============================================================
 
   const companyRecords = useMemo<MovRecord[]>(() => {
-    if (!records.length) return [];
+    if (!filteredRecords.length) return [];
     // Prefer cf (certifier) match; fallback to p (productor) if no cf records
-    const byCf = records.filter(r => r.cf === selectedCompany);
+    const byCf = filteredRecords.filter(r => r.cf === selectedCompany);
     if (byCf.length > 0) return byCf;
-    return records.filter(r => r.p === selectedCompany);
-  }, [records, selectedCompany]);
+    return filteredRecords.filter(r => r.p === selectedCompany);
+  }, [filteredRecords, selectedCompany]);
 
   const companyStats = useMemo(() => {
     const paises: Record<string, number> = {};
@@ -445,9 +464,9 @@ export default function MercadoNacional() {
   }
 
   const competitionRanking = useMemo<CompetitorRow[]>(() => {
-    if (!records.length) return [];
+    if (!filteredRecords.length) return [];
     const map: Record<string, { regs: number; cajas: number; pn: number; paises: Set<string>; cortes: Set<string> }> = {};
-    for (const r of records) {
+    for (const r of filteredRecords) {
       const cf = r.cf;
       if (!cf) continue;
       if (!map[cf]) map[cf] = { regs: 0, cajas: 0, pn: 0, paises: new Set(), cortes: new Set() };
@@ -465,7 +484,7 @@ export default function MercadoNacional() {
         share: (v.pn / totalPn) * 100,
       }))
       .sort((a, b) => b.pn - a.pn);
-  }, [records]);
+  }, [filteredRecords]);
 
   // ============================================================
   // COMPUTATION: monthly evolution (company + market total)
@@ -477,7 +496,7 @@ export default function MercadoNacional() {
     for (const r of companyRecords) {
       if (r.f) { const m = r.f.substring(0, 7); companyMonths[m] = (companyMonths[m] || 0) + (r.pn || 0); }
     }
-    for (const r of records) {
+    for (const r of filteredRecords) {
       if (r.f) { const m = r.f.substring(0, 7); marketMonths[m] = (marketMonths[m] || 0) + (r.pn || 0); }
     }
     const allMonths = [...new Set([...Object.keys(companyMonths), ...Object.keys(marketMonths)])].sort();
@@ -486,19 +505,19 @@ export default function MercadoNacional() {
       value: companyMonths[m] || 0,
       marketValue: marketMonths[m] || 0,
     }));
-  }, [companyRecords, records]);
+  }, [companyRecords, filteredRecords]);
 
   // ============================================================
   // COMPUTATION: client analysis (exclusive / shared)
   // ============================================================
 
   const clientAnalysis = useMemo(() => {
-    if (!records.length) return { topClients: [], exclusive: [], shared: [] };
+    if (!filteredRecords.length) return { topClients: [], exclusive: [], shared: [] };
 
     // Map: ed -> Set of certifiers that ship there
     const edCertifiers: Record<string, Set<string>> = {};
     const edPn: Record<string, number> = {};
-    for (const r of records) {
+    for (const r of filteredRecords) {
       if (!r.ed || isLogisticsEd(r.ed)) continue;
       if (!edCertifiers[r.ed]) { edCertifiers[r.ed] = new Set(); edPn[r.ed] = 0; }
       if (r.cf) edCertifiers[r.ed].add(r.cf);
@@ -534,7 +553,7 @@ export default function MercadoNacional() {
       .sort((a, b) => b.pn - a.pn);
 
     return { topClients, exclusive, shared };
-  }, [records, companyRecords]);
+  }, [filteredRecords, companyRecords]);
 
   // ============================================================
   // COMPUTATION: corte × pais heatmap (selected company)
@@ -546,9 +565,9 @@ export default function MercadoNacional() {
 
     // If company has very few cortes, fill from overall top cortes
     let finalCortes = topCortes;
-    if (finalCortes.length < 6 && records.length) {
+    if (finalCortes.length < 6 && filteredRecords.length) {
       const allCortes: Record<string, number> = {};
-      for (const r of records) { if (r.co) allCortes[r.co] = (allCortes[r.co] || 0) + (r.pn || 0); }
+      for (const r of filteredRecords) { if (r.co) allCortes[r.co] = (allCortes[r.co] || 0) + (r.pn || 0); }
       const extra = sortEntries(allCortes).map(([n]) => n).filter(n => !finalCortes.includes(n));
       finalCortes = [...finalCortes, ...extra].slice(0, 10);
     }
@@ -565,14 +584,14 @@ export default function MercadoNacional() {
     }
 
     return { cortes: finalCortes, paises: topPaises, matrix, maxVal };
-  }, [companyStats, companyRecords, records]);
+  }, [companyStats, companyRecords, filteredRecords]);
 
   // ============================================================
   // COMPUTATION: automatic insights
   // ============================================================
 
   const insights = useMemo<Insight[]>(() => {
-    if (!records.length || !competitionRanking.length) return [];
+    if (!filteredRecords.length || !competitionRanking.length) return [];
     const out: Insight[] = [];
     const company = selectedCompany;
     const myPn = companyStats.totalPn;
@@ -614,7 +633,7 @@ export default function MercadoNacional() {
     // 4. Country opportunities
     const myPaises = new Set(companyStats.paises.map(([n]) => n));
     const allPaisesPn: Record<string, number> = {};
-    for (const r of records) {
+    for (const r of filteredRecords) {
       if (r.pa && r.cf !== company) allPaisesPn[r.pa] = (allPaisesPn[r.pa] || 0) + (r.pn || 0);
     }
     const oppPaises = Object.entries(allPaisesPn)
@@ -634,7 +653,7 @@ export default function MercadoNacional() {
 
     // 5. Competitor growth (last full month vs previous)
     const monthTotals: Record<string, number> = {};
-    for (const r of records) { if (r.f) { const m = r.f.substring(0, 7); monthTotals[m] = (monthTotals[m] || 0) + 1; } }
+    for (const r of filteredRecords) { if (r.f) { const m = r.f.substring(0, 7); monthTotals[m] = (monthTotals[m] || 0) + 1; } }
     const sortedMonths = Object.keys(monthTotals).sort();
     // Use last two months where the earlier has >= 500 records (full month)
     let prevMonth = '', latestMonth = '';
@@ -649,7 +668,7 @@ export default function MercadoNacional() {
       const compGrowth: { name: string; growth: number; prevPn: number; latestPn: number }[] = [];
       for (const comp of ranking.slice(0, 10)) {
         let prevPn = 0, latestPn = 0;
-        for (const r of records) {
+        for (const r of filteredRecords) {
           if (r.cf !== comp.name || !r.f) continue;
           const m = r.f.substring(0, 7);
           if (m === prevMonth) prevPn += r.pn || 0;
@@ -684,7 +703,7 @@ export default function MercadoNacional() {
     // 6. Cuts gap
     const myCortes = new Set(companyStats.cortes.map(([n]) => n));
     const allCortesPn: Record<string, number> = {};
-    for (const r of records) {
+    for (const r of filteredRecords) {
       if (r.co && r.cf !== company) allCortesPn[r.co] = (allCortesPn[r.co] || 0) + (r.pn || 0);
     }
     const oppCortes = Object.entries(allCortesPn)
@@ -743,7 +762,409 @@ export default function MercadoNacional() {
     }
 
     return out;
-  }, [records, competitionRanking, companyStats, clientAnalysis, selectedCompany, totalMarketPn]);
+  }, [filteredRecords, competitionRanking, companyStats, clientAnalysis, selectedCompany, totalMarketPn]);
+
+  // ============================================================
+  // DEPÓSITOS TAB — COMPUTATIONS (all filtered by tipoProductoFilter)
+  // ============================================================
+
+  /** Records where ed is a real deposit (logistics nodes excluded). */
+  const depositRecords = useMemo<MovRecord[]>(() => {
+    return filteredRecords.filter(r => r.ed && !isLogisticsEd(r.ed));
+  }, [filteredRecords]);
+
+  /** Total peso neto of the deposit market (filtered). */
+  const totalDepositPn = useMemo(() => {
+    return depositRecords.reduce((s, r) => s + (r.pn || 0), 0);
+  }, [depositRecords]);
+
+  // ---------- Section A: Caliral as deposit ----------
+
+  const caliralDepositoStats = useMemo(() => {
+    const caliralRecs = depositRecords.filter(r => r.ed === DEFAULT_COMPANY);
+    const productoresSet = new Set<string>();
+    const meses: Record<string, number> = {};
+    const productoresPn: Record<string, number> = {};
+    const productoresRegs: Record<string, number> = {};
+    let totalPn = 0;
+
+    for (const r of caliralRecs) {
+      if (r.p) {
+        productoresSet.add(r.p);
+        productoresPn[r.p] = (productoresPn[r.p] || 0) + (r.pn || 0);
+        productoresRegs[r.p] = (productoresRegs[r.p] || 0) + 1;
+      }
+      totalPn += r.pn || 0;
+      if (r.f) { const m = r.f.substring(0, 7); meses[m] = (meses[m] || 0) + (r.pn || 0); }
+    }
+
+    const productoresRanking = Object.entries(productoresPn)
+      .map(([name, pn]) => ({ name, pn, regs: productoresRegs[name] || 0 }))
+      .sort((a, b) => b.pn - a.pn);
+
+    return {
+      productoresCount: productoresSet.size,
+      totalPn,
+      embarques: caliralRecs.length,
+      share: totalDepositPn > 0 ? (totalPn / totalDepositPn) * 100 : 0,
+      meses: Object.entries(meses).sort(([a], [b]) => a.localeCompare(b)),
+      productoresRanking,
+    };
+  }, [depositRecords, totalDepositPn]);
+
+  // ---------- Section B: Ranking de Depósitos ----------
+
+  interface DepositoRow {
+    name: string; regs: number; pn: number;
+    productores: number; clientes: number; share: number;
+  }
+
+  const depositosRanking = useMemo<DepositoRow[]>(() => {
+    const map: Record<string, {
+      regs: number; pn: number;
+      productores: Set<string>; clientes: Set<string>;
+    }> = {};
+    for (const r of depositRecords) {
+      if (!map[r.ed]) map[r.ed] = { regs: 0, pn: 0, productores: new Set(), clientes: new Set() };
+      map[r.ed].regs++;
+      map[r.ed].pn += r.pn || 0;
+      if (r.p) map[r.ed].productores.add(r.p);
+      if (r.cf) map[r.ed].clientes.add(r.cf);
+    }
+    const totalPn = Object.values(map).reduce((s, v) => s + v.pn, 0) || 1;
+    return Object.entries(map)
+      .map(([name, v]) => ({
+        name, regs: v.regs, pn: v.pn,
+        productores: v.productores.size,
+        clientes: v.clientes.size,
+        share: (v.pn / totalPn) * 100,
+      }))
+      .sort((a, b) => b.pn - a.pn);
+  }, [depositRecords]);
+
+  // ---------- Section C: Mercados / cortes que Caliral NO trabaja ----------
+
+  const caliralNoMercados = useMemo(() => {
+    const caliralPaises = new Set<string>();
+    const caliralCortes = new Set<string>();
+    const otrosPaisesPn: Record<string, number> = {};
+    const otrosCortesPn: Record<string, number> = {};
+
+    for (const r of depositRecords) {
+      if (r.ed === DEFAULT_COMPANY) {
+        if (r.pa) caliralPaises.add(r.pa);
+        if (r.co) caliralCortes.add(r.co);
+      } else {
+        if (r.pa) otrosPaisesPn[r.pa] = (otrosPaisesPn[r.pa] || 0) + (r.pn || 0);
+        if (r.co) otrosCortesPn[r.co] = (otrosCortesPn[r.co] || 0) + (r.pn || 0);
+      }
+    }
+
+    const paisesOportunidad = Object.entries(otrosPaisesPn)
+      .filter(([pa]) => !caliralPaises.has(pa))
+      .sort(([, a], [, b]) => b - a)
+      .map(([pa, pn]) => ({ name: pa, pn }));
+
+    const cortesOportunidad = Object.entries(otrosCortesPn)
+      .filter(([co]) => !caliralCortes.has(co))
+      .sort(([, a], [, b]) => b - a)
+      .map(([co, pn]) => ({ name: co, pn }));
+
+    return { paisesOportunidad, cortesOportunidad };
+  }, [depositRecords]);
+
+  // ---------- Section D: Productores que NO usan Caliral ----------
+
+  interface ProductorNoCaliral {
+    name: string; mainDeposito: string; pn: number; regs: number;
+    paises: number; clientes: number; embarques: number;
+    paisesList: string[]; clientesList: string[];
+  }
+
+  const productoresNoCaliralRaw = useMemo<ProductorNoCaliral[]>(() => {
+    // Find producers who DO use Caliral as a deposit
+    const caliralProductores = new Set<string>();
+    for (const r of depositRecords) {
+      if (r.ed === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
+    }
+
+    const map: Record<string, {
+      pn: number; regs: number;
+      paises: Set<string>; clientes: Set<string>;
+      depositos: Record<string, number>; embarques: number;
+    }> = {};
+
+    for (const r of depositRecords) {
+      if (!r.p) continue;
+      if (caliralProductores.has(r.p)) continue; // skip producers who use Caliral
+      if (!map[r.p]) map[r.p] = {
+        pn: 0, regs: 0, paises: new Set(), clientes: new Set(),
+        depositos: {}, embarques: 0,
+      };
+      const agg = map[r.p];
+      agg.pn += r.pn || 0;
+      agg.regs++;
+      if (r.pa) agg.paises.add(r.pa);
+      if (r.ed) agg.clientes.add(r.ed);
+      agg.depositos[r.ed] = (agg.depositos[r.ed] || 0) + (r.pn || 0);
+      agg.embarques++;
+    }
+
+    return Object.entries(map).map(([name, agg]) => {
+      const mainDeposito = sortEntries(agg.depositos)[0]?.[0] || '—';
+      return {
+        name,
+        mainDeposito,
+        pn: agg.pn,
+        regs: agg.regs,
+        paises: agg.paises.size,
+        clientes: agg.clientes.size,
+        embarques: agg.embarques,
+        paisesList: [...agg.paises],
+        clientesList: [...agg.clientes],
+      };
+    });
+  }, [depositRecords]);
+
+  // Sorted view of section D (controlled by depositSortKey / depositSortDir)
+  const productoresNoCaliral = useMemo<ProductorNoCaliral[]>(() => {
+    const arr = [...productoresNoCaliralRaw];
+    const dir = depositSortDir === 'asc' ? 1 : -1;
+    arr.sort((a, b) => {
+      const av = a[depositSortKey];
+      const bv = b[depositSortKey];
+      if (typeof av === 'string' && typeof bv === 'string') return av.localeCompare(bv) * dir;
+      return ((av as number) - (bv as number)) * dir;
+    });
+    return arr;
+  }, [productoresNoCaliralRaw, depositSortKey, depositSortDir]);
+
+  // ---------- Section E: Índice de Oportunidad Comercial ----------
+
+  interface OportunidadRow {
+    name: string; deposito: string; pn: number;
+    growth: number; paises: number; clientes: number; denoms: number;
+    score: number; potencial: 'Muy Alto' | 'Alto' | 'Medio' | 'Bajo';
+  }
+
+  const oportunidadComercial = useMemo<OportunidadRow[]>(() => {
+    if (!depositRecords.length) return [];
+
+    // Identify months for growth windows (last 3 vs previous 3)
+    const monthSet = new Set<string>();
+    for (const r of depositRecords) {
+      if (r.f) monthSet.add(r.f.substring(0, 7));
+    }
+    const allMonths = [...monthSet].sort();
+    const last3 = new Set(allMonths.slice(-3));
+    const prev3 = new Set(allMonths.slice(-6, -3));
+
+    // Producers using Caliral — excluded from opportunity index
+    const caliralProductores = new Set<string>();
+    for (const r of depositRecords) {
+      if (r.ed === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
+    }
+
+    interface ProdAgg {
+      pn: number;
+      paises: Set<string>;
+      clientes: Set<string>; // unique ed (deposits)
+      denoms: Set<string>;
+      depositoPn: Record<string, number>;
+      recentPn: number;
+      prevPn: number;
+    }
+    const aggs: Record<string, ProdAgg> = {};
+
+    for (const r of depositRecords) {
+      if (!r.p) continue;
+      if (caliralProductores.has(r.p)) continue;
+      if (!aggs[r.p]) aggs[r.p] = {
+        pn: 0, paises: new Set(), clientes: new Set(), denoms: new Set(),
+        depositoPn: {}, recentPn: 0, prevPn: 0,
+      };
+      const agg = aggs[r.p];
+      agg.pn += r.pn || 0;
+      if (r.pa) agg.paises.add(r.pa);
+      if (r.ed) agg.clientes.add(r.ed);
+      if (r.d) agg.denoms.add(r.d);
+      agg.depositoPn[r.ed] = (agg.depositoPn[r.ed] || 0) + (r.pn || 0);
+      if (r.f) {
+        const m = r.f.substring(0, 7);
+        if (last3.has(m)) agg.recentPn += r.pn || 0;
+        if (prev3.has(m)) agg.prevPn += r.pn || 0;
+      }
+    }
+
+    const rows = Object.entries(aggs).map(([name, agg]) => {
+      const deposito = sortEntries(agg.depositoPn)[0]?.[0] || '—';
+      const rawGrowth = agg.prevPn > 0
+        ? ((agg.recentPn - agg.prevPn) / agg.prevPn) * 100
+        : (agg.recentPn > 0 ? 100 : 0);
+      return {
+        name,
+        deposito,
+        pn: agg.pn,
+        growth: Math.max(-100, Math.min(200, rawGrowth)),
+        paises: agg.paises.size,
+        clientes: agg.clientes.size,
+        denoms: agg.denoms.size,
+      };
+    });
+
+    if (!rows.length) return [];
+
+    // Normalize each component to 0-100
+    const maxPn = Math.max(...rows.map(r => r.pn), 1);
+    const maxPaises = Math.max(...rows.map(r => r.paises), 1);
+    const maxClientes = Math.max(...rows.map(r => r.clientes), 1);
+    const maxDenoms = Math.max(...rows.map(r => r.denoms), 1);
+    const positiveGrowths = rows.map(r => r.growth).filter(g => g > 0);
+    const maxGrowth = positiveGrowths.length ? Math.max(...positiveGrowths) : 1;
+
+    const scored = rows.map(r => {
+      const volScore = (r.pn / maxPn) * 100;
+      const growthScore = r.growth > 0
+        ? Math.min(100, (r.growth / maxGrowth) * 100)
+        : 0;
+      const mercadosScore = (r.paises / maxPaises) * 100;
+      const clientesScore = (r.clientes / maxClientes) * 100;
+      const divScore = (r.denoms / maxDenoms) * 100;
+      const score =
+        volScore * 0.30 +
+        growthScore * 0.20 +
+        mercadosScore * 0.20 +
+        clientesScore * 0.15 +
+        divScore * 0.15;
+      const potencial: OportunidadRow['potencial'] =
+        score > 80 ? 'Muy Alto' : score > 60 ? 'Alto' : score > 40 ? 'Medio' : 'Bajo';
+      return { ...r, score, potencial };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored;
+  }, [depositRecords]);
+
+  // ---------- Section F: Productores con múltiples depósitos (incl. Caliral) ----------
+
+  interface MultiDepositoRow {
+    name: string; caliralPn: number; otrosPn: number; total: number;
+    caliralPct: number; otrosPct: number; otrosDepositos: [string, number][];
+  }
+
+  const multiDepositoCaliral = useMemo<MultiDepositoRow[]>(() => {
+    // First pass: collect Caliral weights per producer
+    const prodMap: Record<string, {
+      caliralPn: number; otrosPn: number; total: number;
+      otrosDepositos: Record<string, number>;
+    }> = {};
+
+    for (const r of depositRecords) {
+      if (!r.p) continue;
+      if (!prodMap[r.p]) prodMap[r.p] = { caliralPn: 0, otrosPn: 0, total: 0, otrosDepositos: {} };
+      const agg = prodMap[r.p];
+      agg.total += r.pn || 0;
+      if (r.ed === DEFAULT_COMPANY) {
+        agg.caliralPn += r.pn || 0;
+      } else {
+        agg.otrosPn += r.pn || 0;
+        agg.otrosDepositos[r.ed] = (agg.otrosDepositos[r.ed] || 0) + (r.pn || 0);
+      }
+    }
+
+    return Object.entries(prodMap)
+      .filter(([, v]) => v.caliralPn > 0 && v.otrosPn > 0) // uses Caliral AND others
+      .map(([name, v]) => ({
+        name,
+        caliralPn: v.caliralPn,
+        otrosPn: v.otrosPn,
+        total: v.total,
+        caliralPct: v.total > 0 ? (v.caliralPn / v.total) * 100 : 0,
+        otrosPct: v.total > 0 ? (v.otrosPn / v.total) * 100 : 0,
+        otrosDepositos: sortEntries(v.otrosDepositos),
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [depositRecords]);
+
+  // ---------- Section G: Insights automáticos de depósitos ----------
+
+  const depositosInsights = useMemo<Insight[]>(() => {
+    if (!depositRecords.length) return [];
+    const out: Insight[] = [];
+
+    // Producer counts
+    const totalProductores = new Set<string>();
+    const caliralProductores = new Set<string>();
+    for (const r of depositRecords) {
+      if (r.p) totalProductores.add(r.p);
+      if (r.ed === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
+    }
+    const pctProductores = totalProductores.size > 0
+      ? (caliralProductores.size / totalProductores.size) * 100
+      : 0;
+
+    // 1. Caliral coverage of producers
+    out.push({
+      type: pctProductores > 30 ? 'positive' : pctProductores > 10 ? 'info' : 'warning',
+      icon: Users,
+      title: `${DEFAULT_COMPANY} atiende a ${caliralProductores.size} productores de ${totalProductores.size} totales (${pctProductores.toFixed(1)}%)`,
+      detail: `Captación de productores como depósito en el mercado.`,
+    });
+
+    // 2. Top competitor as deposit
+    const rankingSinCaliral = depositosRanking.filter(r => r.name !== DEFAULT_COMPANY);
+    const topComp = rankingSinCaliral[0];
+    if (topComp) {
+      out.push({
+        type: 'info',
+        icon: Crown,
+        title: `Top competidor como depósito: ${topComp.name}`,
+        detail: `Con ${topComp.share.toFixed(2)}% de mercado (${fmtKg(topComp.pn)}), ${topComp.productores} productores y ${topComp.clientes} clientes.`,
+      });
+    }
+
+    // 3. Producers not using Caliral (top 3 by volumen)
+    for (const p of productoresNoCaliralRaw.slice(0, 3)) {
+      out.push({
+        type: 'opportunity',
+        icon: Target,
+        title: `${p.name} utiliza ${p.mainDeposito} pero nunca ${DEFAULT_COMPANY}`,
+        detail: `Potencial: ${fmtKg(p.pn)} en ${p.embarques} embarques a ${p.paises} país(es).`,
+      });
+    }
+
+    // 4. Multi-deposit producers (top 3)
+    for (const p of multiDepositoCaliral.slice(0, 3)) {
+      out.push({
+        type: 'info',
+        icon: Network,
+        title: `${p.name} envía ${p.caliralPct.toFixed(1)}% por ${DEFAULT_COMPANY} y ${p.otrosPct.toFixed(1)}% por otros depósitos`,
+        detail: `${DEFAULT_COMPANY}: ${fmtKg(p.caliralPn)} · Otros: ${fmtKg(p.otrosPn)} · Total: ${fmtKg(p.total)}.`,
+      });
+    }
+
+    // 5. Countries Caliral doesn't serve (top 3 opportunities)
+    for (const { name, pn } of caliralNoMercados.paisesOportunidad.slice(0, 3)) {
+      out.push({
+        type: 'opportunity',
+        icon: Globe,
+        title: `${DEFAULT_COMPANY} no atiende envíos a ${name}`,
+        detail: `Oportunidad de ${fmtKg(pn)} atendida por otros depósitos.`,
+      });
+    }
+
+    // 6. Cuts Caliral doesn't ship (top 3)
+    for (const { name, pn } of caliralNoMercados.cortesOportunidad.slice(0, 3)) {
+      out.push({
+        type: 'opportunity',
+        icon: Package,
+        title: `${DEFAULT_COMPANY} no procesa el corte ${name}`,
+        detail: `Demanda potencial de ${fmtKg(pn)} en otros depósitos.`,
+      });
+    }
+
+    return out;
+  }, [depositRecords, depositosRanking, productoresNoCaliralRaw, multiDepositoCaliral, caliralNoMercados]);
 
   // ============================================================
   // EXPORT TO EXCEL
@@ -758,10 +1179,12 @@ export default function MercadoNacional() {
       const XLSX = await import('xlsx');
       const wb = XLSX.utils.book_new();
       const stamp = new Date().toISOString().split('T')[0];
+      const filterLabel = tipoProductoFilter === 'todos' ? 'Todos' : (tipoProductoFilter === 'congelado' ? 'Congelado' : 'Fresco');
 
       // Sheet 1: Company KPIs
       const kpiSheet = [
         { Métrica: 'Empresa', Valor: selectedCompany },
+        { Métrica: 'Filtro TipoProducto', Valor: filterLabel },
         { Métrica: 'Registros', Valor: companyStats.total },
         { Métrica: 'Cajas', Valor: companyStats.totalCajas },
         { Métrica: 'Peso Neto (kg)', Valor: companyStats.totalPn },
@@ -812,13 +1235,40 @@ export default function MercadoNacional() {
       }));
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(insSheet), 'Insights');
 
+      // Sheet 7: Depósitos ranking
+      const depSheet = depositosRanking.map((r, i) => ({
+        '#': i + 1,
+        Depósito: r.name,
+        Registros: r.regs,
+        'Peso Neto (kg)': r.pn,
+        'Productores únicos': r.productores,
+        'Clientes únicos': r.clientes,
+        '% Mercado': r.share.toFixed(2),
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(depSheet), 'Depositos');
+
+      // Sheet 8: Oportunidad comercial
+      const opSheet = oportunidadComercial.map((r, i) => ({
+        '#': i + 1,
+        Productor: r.name,
+        'Depósito actual': r.deposito,
+        'Volumen (kg)': r.pn,
+        'Crecimiento %': r.growth.toFixed(2),
+        Países: r.paises,
+        Clientes: r.clientes,
+        Denominaciones: r.denoms,
+        Score: r.score.toFixed(2),
+        Potencial: r.potencial,
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(opSheet), 'Oportunidad');
+
       XLSX.writeFile(wb, `mercado_nacional_${selectedCompany.replace(/[^a-zA-Z0-9]/g, '_')}_${stamp}.xlsx`);
       toast.success('Excel exportado correctamente');
     } catch (err) {
       console.error('Export error:', err);
       toast.error('Error al exportar Excel');
     }
-  }, [records, selectedCompany, companyStats, competitionRanking, clientAnalysis, insights]);
+  }, [records, tipoProductoFilter, selectedCompany, companyStats, competitionRanking, clientAnalysis, insights, depositosRanking, oportunidadComercial]);
 
   // ============================================================
   // TABS DEFINITION
@@ -829,6 +1279,7 @@ export default function MercadoNacional() {
     { id: 'competencia', label: 'Competencia', icon: Crown },
     { id: 'clientes', label: 'Clientes', icon: Users },
     { id: 'cortes', label: 'Cortes & Destinos', icon: Package },
+    { id: 'depositos', label: 'Depósitos', icon: Warehouse },
     { id: 'insights', label: 'Insights', icon: Lightbulb },
   ];
 
@@ -894,6 +1345,41 @@ export default function MercadoNacional() {
                 <Download className="w-4 h-4 mr-1.5" /> Excel
               </Button>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ===== GLOBAL TipoProducto FILTER (affects ALL tabs) ===== */}
+      <Card className="border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-900/10">
+        <CardContent className="p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 mr-2">
+              <div className="w-7 h-7 rounded-md bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
+                <Boxes className="w-3.5 h-3.5 text-emerald-600" />
+              </div>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">Tipo de Producto</span>
+            </div>
+            {([
+              { id: 'todos', label: 'Todos', short: 'Todos' },
+              { id: 'congelado', label: 'Congelado', short: 'Congelado' },
+              { id: 'fresco', label: 'Refrigerado/Fresco', short: 'Fresco' },
+            ] as { id: TipoProductoFilter; label: string; short: string }[]).map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => setTipoProductoFilter(opt.id)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors whitespace-nowrap ${
+                  tipoProductoFilter === opt.id
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-400'
+                }`}
+              >
+                <span className="hidden sm:inline">{opt.label}</span>
+                <span className="sm:hidden">{opt.short}</span>
+              </button>
+            ))}
+            <Badge variant="secondary" className="ml-auto text-[10px]">
+              {fmt(filteredRecords.length)} registros · {fmtKg(totalMarketPn)}
+            </Badge>
           </div>
         </CardContent>
       </Card>
@@ -1319,6 +1805,451 @@ export default function MercadoNacional() {
             </div>
           )}
 
+          {/* ============ DEPÓSITOS TAB ============ */}
+          {activeTab === 'depositos' && (
+            <div className="space-y-4">
+              {/* ===== Section A: Posicionamiento de Caliral como Depósito ===== */}
+              <div className="flex items-center gap-2 pt-1">
+                <Warehouse className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">A · Posicionamiento de {DEFAULT_COMPANY} como Depósito</h3>
+              </div>
+
+              {/* KPIs */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <KpiCard icon={Users} label="Productores" value={fmt(caliralDepositoStats.productoresCount)} sublabel="usan Caliral" color={PALETTE_HEX[0]} />
+                <KpiCard icon={Weight} label="Peso Neto" value={fmtKg(caliralDepositoStats.totalPn)} sublabel="en Caliral" color={PALETTE_HEX[1]} />
+                <KpiCard icon={Ship} label="Embarques" value={fmt(caliralDepositoStats.embarques)} sublabel="registros a depósito" color={PALETTE_HEX[2]} />
+                <KpiCard icon={Award} label="Participación" value={fmtPct(caliralDepositoStats.share)} sublabel="mercado de depósitos" color={PALETTE_HEX[3]} />
+              </div>
+
+              {/* Monthly evolution + Productores ranking */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={Calendar} title="Evolución mensual" subtitle={`Peso neto por mes — ${DEFAULT_COMPANY} como depósito`} />
+                  </CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    {caliralDepositoStats.meses.length > 0 ? (
+                      <VBarChart
+                        data={caliralDepositoStats.meses.map(([m, v]) => ({ label: monthLabel(m), value: v }))}
+                        color={COMPANY_COLOR}
+                      />
+                    ) : (
+                      <EmptyState message="Sin datos de evolución temporal" />
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={Users} title="Ranking de productores" subtitle={`Que usan ${DEFAULT_COMPANY} como depósito`} />
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {caliralDepositoStats.productoresRanking.length > 0 ? (
+                      <div className="overflow-y-auto max-h-72">
+                        <table className="w-full text-xs">
+                          <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 z-10">
+                            <tr className="border-b text-left text-slate-500 dark:text-slate-400 uppercase">
+                              <th className="px-3 py-2 font-semibold">#</th>
+                              <th className="px-3 py-2 font-semibold">Productor</th>
+                              <th className="px-3 py-2 font-semibold text-right">Registros</th>
+                              <th className="px-3 py-2 font-semibold text-right">Peso Neto</th>
+                              <th className="px-3 py-2 font-semibold text-right">%</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {caliralDepositoStats.productoresRanking.map((p, i) => {
+                              const pct = caliralDepositoStats.totalPn > 0 ? (p.pn / caliralDepositoStats.totalPn) * 100 : 0;
+                              return (
+                                <tr key={p.name} className="border-b hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
+                                  <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                                  <td className="px-3 py-2 text-slate-700 dark:text-slate-300 max-w-[180px] truncate" title={p.name}>{p.name}</td>
+                                  <td className="px-3 py-2 text-right font-mono text-slate-500">{fmt(p.regs)}</td>
+                                  <td className="px-3 py-2 text-right font-mono text-slate-700 dark:text-slate-300">{fmt(p.pn)}</td>
+                                  <td className="px-3 py-2 text-right font-mono text-emerald-600 font-semibold">{pct.toFixed(2)}%</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="px-5 py-4"><EmptyState message="Sin productores que usen Caliral como depósito" /></div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* ===== Section B: Ranking de Depósitos ===== */}
+              <div className="flex items-center gap-2 pt-2">
+                <BarChart3 className="w-4 h-4 text-violet-600" />
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">B · Ranking de Depósitos</h3>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                <Card className="lg:col-span-2">
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={BarChart3} title="Top 10 depósitos" subtitle="Por peso neto · esmeralda = Caliral" />
+                  </CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    {depositosRanking.length > 0 ? (
+                      <div className="space-y-1.5 max-h-80 overflow-y-auto pr-2">
+                        {depositosRanking.slice(0, 10).map((row, i) => {
+                          const isCaliral = row.name === DEFAULT_COMPANY;
+                          return (
+                            <HBar
+                              key={row.name}
+                              label={`${i + 1}. ${row.name.substring(0, 26)}`}
+                              value={row.pn}
+                              max={depositosRanking[0].pn}
+                              color={isCaliral ? COMPANY_COLOR : DEPOSIT_OTHER_COLOR}
+                              format={fmtKg}
+                              highlight={isCaliral}
+                            />
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <EmptyState message="Sin datos de depósitos" />
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card className="lg:col-span-3">
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={Layers} title="Tabla completa de depósitos" subtitle={`${depositosRanking.length} depósitos (excluye puertos y pasos fronterizos)`} />
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 z-10">
+                          <tr className="border-b text-left text-slate-500 dark:text-slate-400 uppercase">
+                            <th className="px-3 py-2 font-semibold">#</th>
+                            <th className="px-3 py-2 font-semibold">Depósito</th>
+                            <th className="px-3 py-2 font-semibold text-right">Registros</th>
+                            <th className="px-3 py-2 font-semibold text-right">Peso Neto</th>
+                            <th className="px-3 py-2 font-semibold text-right hidden sm:table-cell">Productores</th>
+                            <th className="px-3 py-2 font-semibold text-right hidden sm:table-cell">Clientes</th>
+                            <th className="px-3 py-2 font-semibold text-right">% Mercado</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {depositosRanking.map((row, i) => {
+                            const isCaliral = row.name === DEFAULT_COMPANY;
+                            return (
+                              <tr
+                                key={row.name}
+                                className={`border-b hover:bg-slate-50 dark:hover:bg-slate-800/50 ${isCaliral ? 'bg-emerald-50 dark:bg-emerald-900/20 font-semibold' : ''}`}
+                              >
+                                <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                                <td className="px-3 py-2 text-slate-700 dark:text-slate-300 max-w-[200px] truncate" title={row.name}>
+                                  {isCaliral && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5" />}
+                                  {row.name}
+                                </td>
+                                <td className="px-3 py-2 text-right font-mono text-slate-500">{fmt(row.regs)}</td>
+                                <td className="px-3 py-2 text-right font-mono text-slate-700 dark:text-slate-300">{fmt(row.pn)}</td>
+                                <td className="px-3 py-2 text-right font-mono text-slate-500 hidden sm:table-cell">{row.productores}</td>
+                                <td className="px-3 py-2 text-right font-mono text-slate-500 hidden sm:table-cell">{row.clientes}</td>
+                                <td className="px-3 py-2 text-right font-mono">
+                                  <span className={isCaliral ? 'text-emerald-600 font-bold' : 'text-slate-500'}>
+                                    {row.share.toFixed(2)}%
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* ===== Section C: Mercados que Caliral NO trabaja ===== */}
+              <div className="flex items-center gap-2 pt-2">
+                <Globe className="w-4 h-4 text-amber-600" />
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">C · Mercados que {DEFAULT_COMPANY} NO trabaja</h3>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={Globe} title="Países no atendidos" subtitle="Otros depósitos sí envían — oportunidades" />
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {caliralNoMercados.paisesOportunidad.length > 0 ? (
+                      <div className="overflow-y-auto max-h-72">
+                        <table className="w-full text-xs">
+                          <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 z-10">
+                            <tr className="border-b text-left text-slate-500 dark:text-slate-400 uppercase">
+                              <th className="px-3 py-2 font-semibold">#</th>
+                              <th className="px-3 py-2 font-semibold">País</th>
+                              <th className="px-3 py-2 font-semibold text-right">Volumen potencial</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {caliralNoMercados.paisesOportunidad.map((p, i) => (
+                              <tr key={p.name} className="border-b hover:bg-amber-50 dark:hover:bg-amber-900/20">
+                                <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                                <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{p.name}</td>
+                                <td className="px-3 py-2 text-right font-mono text-amber-700 dark:text-amber-400 font-semibold">{fmtKg(p.pn)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="px-5 py-4"><EmptyState message="Caliral atiende todos los países del mercado de depósitos" /></div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={Package} title="Cortes no procesados" subtitle="Otros depósitos sí los procesan — oportunidades" />
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {caliralNoMercados.cortesOportunidad.length > 0 ? (
+                      <div className="overflow-y-auto max-h-72">
+                        <table className="w-full text-xs">
+                          <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 z-10">
+                            <tr className="border-b text-left text-slate-500 dark:text-slate-400 uppercase">
+                              <th className="px-3 py-2 font-semibold">#</th>
+                              <th className="px-3 py-2 font-semibold">Corte</th>
+                              <th className="px-3 py-2 font-semibold text-right">Volumen potencial</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {caliralNoMercados.cortesOportunidad.map((c, i) => (
+                              <tr key={c.name} className="border-b hover:bg-amber-50 dark:hover:bg-amber-900/20">
+                                <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                                <td className="px-3 py-2 text-slate-700 dark:text-slate-300 max-w-[200px] truncate" title={c.name}>{c.name}</td>
+                                <td className="px-3 py-2 text-right font-mono text-amber-700 dark:text-amber-400 font-semibold">{fmtKg(c.pn)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="px-5 py-4"><EmptyState message="Caliral procesa todos los cortes del mercado de depósitos" /></div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* ===== Section D: Productores que NO usan Caliral ===== */}
+              <div className="flex items-center gap-2 pt-2">
+                <Users className="w-4 h-4 text-rose-600" />
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">D · Productores que NO usan {DEFAULT_COMPANY}</h3>
+              </div>
+
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5">
+                  <SectionTitle
+                    icon={Users}
+                    title={`Productores sin ${DEFAULT_COMPANY}`}
+                    subtitle={`${productoresNoCaliralRaw.length} productores (ordenables por columna)`}
+                    action={
+                      <Badge variant="secondary" className="text-[10px]">
+                        Click en cabecera para ordenar
+                      </Badge>
+                    }
+                  />
+                </CardHeader>
+                <CardContent className="p-0">
+                  {productoresNoCaliralRaw.length > 0 ? (
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 z-10">
+                          <tr className="border-b text-left text-slate-500 dark:text-slate-400 uppercase">
+                            <th className="px-3 py-2 font-semibold">#</th>
+                            <th className="px-3 py-2 font-semibold">Productor</th>
+                            <th className="px-3 py-2 font-semibold">Depósito principal</th>
+                            <SortHeader label="Volumen (kg)" k="pn" cur={depositSortKey} dir={depositSortDir} onSort={(k) => { if (k === depositSortKey) setDepositSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setDepositSortKey(k); setDepositSortDir('desc'); } }} />
+                            <SortHeader label="Clientes" k="clientes" cur={depositSortKey} dir={depositSortDir} onSort={(k) => { if (k === depositSortKey) setDepositSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setDepositSortKey(k); setDepositSortDir('desc'); } }} hidden="md" />
+                            <SortHeader label="Países" k="paises" cur={depositSortKey} dir={depositSortDir} onSort={(k) => { if (k === depositSortKey) setDepositSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setDepositSortKey(k); setDepositSortDir('desc'); } }} hidden="md" />
+                            <SortHeader label="Embarques" k="embarques" cur={depositSortKey} dir={depositSortDir} onSort={(k) => { if (k === depositSortKey) setDepositSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setDepositSortKey(k); setDepositSortDir('desc'); } }} hidden="sm" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {productoresNoCaliral.map((p, i) => (
+                            <tr key={p.name} className="border-b hover:bg-rose-50 dark:hover:bg-rose-900/10">
+                              <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                              <td className="px-3 py-2 text-slate-700 dark:text-slate-300 max-w-[180px] truncate" title={p.name}>{p.name}</td>
+                              <td className="px-3 py-2 text-slate-600 dark:text-slate-400 max-w-[160px] truncate" title={p.mainDeposito}>{p.mainDeposito}</td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-700 dark:text-slate-300">{fmt(p.pn)}</td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-500 hidden md:table-cell">{p.clientes}</td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-500 hidden md:table-cell">{p.paises}</td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-500 hidden sm:table-cell">{p.embarques}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="px-5 py-4"><EmptyState message="Todos los productores usan Caliral como depósito" /></div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ===== Section E: Índice de Oportunidad Comercial ===== */}
+              <div className="flex items-center gap-2 pt-2">
+                <Target className="w-4 h-4 text-violet-600" />
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">E · Índice de Oportunidad Comercial</h3>
+              </div>
+
+              <Card className="border-violet-200 dark:border-violet-900/40">
+                <CardContent className="p-3">
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Score compuesto por: <strong>30%</strong> volumen · <strong>20%</strong> crecimiento (últimos 3 meses vs anteriores) · <strong>20%</strong> mercados · <strong>15%</strong> clientes (depósitos) · <strong>15%</strong> diversificación de productos. Cada componente normalizado a 0–100.
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-0">
+                  {oportunidadComercial.length > 0 ? (
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 z-10">
+                          <tr className="border-b text-left text-slate-500 dark:text-slate-400 uppercase">
+                            <th className="px-3 py-2 font-semibold">#</th>
+                            <th className="px-3 py-2 font-semibold">Productor</th>
+                            <th className="px-3 py-2 font-semibold hidden sm:table-cell">Depósito actual</th>
+                            <th className="px-3 py-2 font-semibold text-right">Volumen</th>
+                            <th className="px-3 py-2 font-semibold text-right hidden md:table-cell">Crecim.</th>
+                            <th className="px-3 py-2 font-semibold text-right hidden md:table-cell">Mercados</th>
+                            <th className="px-3 py-2 font-semibold text-right">Score</th>
+                            <th className="px-3 py-2 font-semibold text-center">Potencial</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {oportunidadComercial.map((r, i) => (
+                            <tr key={r.name} className="border-b hover:bg-violet-50 dark:hover:bg-violet-900/10">
+                              <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                              <td className="px-3 py-2 text-slate-700 dark:text-slate-300 max-w-[160px] truncate" title={r.name}>{r.name}</td>
+                              <td className="px-3 py-2 text-slate-600 dark:text-slate-400 max-w-[140px] truncate hidden sm:table-cell" title={r.deposito}>{r.deposito}</td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-700 dark:text-slate-300">{fmtKg(r.pn)}</td>
+                              <td className="px-3 py-2 text-right font-mono hidden md:table-cell">
+                                <span className={r.growth >= 0 ? 'text-emerald-600' : 'text-rose-600'}>
+                                  {r.growth >= 0 ? '+' : ''}{r.growth.toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-500 hidden md:table-cell">{r.paises}</td>
+                              <td className="px-3 py-2 text-right">
+                                <span className="inline-block w-12 text-center font-mono font-bold rounded py-0.5"
+                                  style={{
+                                    backgroundColor: hexToRgba(r.score > 60 ? COMPANY_COLOR : r.score > 40 ? OPPORTUNITY_COLOR : '#94a3b8', 0.15),
+                                    color: r.score > 60 ? '#059669' : r.score > 40 ? '#d97706' : '#64748b',
+                                  }}
+                                >
+                                  {r.score.toFixed(1)}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                <PotencialBadge nivel={r.potencial} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="px-5 py-4"><EmptyState message="No hay productores sin Caliral para evaluar" /></div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ===== Section F: Productores con múltiples depósitos (incl. Caliral) ===== */}
+              <div className="flex items-center gap-2 pt-2">
+                <Network className="w-4 h-4 text-blue-600" />
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">F · Productores con múltiples depósitos (incl. {DEFAULT_COMPANY})</h3>
+              </div>
+
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5">
+                  <SectionTitle icon={Network} title="Reparto entre Caliral y otros depósitos" subtitle={`${multiDepositoCaliral.length} productores que usan Caliral Y otros depósitos`} />
+                </CardHeader>
+                <CardContent className="p-0">
+                  {multiDepositoCaliral.length > 0 ? (
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 z-10">
+                          <tr className="border-b text-left text-slate-500 dark:text-slate-400 uppercase">
+                            <th className="px-3 py-2 font-semibold">#</th>
+                            <th className="px-3 py-2 font-semibold">Productor</th>
+                            <th className="px-3 py-2 font-semibold text-right">Caliral (kg)</th>
+                            <th className="px-3 py-2 font-semibold text-right">Caliral %</th>
+                            <th className="px-3 py-2 font-semibold text-right">Otros (kg)</th>
+                            <th className="px-3 py-2 font-semibold text-right">Otros %</th>
+                            <th className="px-3 py-2 font-semibold text-right">Total</th>
+                            <th className="px-3 py-2 font-semibold hidden lg:table-cell">Reparto</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {multiDepositoCaliral.map((p, i) => (
+                            <tr key={p.name} className="border-b hover:bg-blue-50 dark:hover:bg-blue-900/10">
+                              <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                              <td className="px-3 py-2 text-slate-700 dark:text-slate-300 max-w-[160px] truncate" title={p.name}>{p.name}</td>
+                              <td className="px-3 py-2 text-right font-mono text-emerald-700 dark:text-emerald-400">{fmt(p.caliralPn)}</td>
+                              <td className="px-3 py-2 text-right font-mono text-emerald-600 font-semibold">{p.caliralPct.toFixed(1)}%</td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-700 dark:text-slate-300">{fmt(p.otrosPn)}</td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-500">{p.otrosPct.toFixed(1)}%</td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-700 dark:text-slate-300 font-semibold">{fmt(p.total)}</td>
+                              <td className="px-3 py-2 hidden lg:table-cell">
+                                <div className="flex h-3 w-32 rounded overflow-hidden bg-slate-100 dark:bg-slate-800">
+                                  <div className="h-full" style={{ width: `${p.caliralPct}%`, backgroundColor: COMPANY_COLOR }} title={`Caliral: ${p.caliralPct.toFixed(1)}%`} />
+                                  <div className="h-full" style={{ width: `${p.otrosPct}%`, backgroundColor: COMPETITOR_COLOR }} title={`Otros: ${p.otrosPct.toFixed(1)}%`} />
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="px-5 py-4"><EmptyState message="Ningún productor usa Caliral junto a otros depósitos" /></div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ===== Section G: Insights automáticos de depósitos ===== */}
+              <div className="flex items-center gap-2 pt-2">
+                <Sparkles className="w-4 h-4 text-violet-600" />
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">G · Insights automáticos de depósitos</h3>
+              </div>
+
+              {depositosInsights.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {depositosInsights.map((ins, i) => {
+                    const colorMap = {
+                      positive: { border: 'border-emerald-300', bg: 'bg-emerald-50/60 dark:bg-emerald-900/15', icon: 'text-emerald-600', iconBg: 'bg-emerald-100 dark:bg-emerald-900/40' },
+                      warning: { border: 'border-amber-300', bg: 'bg-amber-50/60 dark:bg-amber-900/15', icon: 'text-amber-600', iconBg: 'bg-amber-100 dark:bg-amber-900/40' },
+                      info: { border: 'border-blue-300', bg: 'bg-blue-50/60 dark:bg-blue-900/15', icon: 'text-blue-600', iconBg: 'bg-blue-100 dark:bg-blue-900/40' },
+                      opportunity: { border: 'border-violet-300', bg: 'bg-violet-50/60 dark:bg-violet-900/15', icon: 'text-violet-600', iconBg: 'bg-violet-100 dark:bg-violet-900/40' },
+                    };
+                    const c = colorMap[ins.type];
+                    return (
+                      <Card key={i} className={`border-l-4 ${c.border} ${c.bg}`}>
+                        <CardContent className="p-4 flex items-start gap-3">
+                          <div className={`w-8 h-8 rounded-lg ${c.iconBg} flex items-center justify-center shrink-0`}>
+                            <ins.icon className={`w-4 h-4 ${c.icon}`} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-snug">{ins.title}</p>
+                            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">{ins.detail}</p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              ) : (
+                <Card><CardContent className="p-4"><EmptyState message="Sin insights disponibles para depósitos" /></CardContent></Card>
+              )}
+            </div>
+          )}
+
           {/* ============ INSIGHTS TAB ============ */}
           {activeTab === 'insights' && (
             <div className="space-y-4">
@@ -1331,7 +2262,7 @@ export default function MercadoNacional() {
                   <div>
                     <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Inteligencia comercial automática</h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Análisis generado a partir de {fmt(records.length)} registros del mercado. Empresa analizada: <strong className="text-violet-700 dark:text-violet-400">{selectedCompany}</strong>.
+                      Análisis generado a partir de {fmt(filteredRecords.length)} registros del mercado. Empresa analizada: <strong className="text-violet-700 dark:text-violet-400">{selectedCompany}</strong>.
                     </p>
                   </div>
                 </CardContent>
@@ -1367,5 +2298,54 @@ export default function MercadoNacional() {
         </>
       )}
     </div>
+  );
+}
+
+// ============================================================
+// INLINE HELPERS FOR DEPÓSITOS TAB (rendered inside main component)
+// ============================================================
+
+/** Sortable table header button */
+function SortHeader({
+  label, k, cur, dir, onSort, hidden,
+}: {
+  label: string;
+  k: 'pn' | 'regs' | 'paises' | 'clientes' | 'embarques';
+  cur: string;
+  dir: 'asc' | 'desc';
+  onSort: (k: 'pn' | 'regs' | 'paises' | 'clientes' | 'embarques') => void;
+  hidden?: 'sm' | 'md';
+}) {
+  const active = cur === k;
+  const hiddenCls = hidden === 'sm' ? 'hidden sm:table-cell' : hidden === 'md' ? 'hidden md:table-cell' : '';
+  return (
+    <th className={`px-3 py-2 font-semibold text-right ${hiddenCls}`}>
+      <button
+        onClick={() => onSort(k)}
+        className={`inline-flex items-center gap-1 hover:text-emerald-600 transition-colors ${active ? 'text-emerald-600' : ''}`}
+      >
+        {label}
+        {active && (
+          <span className="text-[8px]">{dir === 'asc' ? '▲' : '▼'}</span>
+        )}
+      </button>
+    </th>
+  );
+}
+
+/** Potencial badge for the opportunity index */
+function PotencialBadge({ nivel }: { nivel: 'Muy Alto' | 'Alto' | 'Medio' | 'Bajo' }) {
+  const map: Record<string, { cls: string; dot: string }> = {
+    'Muy Alto': { cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700', dot: 'bg-emerald-500' },
+    'Alto': { cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 border-amber-300 dark:border-amber-700', dot: 'bg-amber-500' },
+    'Medio': { cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-600', dot: 'bg-slate-400' },
+    'Bajo': { cls: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 border-rose-300 dark:border-rose-700', dot: 'bg-rose-500' },
+  };
+  const c = map[nivel];
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${c.cls}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+      {nivel}
+    </span>
   );
 }
