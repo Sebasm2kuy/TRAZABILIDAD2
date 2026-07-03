@@ -801,13 +801,13 @@ export default function MercadoNacional() {
                 <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Calendar className="h-4 w-4 text-violet-600" /> Comparación Mensual</CardTitle></CardHeader>
                 <CardContent className="px-5 pb-4">
                   {(() => {
-                    const allMeses = [...new Set([...compareData.est1.meses.map(m => m[0]), ...compareData.est2.meses.map(m => m[0])])].sort();
-                    const maxVal = Math.max(...compareData.est1.meses.map(m => m[1]), ...compareData.est2.meses.map(m => m[1]), 1);
+                    const allMeses = [...new Set([...compareData.est1.meses.map((m: [string, number]) => m[0]), ...compareData.est2.meses.map((m: [string, number]) => m[0])])].sort();
+                    const maxVal = Math.max(...compareData.est1.meses.map((m: [string, number]) => m[1]), ...compareData.est2.meses.map((m: [string, number]) => m[1]), 1);
                     return (
                       <div className="flex items-end gap-1.5 h-32">
                         {allMeses.map(mes => {
-                          const v1 = compareData.est1.meses.find(m => m[0] === mes)?.[1] || 0;
-                          const v2 = compareData.est2.meses.find(m => m[0] === mes)?.[1] || 0;
+                          const v1 = compareData.est1.meses.find((m: [string, number]) => m[0] === mes)?.[1] || 0;
+                          const v2 = compareData.est2.meses.find((m: [string, number]) => m[0] === mes)?.[1] || 0;
                           return (
                             <div key={mes} className="flex-1 flex flex-col items-center gap-0.5 group">
                               <div className="flex items-end gap-0.5 h-24">
