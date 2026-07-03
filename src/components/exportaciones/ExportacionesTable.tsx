@@ -55,23 +55,13 @@ const EXP_IMPORTED_KEY = 'trazabilidad_exp_imported';
 const expCache: { data: ExpRecord[]; loaded: boolean; analytics: Record<string, unknown> | null } = { data: [], loaded: false, analytics: null };
 
 async function ensureExp() {
-  if (!expCache.loaded) {
-    const imported = localStorage.getItem(EXP_IMPORTED_KEY);
-    if (imported) {
-      try { expCache.data = JSON.parse(imported); } catch { expCache.data = []; }
-      expCache.analytics = { total: 0, pesoNetoTotal: 0, pesoBrutoTotal: 0, envasesTotal: 0, uniquePaisCount: 0, uniqueProductoCount: 0, uniqueDestinoCount: 0, lastDate: null, byPais: [], byProducto: [], byDestino: [] };
-    } else {
-      const [expR, anaR] = await Promise.all([
-        fetch(dataUrl('data/exportaciones.json')),
-        fetch(dataUrl('data/exportaciones-analytics.json')),
-      ]);
-      expCache.data = await expR.json();
-      expCache.analytics = await anaR.json();
-    }
-    expCache.loaded = true;
-  }
-  // If cache is empty but localStorage has data (race condition with Firebase pull), reload
-  if (expCache.data.length === 0) {
+  // Always check if we have data, reload if empty
+  if (!expCache.loaded || expCache.data.length === 0) {
+    expCache.loaded = false;
+    expCache.data = [];
+    expCache.analytics = { total: 0, pesoNetoTotal: 0, pesoBrutoTotal: 0, envasesTotal: 0, uniquePaisCount: 0, uniqueProductoCount: 0, uniqueDestinoCount: 0, lastDate: null, byPais: [], byProducto: [], byDestino: [] };
+
+    // Try localStorage first (user imports)
     const imported = localStorage.getItem(EXP_IMPORTED_KEY);
     if (imported) {
       try {
@@ -81,6 +71,32 @@ async function ensureExp() {
         }
       } catch { /* ignore */ }
     }
+
+    // If no local data, ALWAYS load from pre-processed JSON
+    if (expCache.data.length === 0) {
+      try {
+        const expR = await fetch(dataUrl('data/exportaciones_frimaral.json'));
+        if (expR.ok) {
+          const data = await expR.json();
+          if (Array.isArray(data) && data.length > 0) {
+            expCache.data = data;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Also merge new_records (manual/PDF)
+    try {
+      const newRecs = JSON.parse(localStorage.getItem('trazabilidad_new_records') || '[]');
+      if (Array.isArray(newRecs) && newRecs.length > 0) {
+        const existingIds = new Set(expCache.data.map((r: ExpRecord) => r.id));
+        for (const r of newRecs) {
+          if (!existingIds.has(r.id)) expCache.data.push(r);
+        }
+      }
+    } catch { /* ignore */ }
+
+    expCache.loaded = true;
   }
 }
 
@@ -267,6 +283,8 @@ export default function ExportacionesTable() {
 
   useEffect(() => {
     (async () => {
+      // Force reload cache on mount to ensure we get fresh data
+      invalidateExpCache();
       await ensureExp();
       // Load new records from localStorage (PDF uploads) and merge into cache
       try {
@@ -310,10 +328,13 @@ export default function ExportacionesTable() {
   }, []);
 
   useEffect(() => {
-    if (!expCache.loaded) return;
     let cancelled = false;
     (async () => {
-      await ensureExp();
+      // Always ensure data is loaded before filtering
+      if (!expCache.loaded || expCache.data.length === 0) {
+        invalidateExpCache();
+        await ensureExp();
+      }
       if (cancelled) return;
       let filtered = applyEdits([...expCache.data], edits);
       // Exclude deleted records
@@ -329,7 +350,8 @@ export default function ExportacionesTable() {
           sh.nombreEstablecimientoDestino?.toLowerCase().includes(s) ||
           sh.denominacionMercaderia?.toLowerCase().includes(s) ||
           sh.paisDestino?.toLowerCase().includes(s) ||
-          sh.contenedorSerieNro?.toLowerCase().includes(s)
+          sh.contenedorSerieNro?.toLowerCase().includes(s) ||
+          sh.observaciones?.toLowerCase().includes(s)
         );
       }
       if (pais) filtered = filtered.filter(sh => sh.paisDestino?.includes(pais));

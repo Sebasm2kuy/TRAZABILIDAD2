@@ -166,18 +166,12 @@ const depCache: { data: Shipment[]; loaded: boolean } = { data: [], loaded: fals
 const DEP_IMPORTED_KEY = 'trazabilidad_dep_imported';
 
 async function ensureDep() {
-  if (!depCache.loaded) {
-    const imported = localStorage.getItem(DEP_IMPORTED_KEY);
-    if (imported) {
-      try { depCache.data = JSON.parse(imported); } catch { depCache.data = []; }
-    } else {
-      const r = await fetch(dataUrl('data/shipments.json'));
-      depCache.data = await r.json();
-    }
-    depCache.loaded = true;
-  }
-  // If cache is empty but localStorage has data (race condition with Firebase pull), reload
-  if (depCache.data.length === 0) {
+  // Always reload if empty
+  if (!depCache.loaded || depCache.data.length === 0) {
+    depCache.loaded = false;
+    depCache.data = [];
+
+    // Try localStorage first
     const imported = localStorage.getItem(DEP_IMPORTED_KEY);
     if (imported) {
       try {
@@ -187,6 +181,40 @@ async function ensureDep() {
         }
       } catch { /* ignore */ }
     }
+
+    // If no local data, load from pre-processed JSON
+    if (depCache.data.length === 0) {
+      try {
+        const r = await fetch(dataUrl('data/ingresos_frimaral.json'));
+        if (r.ok) {
+          const data = await r.json();
+          if (Array.isArray(data) && data.length > 0) {
+            depCache.data = data;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Also merge new_records (manual/PDF)
+    try {
+      const newRecs = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
+      if (Array.isArray(newRecs) && newRecs.length > 0) {
+        const existingIds = new Set(depCache.data.map((r: Shipment) => r.id));
+        for (const r of newRecs) {
+          if (!existingIds.has(r.id)) depCache.data.push(r);
+        }
+      }
+    } catch { /* ignore */ }
+
+    // Also merge edits (for new_dep_ records that were edited)
+    try {
+      const edits = JSON.parse(localStorage.getItem('trazabilidad_dep_edits') || '{}');
+      for (const r of depCache.data) {
+        if (edits[r.id]) Object.assign(r, edits[r.id]);
+      }
+    } catch { /* ignore */ }
+
+    depCache.loaded = true;
   }
 }
 
