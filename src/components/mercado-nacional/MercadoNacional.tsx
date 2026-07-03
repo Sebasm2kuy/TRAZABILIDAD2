@@ -1,19 +1,29 @@
 'use client';
+
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Globe, Search, X, TrendingUp, Package, Weight, Ship, Warehouse,
-  Factory, MapPin, Calendar, ChevronRight, ChevronDown, Download, Upload, Loader2,
-  BarChart3, PieChart, Activity, GitCompare
+  Globe, TrendingUp, Package, Weight, Ship, MapPin, Calendar,
+  Download, Loader2, BarChart3, Users, Award, Target, Lightbulb,
+  Crown, AlertCircle, CheckCircle2, ArrowUpRight, ArrowDownRight,
+  Building2, PieChart as PieIcon, Layers, Sparkles,
 } from 'lucide-react';
 import { dataUrl } from '@/lib/staticData';
-import { fd, fmt } from '@/lib/utils';
+import { fmt } from '@/lib/utils';
 import { toast } from 'sonner';
-import React from 'react';
+
+// ============================================================
+// TYPES
+// ============================================================
+
+interface MovRecord {
+  t: string; f: string; c: string; cf: string; p: string; np: string;
+  ed: string; tm: string; pa: string; d: string; co: string;
+  pa2: number; e: number; pb: number; pn: number; tt: string; sh: string;
+}
 
 interface Analytics {
   total: number;
@@ -27,829 +37,1332 @@ interface Analytics {
   meses: Record<string, number>;
 }
 
-interface MovRecord {
-  t: string; f: string; c: string; cf: string; p: string; np: string;
-  tm: string; pa: string; d: string; co: string; e: number; pb: number; pn: number;
+type Tab = 'dashboard' | 'competencia' | 'clientes' | 'cortes' | 'insights';
+
+interface Insight {
+  type: 'positive' | 'warning' | 'info' | 'opportunity';
+  icon: typeof Lightbulb;
+  title: string;
+  detail: string;
 }
 
-const COLORS = ['#059669', '#0ea5e9', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1', '#14b8a6', '#a855f7'];
+// ============================================================
+// CONSTANTS
+// ============================================================
+
+const DEFAULT_COMPANY = 'Caliral S. A.';
+
+/** Tailwind-friendly hex palette (emerald, blue, amber, violet, rose, cyan, orange) */
+const PALETTE_HEX = [
+  '#10b981', '#3b82f6', '#f59e0b', '#8b5cf6',
+  '#f43f5e', '#06b6d4', '#f97316',
+];
+
+const COMPANY_COLOR = '#10b981'; // emerald — highlight for selected company
+const COMPETITOR_COLOR = '#3b82f6'; // blue — competitors
+
+/** Logistics nodes excluded from "real client" analysis */
+function isLogisticsEd(ed: string): boolean {
+  if (!ed) return true;
+  const e = ed.trim();
+  if (e === 'Puerto de Montevideo') return true;
+  if (e.startsWith('Aeropuerto')) return true;
+  if (e.startsWith('P. F.')) return true; // Pasos fronterizos
+  if (e === 'Puerto de la Paloma') return true;
+  return false;
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+const fmtKg = (n: number): string => {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M kg';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K kg';
+  return fmt(n) + ' kg';
+};
+
+const fmtNum = (n: number): string => fmt(n);
+
+const fmtPct = (n: number): string => n.toFixed(2) + '%';
+
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function sortEntries(obj: Record<string, number>): [string, number][] {
+  return Object.entries(obj).sort(([, a], [, b]) => b - a);
+}
+
+function monthLabel(m: string): string {
+  const [y, mo] = m.split('-');
+  const names = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  return `${names[parseInt(mo, 10) - 1] || mo} ${y.slice(2)}`;
+}
+
+// ============================================================
+// CSS-PURE CHART COMPONENTS
+// ============================================================
+
+/** Function that formats a numeric value into a display string */
+type ValueFormatter = (value: number) => string;
+
+/** Horizontal bar with label + value */
+function HBar({
+  label, value, max, color = COMPANY_COLOR, format = fmtNum, highlight = false,
+}: {
+  label: string; value: number; max: number; color?: string;
+  format?: ValueFormatter; highlight?: boolean;
+}) {
+  const pct = max > 0 ? (value / max) * 100 : 0;
+  return (
+    <div className="flex items-center gap-2 group">
+      <span
+        className={`text-xs truncate w-28 sm:w-36 shrink-0 ${highlight ? 'font-semibold text-slate-800 dark:text-slate-200' : 'text-slate-600 dark:text-slate-400'}`}
+        title={label}
+      >
+        {label}
+      </span>
+      <div className="flex-1 h-5 bg-slate-100 dark:bg-slate-800 rounded overflow-hidden relative min-w-[40px]">
+        <div
+          className="h-full rounded transition-all duration-500 flex items-center justify-end px-1.5"
+          style={{ width: `${Math.max(pct, value > 0 ? 3 : 0)}%`, backgroundColor: color }}
+        >
+          {pct > 18 && (
+            <span className="text-[9px] font-bold text-white whitespace-nowrap">{format(value)}</span>
+          )}
+        </div>
+      </div>
+      {pct <= 18 && (
+        <span className="text-xs font-mono text-slate-500 w-20 text-right shrink-0">{format(value)}</span>
+      )}
+    </div>
+  );
+}
+
+/** Vertical bar chart for monthly evolution */
+function VBarChart({
+  data, color = COMPANY_COLOR, compareTo,
+}: {
+  data: { label: string; value: number }[];
+  color?: string;
+  compareTo?: { label: string; value: number }[];
+}) {
+  const max = Math.max(...data.map(d => d.value), ...(compareTo?.map(d => d.value) || [0]), 1);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-end gap-1.5 sm:gap-2 h-40 sm:h-52">
+        {data.map((d, i) => {
+          const h = (d.value / max) * 100;
+          const compVal = compareTo?.[i]?.value || 0;
+          const compH = (compVal / max) * 100;
+          return (
+            <div key={i} className="flex-1 flex flex-col items-center gap-1 group min-w-0">
+              <span className="text-[9px] font-mono text-slate-600 dark:text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                {fmt(d.value)}
+              </span>
+              <div className="w-full flex-1 flex items-end gap-0.5 justify-center">
+                {compareTo && (
+                  <div
+                    className="w-1.5 sm:w-2 rounded-t transition-all duration-500"
+                    style={{ height: `${Math.max(compH, compVal > 0 ? 2 : 0)}%`, backgroundColor: '#cbd5e1' }}
+                    title={`Mercado total: ${fmt(compVal)}`}
+                  />
+                )}
+                <div
+                  className="w-3 sm:w-4 rounded-t transition-all duration-500 hover:opacity-80"
+                  style={{ height: `${Math.max(h, d.value > 0 ? 2 : 0)}%`, backgroundColor: color }}
+                  title={`${d.label}: ${fmt(d.value)}`}
+                />
+              </div>
+              <span className="text-[9px] text-slate-500 truncate w-full text-center">{d.label}</span>
+            </div>
+          );
+        })}
+      </div>
+      {compareTo && (
+        <div className="flex gap-4 justify-center">
+          <span className="text-[10px] flex items-center gap-1">
+            <span className="w-3 h-3 rounded" style={{ backgroundColor: color }} /> Empresa
+          </span>
+          <span className="text-[10px] flex items-center gap-1">
+            <span className="w-3 h-3 rounded bg-slate-300" /> Mercado total
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Compute conic-gradient stops for a pie chart (pure, no render-scope mutation) */
+function computeConicStops(
+  slices: { value: number; color: string }[],
+  total: number,
+): string {
+  const parts: string[] = [];
+  let acc = 0;
+  for (const d of slices) {
+    const start = (acc / total) * 360;
+    acc += d.value;
+    const end = (acc / total) * 360;
+    parts.push(`${d.color} ${start}deg ${end}deg`);
+  }
+  return parts.join(', ');
+}
+
+/** CSS conic-gradient pie chart */
+function PieChart({
+  data, size = 170,
+}: {
+  data: { label: string; value: number; color: string }[];
+  size?: number;
+}) {
+  const total = data.reduce((s, d) => s + d.value, 0) || 1;
+  const slices = data.filter(d => d.value > 0);
+  const stops = computeConicStops(slices, total);
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center gap-4">
+      <div className="relative shrink-0" style={{ width: size, height: size }}>
+        <div
+          className="w-full h-full rounded-full"
+          style={{ background: `conic-gradient(${stops || '#e2e8f0 0deg 360deg'})` }}
+        />
+        <div
+          className="absolute rounded-full flex flex-col items-center justify-center bg-white dark:bg-slate-900"
+          style={{
+            width: size * 0.58, height: size * 0.58,
+            top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+          }}
+        >
+          <span className="text-[10px] text-slate-500">Total</span>
+          <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{fmt(total)}</span>
+        </div>
+      </div>
+      <div className="flex-1 space-y-1 w-full min-w-0 max-h-48 overflow-y-auto pr-1">
+        {slices.map((d, i) => (
+          <div key={i} className="flex items-center gap-2 text-xs">
+            <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: d.color }} />
+            <span className="text-slate-700 dark:text-slate-300 flex-1 truncate" title={d.label}>{d.label}</span>
+            <span className="font-mono text-slate-500 w-14 text-right">{((d.value / total) * 100).toFixed(1)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Heatmap cell */
+function HeatCell({ value, max, color = COMPANY_COLOR }: { value: number; max: number; color?: string }) {
+  if (value === 0) {
+    return <td className="px-1 py-1 text-center text-[9px] text-slate-300 dark:text-slate-700">·</td>;
+  }
+  const intensity = max > 0 ? value / max : 0;
+  const alpha = 0.18 + intensity * 0.82;
+  return (
+    <td
+      className="px-1 py-1 text-center text-[9px] font-mono text-slate-700 dark:text-slate-200"
+      style={{ backgroundColor: hexToRgba(color, alpha) }}
+      title={fmt(value)}
+    >
+      {value >= 1000 ? (value / 1000).toFixed(0) + 'K' : value > 0 ? fmt(value) : ''}
+    </td>
+  );
+}
+
+// ============================================================
+// SMALL UI COMPONENTS
+// ============================================================
+
+function KpiCard({
+  icon: Icon, label, value, sublabel, color,
+}: {
+  icon: typeof Weight; label: string; value: string; sublabel?: string; color: string;
+}) {
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-3">
+          <div
+            className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+            style={{ backgroundColor: hexToRgba(color, 0.14) }}
+          >
+            <Icon className="w-5 h-5" style={{ color }} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 truncate">{label}</p>
+            <p className="text-lg font-bold text-slate-800 dark:text-slate-100 leading-tight truncate">{value}</p>
+            {sublabel && <p className="text-[10px] text-slate-400 truncate">{sublabel}</p>}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SectionTitle({ icon: Icon, title, subtitle, action }: {
+  icon: typeof BarChart3; title: string; subtitle?: string; action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <Icon className="w-4 h-4 text-slate-500" />
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">{title}</h3>
+          {subtitle && <p className="text-[11px] text-slate-400">{subtitle}</p>}
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="text-center py-12 text-slate-400 text-sm">
+      <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-40" />
+      {message}
+    </div>
+  );
+}
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
 
 export default function MercadoNacional() {
+  // --- State ---
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [records, setRecords] = useState<MovRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [recordsLoaded, setRecordsLoaded] = useState(false);
-  const [loadingRecords, setLoadingRecords] = useState(false);
-  const [search, setSearch] = useState('');
-  const [filterPais, setFilterPais] = useState('');
-  const [filterProductor, setFilterProductor] = useState('');
-  const [filterTipo, setFilterTipo] = useState('');
-  const [view, setView] = useState<'dashboard' | 'search' | 'compare'>('dashboard');
-  const [sortBy, setSortBy] = useState<'fecha' | 'cajas' | 'peso'>('fecha');
-  const [page, setPage] = useState(1);
-  const LIMIT = 50;
+  const [loadingRecords, setLoadingRecords] = useState(true);
+  const [loadProgress, setLoadProgress] = useState('');
+  const [selectedCompany, setSelectedCompany] = useState(DEFAULT_COMPANY);
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [topN, setTopN] = useState<5 | 10 | 20>(10);
 
-  // Compare mode state
-  const [compareEst1, setCompareEst1] = useState('');
-  const [compareEst2, setCompareEst2] = useState('');
-  const [compareData, setCompareData] = useState<{ est1: any; est2: any } | null>(null);
-  const [compareLoading, setCompareLoading] = useState(false);
-
-  // Load analytics (small, fast)
+  // --- Load analytics (fast) + records (heavy) on mount ---
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
-        const r = await fetch(dataUrl('data/nacional_analytics.json'));
-        if (r.ok) setAnalytics(await r.json());
-      } catch (err) { console.error('Error loading analytics:', err); }
-      setLoading(false);
-    })();
-  }, []);
+        setLoadProgress('Cargando métricas…');
+        const ra = await fetch(dataUrl('data/nacional_analytics.json'));
+        if (ra.ok && !cancelled) setAnalytics(await ra.json());
 
-  // Load full records (lazy, only when switching to search view)
-  const loadRecords = useCallback(async () => {
-    if (recordsLoaded) return;
-    setLoadingRecords(true);
-    try {
-      const r = await fetch(dataUrl('data/nacional_mgmp.json'));
-      if (r.ok) {
-        const data = await r.json();
-        setRecords(data);
-        setRecordsLoaded(true);
-      }
-    } catch (err) { console.error('Error loading records:', err); }
-    setLoadingRecords(false);
-  }, [recordsLoaded]);
-
-  useEffect(() => {
-    if (view === 'search') loadRecords();
-  }, [view, loadRecords]);
-
-  // Compute stats for a single establishment from records
-  const computeEstStats = useCallback((recs: MovRecord[], name: string) => {
-    const paises: Record<string, number> = {};
-    const denoms: Record<string, number> = {};
-    const cortes: Record<string, number> = {};
-    const tipos: Record<string, number> = {};
-    const meses: Record<string, number> = {};
-    let totalCajas = 0, totalPeso = 0;
-    for (const r of recs) {
-      if (r.pa) paises[r.pa] = (paises[r.pa] || 0) + 1;
-      if (r.d) denoms[r.d] = (denoms[r.d] || 0) + 1;
-      if (r.co) cortes[r.co] = (cortes[r.co] || 0) + 1;
-      if (r.tm) tipos[r.tm] = (tipos[r.tm] || 0) + 1;
-      if (r.f) { const m = r.f.substring(0, 7); meses[m] = (meses[m] || 0) + 1; }
-      totalCajas += r.e || 0;
-      totalPeso += r.pn || 0;
-    }
-    const sortEntries = (obj: Record<string, number>) => Object.entries(obj).sort(([,a],[,b]) => b - a);
-    return {
-      name, total: recs.length, totalCajas, totalPeso,
-      paises: sortEntries(paises).slice(0, 10),
-      denoms: sortEntries(denoms).slice(0, 10),
-      cortes: sortEntries(cortes).slice(0, 10),
-      tipos: sortEntries(tipos),
-      meses: Object.entries(meses).sort(([a],[b]) => a.localeCompare(b)),
-    };
-  }, []);
-
-  // Run comparison
-  const runComparison = useCallback(async () => {
-    if (!compareEst1 || !compareEst2 || compareEst1 === compareEst2) {
-      toast.error('Seleccioná dos establecimientos diferentes');
-      return;
-    }
-    setCompareLoading(true);
-
-    // Ensure records are loaded
-    let recs = records;
-    if (!recordsLoaded) {
-      try {
-        const r = await fetch(dataUrl('data/nacional_mgmp.json'));
-        if (r.ok) {
-          recs = await r.json();
-          setRecords(recs);
-          setRecordsLoaded(true);
+        setLoadProgress('Cargando 62.984 registros (21.7 MB)…');
+        const rr = await fetch(dataUrl('data/nacional_mgmp.json'));
+        if (rr.ok && !cancelled) {
+          const data: MovRecord[] = await rr.json();
+          setRecords(data);
         }
-      } catch (err) { console.error('Error loading records:', err); }
-    }
+      } catch (err) {
+        console.error('Error loading data:', err);
+        toast.error('Error al cargar los datos del mercado');
+      } finally {
+        if (!cancelled) {
+          setLoadingRecords(false);
+          setLoadProgress('');
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
-    const recs1 = recs.filter(r => r.p === compareEst1 || r.cf === compareEst1);
-    const recs2 = recs.filter(r => r.p === compareEst2 || r.cf === compareEst2);
+  // --- Company list (union of productores + certificadores) ---
+  const companyList = useMemo<string[]>(() => {
+    if (!analytics) return [DEFAULT_COMPANY];
+    const set = new Set<string>();
+    analytics.certificadores.forEach(([n]) => set.add(n));
+    analytics.productores.forEach(([n]) => set.add(n));
+    return [...set].sort((a, b) => a.localeCompare(b, 'es'));
+  }, [analytics]);
 
-    if (recs1.length === 0 && recs2.length === 0) {
-      toast.error('No se encontraron registros para los establecimientos seleccionados');
-      setCompareLoading(false);
-      return;
-    }
+  // --- Total market peso neto (denominator for market share) ---
+  const totalMarketPn = useMemo(() => {
+    if (records.length) return records.reduce((s, r) => s + (r.pn || 0), 0);
+    return analytics?.totalPeso || 0;
+  }, [records, analytics]);
 
-    setCompareData({
-      est1: computeEstStats(recs1, compareEst1),
-      est2: computeEstStats(recs2, compareEst2),
-    });
-    setCompareLoading(false);
-  }, [compareEst1, compareEst2, records, recordsLoaded, computeEstStats]);
+  // ============================================================
+  // COMPUTATION: selected company's records + stats
+  // ============================================================
 
-  // Filter records
-  const filteredRecords = useMemo(() => {
+  const companyRecords = useMemo<MovRecord[]>(() => {
     if (!records.length) return [];
-    let items = [...records];
-    if (search) {
-      const s = search.toLowerCase();
-      items = items.filter(r =>
-        r.t.includes(s) || r.c.toLowerCase().includes(s) ||
-        r.p.toLowerCase().includes(s) || r.pa.toLowerCase().includes(s) ||
-        r.d.toLowerCase().includes(s) || r.co.toLowerCase().includes(s) ||
-        r.cf.toLowerCase().includes(s)
-      );
-    }
-    if (filterPais) items = items.filter(r => r.pa === filterPais);
-    if (filterProductor) items = items.filter(r => r.p === filterProductor);
-    if (filterTipo) items = items.filter(r => r.tm === filterTipo);
-    // Sort
-    if (sortBy === 'cajas') items.sort((a, b) => b.e - a.e);
-    else if (sortBy === 'peso') items.sort((a, b) => b.pn - a.pn);
-    else items.sort((a, b) => (b.f || '').localeCompare(a.f || ''));
-    return items;
-  }, [records, search, filterPais, filterProductor, filterTipo, sortBy]);
+    // Prefer cf (certifier) match; fallback to p (productor) if no cf records
+    const byCf = records.filter(r => r.cf === selectedCompany);
+    if (byCf.length > 0) return byCf;
+    return records.filter(r => r.p === selectedCompany);
+  }, [records, selectedCompany]);
 
-  const totalPages = Math.ceil(filteredRecords.length / LIMIT);
-  const pagedRecords = filteredRecords.slice((page - 1) * LIMIT, page * LIMIT);
-
-  // Compute analytics from filtered records (dynamic charts)
-  const filteredAnalytics = useMemo(() => {
-    if (!filteredRecords.length) return null;
+  const companyStats = useMemo(() => {
     const paises: Record<string, number> = {};
-    const productores: Record<string, number> = {};
-    const tipos: Record<string, number> = {};
-    const denoms: Record<string, number> = {};
     const cortes: Record<string, number> = {};
+    const denoms: Record<string, number> = {};
+    const tipos: Record<string, number> = {};
+    const clientes: Record<string, number> = {};
     const meses: Record<string, number> = {};
-    const certifs: Record<string, number> = {};
-    let totalCajas = 0, totalPeso = 0;
+    let totalCajas = 0, totalPn = 0;
 
-    for (const r of filteredRecords) {
-      if (r.pa) paises[r.pa] = (paises[r.pa] || 0) + 1;
-      if (r.p) productores[r.p] = (productores[r.p] || 0) + 1;
-      if (r.tm) tipos[r.tm] = (tipos[r.tm] || 0) + 1;
+    for (const r of companyRecords) {
+      if (r.pa) paises[r.pa] = (paises[r.pa] || 0) + (r.pn || 0);
+      if (r.co) cortes[r.co] = (cortes[r.co] || 0) + (r.pn || 0);
       if (r.d) denoms[r.d] = (denoms[r.d] || 0) + 1;
-      if (r.co) cortes[r.co] = (cortes[r.co] || 0) + 1;
-      if (r.cf) certifs[r.cf] = (certifs[r.cf] || 0) + 1;
-      if (r.f) { const m = r.f.substring(0, 7); meses[m] = (meses[m] || 0) + 1; }
+      if (r.tm) tipos[r.tm] = (tipos[r.tm] || 0) + 1;
+      if (r.ed && !isLogisticsEd(r.ed)) clientes[r.ed] = (clientes[r.ed] || 0) + (r.pn || 0);
+      if (r.f) { const m = r.f.substring(0, 7); meses[m] = (meses[m] || 0) + (r.pn || 0); }
       totalCajas += r.e || 0;
-      totalPeso += r.pn || 0;
+      totalPn += r.pn || 0;
     }
-
-    const sortEntries = (obj: Record<string, number>) => Object.entries(obj).sort(([,a],[,b]) => b - a);
 
     return {
-      total: filteredRecords.length,
-      totalCajas, totalPeso,
-      paises: sortEntries(paises).slice(0, 12),
-      productores: sortEntries(productores).slice(0, 12),
+      total: companyRecords.length,
+      totalCajas,
+      totalPn,
+      paises: sortEntries(paises),
+      cortes: sortEntries(cortes),
+      denoms: sortEntries(denoms),
       tipos: sortEntries(tipos),
-      denoms: sortEntries(denoms).slice(0, 10),
-      cortes: sortEntries(cortes).slice(0, 10),
-      certifs: sortEntries(certifs).slice(0, 10),
-      meses: Object.entries(meses).sort(([a],[b]) => a.localeCompare(b)),
+      clientes: sortEntries(clientes),
+      meses: Object.entries(meses).sort(([a], [b]) => a.localeCompare(b)),
+      uniqueClientes: Object.keys(clientes).length,
+      uniqueCortes: Object.keys(cortes).length,
+      uniquePaises: Object.keys(paises).length,
+      marketShare: totalMarketPn > 0 ? (totalPn / totalMarketPn) * 100 : 0,
     };
-  }, [filteredRecords]);
+  }, [companyRecords, totalMarketPn]);
 
-  // Chart metric selector
-  const [chartMetric, setChartMetric] = useState<'registros' | 'cajas' | 'peso'>('registros');
-  const [chartDimension, setChartDimension] = useState<'paises' | 'productores' | 'denoms' | 'cortes' | 'tipos' | 'meses' | 'certifs'>('paises');
+  // ============================================================
+  // COMPUTATION: competition ranking (all certificadores by pn)
+  // ============================================================
 
-  // Reset page when filters change
-  useEffect(() => { setPage(1); }, [search, filterPais, filterProductor, filterTipo, sortBy]);
+  interface CompetitorRow {
+    name: string; regs: number; cajas: number; pn: number;
+    paises: number; cortes: number; share: number;
+  }
 
-  // Chart helpers
-  const maxPais = analytics ? Math.max(...analytics.paises.map(p => p[1])) : 1;
-  const maxProductor = analytics ? Math.max(...analytics.productores.map(p => p[1])) : 1;
-  const maxMes = analytics ? Math.max(...Object.values(analytics.meses)) : 1;
-  const sortedMeses = analytics ? Object.entries(analytics.meses).sort(([a],[b]) => a.localeCompare(b)) : [];
+  const competitionRanking = useMemo<CompetitorRow[]>(() => {
+    if (!records.length) return [];
+    const map: Record<string, { regs: number; cajas: number; pn: number; paises: Set<string>; cortes: Set<string> }> = {};
+    for (const r of records) {
+      const cf = r.cf;
+      if (!cf) continue;
+      if (!map[cf]) map[cf] = { regs: 0, cajas: 0, pn: 0, paises: new Set(), cortes: new Set() };
+      map[cf].regs++;
+      map[cf].cajas += r.e || 0;
+      map[cf].pn += r.pn || 0;
+      if (r.pa) map[cf].paises.add(r.pa);
+      if (r.co) map[cf].cortes.add(r.co);
+    }
+    const totalPn = Object.values(map).reduce((s, v) => s + v.pn, 0) || 1;
+    return Object.entries(map)
+      .map(([name, v]) => ({
+        name, regs: v.regs, cajas: v.cajas, pn: v.pn,
+        paises: v.paises.size, cortes: v.cortes.size,
+        share: (v.pn / totalPn) * 100,
+      }))
+      .sort((a, b) => b.pn - a.pn);
+  }, [records]);
 
-  if (loading) {
+  // ============================================================
+  // COMPUTATION: monthly evolution (company + market total)
+  // ============================================================
+
+  const monthlyEvolution = useMemo(() => {
+    const companyMonths: Record<string, number> = {};
+    const marketMonths: Record<string, number> = {};
+    for (const r of companyRecords) {
+      if (r.f) { const m = r.f.substring(0, 7); companyMonths[m] = (companyMonths[m] || 0) + (r.pn || 0); }
+    }
+    for (const r of records) {
+      if (r.f) { const m = r.f.substring(0, 7); marketMonths[m] = (marketMonths[m] || 0) + (r.pn || 0); }
+    }
+    const allMonths = [...new Set([...Object.keys(companyMonths), ...Object.keys(marketMonths)])].sort();
+    return allMonths.map(m => ({
+      label: monthLabel(m),
+      value: companyMonths[m] || 0,
+      marketValue: marketMonths[m] || 0,
+    }));
+  }, [companyRecords, records]);
+
+  // ============================================================
+  // COMPUTATION: client analysis (exclusive / shared)
+  // ============================================================
+
+  const clientAnalysis = useMemo(() => {
+    if (!records.length) return { topClients: [], exclusive: [], shared: [] };
+
+    // Map: ed -> Set of certifiers that ship there
+    const edCertifiers: Record<string, Set<string>> = {};
+    const edPn: Record<string, number> = {};
+    for (const r of records) {
+      if (!r.ed || isLogisticsEd(r.ed)) continue;
+      if (!edCertifiers[r.ed]) { edCertifiers[r.ed] = new Set(); edPn[r.ed] = 0; }
+      if (r.cf) edCertifiers[r.ed].add(r.cf);
+      edPn[r.ed] += r.pn || 0;
+    }
+
+    // Company's clients (ed values in company's records, excluding logistics)
+    const companyClientMap: Record<string, number> = {};
+    for (const r of companyRecords) {
+      if (!r.ed || isLogisticsEd(r.ed)) continue;
+      companyClientMap[r.ed] = (companyClientMap[r.ed] || 0) + (r.pn || 0);
+    }
+
+    const companyClientNames = Object.keys(companyClientMap);
+    const exclusive: { name: string; pn: number }[] = [];
+    const shared: { name: string; pn: number; competitors: number }[] = [];
+
+    for (const name of companyClientNames) {
+      const certifiers = edCertifiers[name] || new Set();
+      const pn = companyClientMap[name];
+      if (certifiers.size <= 1) {
+        exclusive.push({ name, pn });
+      } else {
+        shared.push({ name, pn, competitors: certifiers.size });
+      }
+    }
+
+    exclusive.sort((a, b) => b.pn - a.pn);
+    shared.sort((a, b) => b.pn - a.pn);
+
+    const topClients = companyClientNames
+      .map(name => ({ name, pn: companyClientMap[name] }))
+      .sort((a, b) => b.pn - a.pn);
+
+    return { topClients, exclusive, shared };
+  }, [records, companyRecords]);
+
+  // ============================================================
+  // COMPUTATION: corte × pais heatmap (selected company)
+  // ============================================================
+
+  const heatmapData = useMemo(() => {
+    const topCortes = companyStats.cortes.slice(0, 10).map(([n]) => n);
+    const topPaises = companyStats.paises.slice(0, 8).map(([n]) => n);
+
+    // If company has very few cortes, fill from overall top cortes
+    let finalCortes = topCortes;
+    if (finalCortes.length < 6 && records.length) {
+      const allCortes: Record<string, number> = {};
+      for (const r of records) { if (r.co) allCortes[r.co] = (allCortes[r.co] || 0) + (r.pn || 0); }
+      const extra = sortEntries(allCortes).map(([n]) => n).filter(n => !finalCortes.includes(n));
+      finalCortes = [...finalCortes, ...extra].slice(0, 10);
+    }
+
+    const matrix: Record<string, Record<string, number>> = {};
+    let maxVal = 0;
+    for (const r of companyRecords) {
+      if (!r.co || !r.pa) continue;
+      if (!finalCortes.includes(r.co)) continue;
+      if (!topPaises.includes(r.pa)) continue;
+      if (!matrix[r.co]) matrix[r.co] = {};
+      matrix[r.co][r.pa] = (matrix[r.co][r.pa] || 0) + (r.pn || 0);
+      if (matrix[r.co][r.pa] > maxVal) maxVal = matrix[r.co][r.pa];
+    }
+
+    return { cortes: finalCortes, paises: topPaises, matrix, maxVal };
+  }, [companyStats, companyRecords, records]);
+
+  // ============================================================
+  // COMPUTATION: automatic insights
+  // ============================================================
+
+  const insights = useMemo<Insight[]>(() => {
+    if (!records.length || !competitionRanking.length) return [];
+    const out: Insight[] = [];
+    const company = selectedCompany;
+    const myPn = companyStats.totalPn;
+    const myShare = companyStats.marketShare;
+    const ranking = competitionRanking;
+    const myRankIdx = ranking.findIndex(r => r.name === company);
+    const myRank = myRankIdx >= 0 ? myRankIdx + 1 : ranking.length;
+
+    // 1. Market share
+    out.push({
+      type: myShare >= 5 ? 'positive' : myShare >= 1 ? 'info' : 'warning',
+      icon: Award,
+      title: `${company} certifica ${fmtPct(myShare)} del mercado total`,
+      detail: `${fmtKg(myPn)} de ${fmtKg(totalMarketPn)} — puesto #${myRank} de ${ranking.length} certificadores.`,
+    });
+
+    // 2. Top competitor
+    const leader = ranking[0];
+    if (leader && leader.name !== company) {
+      out.push({
+        type: 'info',
+        icon: Crown,
+        title: `Top competidor: ${leader.name}`,
+        detail: `Lidera con ${fmtPct(leader.share)} de mercado (${fmtKg(leader.pn)}), ${leader.paises} países y ${leader.cortes} cortes.`,
+      });
+    }
+
+    // 3. Gap to leader
+    if (leader && leader.name !== company && myPn > 0) {
+      const ratio = leader.pn / myPn;
+      out.push({
+        type: ratio > 5 ? 'warning' : 'info',
+        icon: TrendingUp,
+        title: `Brecha con el líder: ${ratio.toFixed(1)}×`,
+        detail: `${leader.name} certifica ${ratio.toFixed(1)}× más peso neto que ${company}.`,
+      });
+    }
+
+    // 4. Country opportunities
+    const myPaises = new Set(companyStats.paises.map(([n]) => n));
+    const allPaisesPn: Record<string, number> = {};
+    for (const r of records) {
+      if (r.pa && r.cf !== company) allPaisesPn[r.pa] = (allPaisesPn[r.pa] || 0) + (r.pn || 0);
+    }
+    const oppPaises = Object.entries(allPaisesPn)
+      .filter(([pa]) => !myPaises.has(pa))
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5);
+
+    if (oppPaises.length) {
+      const list = oppPaises.slice(0, 3).map(([pa, pn]) => `${pa} (${fmtKg(pn)})`).join(', ');
+      out.push({
+        type: 'opportunity',
+        icon: Globe,
+        title: `${company} no certifica envíos a ${oppPaises.length} mercados atendidos por la competencia`,
+        detail: `Top oportunidades: ${list}.`,
+      });
+    }
+
+    // 5. Competitor growth (last full month vs previous)
+    const monthTotals: Record<string, number> = {};
+    for (const r of records) { if (r.f) { const m = r.f.substring(0, 7); monthTotals[m] = (monthTotals[m] || 0) + 1; } }
+    const sortedMonths = Object.keys(monthTotals).sort();
+    // Use last two months where the earlier has >= 500 records (full month)
+    let prevMonth = '', latestMonth = '';
+    for (let i = sortedMonths.length - 1; i >= 1; i--) {
+      if (monthTotals[sortedMonths[i - 1]] >= 500) {
+        latestMonth = sortedMonths[i];
+        prevMonth = sortedMonths[i - 1];
+        break;
+      }
+    }
+    if (latestMonth && prevMonth) {
+      const compGrowth: { name: string; growth: number; prevPn: number; latestPn: number }[] = [];
+      for (const comp of ranking.slice(0, 10)) {
+        let prevPn = 0, latestPn = 0;
+        for (const r of records) {
+          if (r.cf !== comp.name || !r.f) continue;
+          const m = r.f.substring(0, 7);
+          if (m === prevMonth) prevPn += r.pn || 0;
+          if (m === latestMonth) latestPn += r.pn || 0;
+        }
+        if (prevPn > 0) {
+          compGrowth.push({ name: comp.name, growth: ((latestPn - prevPn) / prevPn) * 100, prevPn, latestPn });
+        }
+      }
+      const growers = compGrowth.filter(g => g.growth > 0).sort((a, b) => b.growth - a.growth);
+      if (growers.length) {
+        const top = growers[0];
+        out.push({
+          type: 'warning',
+          icon: ArrowUpRight,
+          title: `${top.name} creció ${fmtPct(top.growth)} en el último mes`,
+          detail: `De ${fmtKg(top.prevPn)} (${monthLabel(prevMonth)}) a ${fmtKg(top.latestPn)} (${monthLabel(latestMonth)}).`,
+        });
+      }
+      const decliners = compGrowth.filter(g => g.growth < 0).sort((a, b) => a.growth - b.growth);
+      if (decliners.length) {
+        const top = decliners[0];
+        out.push({
+          type: 'info',
+          icon: ArrowDownRight,
+          title: `${top.name} cayó ${fmtPct(Math.abs(top.growth))} en el último mes`,
+          detail: `De ${fmtKg(top.prevPn)} a ${fmtKg(top.latestPn)}.`,
+        });
+      }
+    }
+
+    // 6. Cuts gap
+    const myCortes = new Set(companyStats.cortes.map(([n]) => n));
+    const allCortesPn: Record<string, number> = {};
+    for (const r of records) {
+      if (r.co && r.cf !== company) allCortesPn[r.co] = (allCortesPn[r.co] || 0) + (r.pn || 0);
+    }
+    const oppCortes = Object.entries(allCortesPn)
+      .filter(([co]) => !myCortes.has(co))
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5);
+    if (oppCortes.length) {
+      const list = oppCortes.slice(0, 5).map(([co, pn]) => `${co} (${fmtKg(pn)})`).join(', ');
+      out.push({
+        type: 'opportunity',
+        icon: Package,
+        title: `${company} no certifica ${oppCortes.length} cortes con demanda en la competencia`,
+        detail: `Top: ${list}.`,
+      });
+    }
+
+    // 7. Exclusive clients
+    if (clientAnalysis.exclusive.length) {
+      out.push({
+        type: 'positive',
+        icon: CheckCircle2,
+        title: `${company} tiene ${clientAnalysis.exclusive.length} cliente(s) exclusivo(s)`,
+        detail: `Ningún otro certificador abastece a: ${clientAnalysis.exclusive.slice(0, 4).map(c => c.name).join(', ')}.`,
+      });
+    }
+
+    // 8. Cut diversity comparison
+    const leader2 = ranking[0];
+    if (leader2) {
+      out.push({
+        type: companyStats.uniqueCortes >= leader2.cortes * 0.5 ? 'positive' : 'info',
+        icon: Layers,
+        title: `Diversidad de cortes: ${companyStats.uniqueCortes} únicos`,
+        detail: `El líder (${leader2.name}) certifica ${leader2.cortes} cortes — ${company} cubre ${leader2.cortes > 0 ? fmtPct((companyStats.uniqueCortes / leader2.cortes) * 100) : 'N/A'} del leader.`,
+      });
+    }
+
+    // 9. Country reach
+    if (leader2) {
+      out.push({
+        type: companyStats.uniquePaises >= leader2.paises * 0.5 ? 'positive' : 'info',
+        icon: MapPin,
+        title: `Alcance geográfico: ${companyStats.uniquePaises} países`,
+        detail: `El líder reacha ${leader2.paises} países — ${company} está presente en ${leader2.paises > 0 ? fmtPct((companyStats.uniquePaises / leader2.paises) * 100) : 'N/A'} de ese alcance.`,
+      });
+    }
+
+    // 10. Caliral-specific note
+    if (company === DEFAULT_COMPANY) {
+      out.push({
+        type: 'info',
+        icon: Building2,
+        title: `${company} opera como certificadora y depósito`,
+        detail: `No es productora — certifica envíos mayormente de Frigorífico San Jacinto (Nirea S.A.). Los registros donde aparece como destino (ed) corresponden a ingresos a depósito.`,
+      });
+    }
+
+    return out;
+  }, [records, competitionRanking, companyStats, clientAnalysis, selectedCompany, totalMarketPn]);
+
+  // ============================================================
+  // EXPORT TO EXCEL
+  // ============================================================
+
+  const handleExport = useCallback(async () => {
+    if (!records.length) {
+      toast.error('Los datos aún están cargando');
+      return;
+    }
+    try {
+      const XLSX = await import('xlsx');
+      const wb = XLSX.utils.book_new();
+      const stamp = new Date().toISOString().split('T')[0];
+
+      // Sheet 1: Company KPIs
+      const kpiSheet = [
+        { Métrica: 'Empresa', Valor: selectedCompany },
+        { Métrica: 'Registros', Valor: companyStats.total },
+        { Métrica: 'Cajas', Valor: companyStats.totalCajas },
+        { Métrica: 'Peso Neto (kg)', Valor: companyStats.totalPn },
+        { Métrica: 'Clientes únicos', Valor: companyStats.uniqueClientes },
+        { Métrica: 'Cortes únicos', Valor: companyStats.uniqueCortes },
+        { Métrica: 'Países', Valor: companyStats.uniquePaises },
+        { Métrica: 'Participación de mercado %', Valor: companyStats.marketShare.toFixed(2) },
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(kpiSheet), 'KPIs');
+
+      // Sheet 2: Competition ranking
+      const compSheet = competitionRanking.map((r, i) => ({
+        '#': i + 1,
+        Empresa: r.name,
+        Registros: r.regs,
+        Cajas: r.cajas,
+        'Peso Neto (kg)': r.pn,
+        Países: r.paises,
+        Cortes: r.cortes,
+        '% Mercado': r.share.toFixed(2),
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(compSheet), 'Competencia');
+
+      // Sheet 3: Clients
+      const clientSheet = clientAnalysis.topClients.map((c, i) => ({
+        '#': i + 1,
+        Cliente: c.name,
+        'Peso Neto (kg)': c.pn,
+        Tipo: clientAnalysis.exclusive.some(e => e.name === c.name) ? 'Exclusivo' : 'Compartido',
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientSheet), 'Clientes');
+
+      // Sheet 4: Cortes ranking
+      const cortesSheet = companyStats.cortes.map(([co, pn], i) => ({
+        '#': i + 1, Corte: co, 'Peso Neto (kg)': pn,
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cortesSheet), 'Cortes');
+
+      // Sheet 5: Paises ranking
+      const paisesSheet = companyStats.paises.map(([pa, pn], i) => ({
+        '#': i + 1, País: pa, 'Peso Neto (kg)': pn,
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(paisesSheet), 'Paises');
+
+      // Sheet 6: Insights
+      const insSheet = insights.map(ins => ({
+        Tipo: ins.type, Título: ins.title, Detalle: ins.detail,
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(insSheet), 'Insights');
+
+      XLSX.writeFile(wb, `mercado_nacional_${selectedCompany.replace(/[^a-zA-Z0-9]/g, '_')}_${stamp}.xlsx`);
+      toast.success('Excel exportado correctamente');
+    } catch (err) {
+      console.error('Export error:', err);
+      toast.error('Error al exportar Excel');
+    }
+  }, [records, selectedCompany, companyStats, competitionRanking, clientAnalysis, insights]);
+
+  // ============================================================
+  // TABS DEFINITION
+  // ============================================================
+
+  const TABS: { id: Tab; label: string; icon: typeof BarChart3 }[] = [
+    { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
+    { id: 'competencia', label: 'Competencia', icon: Crown },
+    { id: 'clientes', label: 'Clientes', icon: Users },
+    { id: 'cortes', label: 'Cortes & Destinos', icon: Package },
+    { id: 'insights', label: 'Insights', icon: Lightbulb },
+  ];
+
+  // ============================================================
+  // RENDER
+  // ============================================================
+
+  if (!analytics && loadingRecords) {
     return (
-      <div className="p-6 space-y-4">
-        <h2 className="text-2xl font-bold text-slate-800">Mercado Nacional</h2>
-        <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Skeleton className="h-40" /><Skeleton className="h-40" /><Skeleton className="h-40" />
+      <div className="space-y-4">
+        <Card>
+          <CardContent className="p-8 flex flex-col items-center justify-center gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+            <p className="text-sm font-medium text-slate-600">{loadProgress || 'Cargando datos…'}</p>
+            <p className="text-xs text-slate-400">Mercado Nacional · Business Intelligence</p>
+          </CardContent>
+        </Card>
+        <Skeleton className="h-8 w-full" />
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-20" />)}
         </div>
-        <Skeleton className="h-96" />
+        <Skeleton className="h-64" />
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-4 max-w-[1600px]">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <Globe className="h-7 w-7 text-emerald-600" />
-          <div>
-            <h2 className="text-2xl font-bold text-slate-800">Mercado Nacional</h2>
-            <p className="text-xs text-slate-500">Movimientos de carne de todos los frigoríficos de Uruguay</p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button variant={view === 'dashboard' ? 'default' : 'outline'} size="sm" onClick={() => setView('dashboard')}>
-            <BarChart3 className="h-4 w-4 mr-1" /> Dashboard
-          </Button>
-          <Button variant={view === 'search' ? 'default' : 'outline'} size="sm" onClick={() => setView('search')}>
-            <Search className="h-4 w-4 mr-1" /> Buscar
-          </Button>
-          <Button variant={view === 'compare' ? 'default' : 'outline'} size="sm" onClick={() => setView('compare')}>
-            <GitCompare className="h-4 w-4 mr-1" /> Comparar
-          </Button>
-        </div>
-      </div>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="border-l-4 border-l-emerald-500">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2 text-emerald-700"><Package className="h-4 w-4" /><span className="text-[10px] uppercase font-semibold">Registros</span></div>
-            <p className="text-xl font-bold text-emerald-700 mt-1">{analytics ? analytics.total.toLocaleString() : '—'}</p>
-            <p className="text-[10px] text-slate-400">movimientos</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-blue-500">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2 text-blue-700"><Ship className="h-4 w-4" /><span className="text-[10px] uppercase font-semibold">Exportaciones</span></div>
-            <p className="text-xl font-bold text-blue-700 mt-1">{analytics?.tiposMov.find(t => t[0] === 'Exportación')?.[1].toLocaleString() || '—'}</p>
-            <p className="text-[10px] text-slate-400">registros</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-amber-500">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2 text-amber-700"><Warehouse className="h-4 w-4" /><span className="text-[10px] uppercase font-semibold">Cajas</span></div>
-            <p className="text-xl font-bold text-amber-700 mt-1">{analytics ? fmt(analytics.totalCajas) : '—'}</p>
-            <p className="text-[10px] text-slate-400">envases totales</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-violet-500">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2 text-violet-700"><Weight className="h-4 w-4" /><span className="text-[10px] uppercase font-semibold">Peso Neto</span></div>
-            <p className="text-xl font-bold text-violet-700 mt-1">{analytics ? fmt(analytics.totalPeso) : '—'}</p>
-            <p className="text-[10px] text-slate-400">kg totales</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {view === 'dashboard' ? (
-        <>
-          {/* Top Países - Bar chart */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5">
-              <CardTitle className="text-base flex items-center gap-2"><MapPin className="h-5 w-5 text-emerald-600" /> Top 15 Países de Destino</CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 pb-4">
-              <div className="space-y-2">
-                {analytics?.paises.slice(0, 15).map(([pais, count], i) => (
-                  <div key={pais} className="flex items-center gap-3 group">
-                    <span className="text-xs font-medium text-slate-700 w-40 truncate">{pais}</span>
-                    <div className="flex-1 h-6 bg-slate-100 rounded-md overflow-hidden relative">
-                      <div className={`h-full rounded-md transition-all duration-500 flex items-center px-2 ${i < COLORS.length ? `bg-[${COLORS[i]}]` : 'bg-emerald-500'}`}
-                        style={{ width: `${(count / maxPais) * 100}%`, backgroundColor: COLORS[i % COLORS.length] }}>
-                        <span className="text-[10px] font-semibold text-white whitespace-nowrap">{count.toLocaleString()}</span>
-                      </div>
-                    </div>
-                    <span className="text-[10px] text-slate-400 w-10 text-right">{(count / (analytics?.total || 1) * 100).toFixed(1)}%</span>
-                  </div>
-                ))}
+    <div className="space-y-4">
+      {/* ===== HEADER ===== */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
+                <BarChart3 className="w-5 h-5 text-emerald-600" />
               </div>
-            </CardContent>
-          </Card>
-
-          {/* Two columns: Productores + Tipos */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card>
-              <CardHeader className="pb-2 pt-4 px-5">
-                <CardTitle className="text-base flex items-center gap-2"><Factory className="h-5 w-5 text-blue-600" /> Top 15 Frigoríficos Productores</CardTitle>
-              </CardHeader>
-              <CardContent className="px-5 pb-4">
-                <div className="space-y-1.5">
-                  {analytics?.productores.slice(0, 15).map(([prod, count], i) => (
-                    <div key={prod} className="flex items-center gap-2 group cursor-pointer hover:bg-blue-50/50 -mx-2 px-2 py-0.5 rounded"
-                      onClick={() => { setFilterProductor(prod); setView('search'); }}>
-                      <span className="text-[10px] font-mono text-slate-400 w-6">{i + 1}</span>
-                      <span className="text-xs font-medium text-slate-700 flex-1 truncate" title={prod}>{prod}</span>
-                      <span className="text-xs text-slate-500 font-mono w-12 text-right">{count.toLocaleString()}</span>
-                      <span className="text-[10px] text-slate-400 w-8 text-right">{(count / (analytics?.total || 1) * 100).toFixed(1)}%</span>
-                      <div className="w-16 h-3 bg-slate-100 rounded-sm overflow-hidden">
-                        <div className="h-full bg-blue-500 rounded-sm" style={{ width: `${(count / maxProductor) * 100}%` }} />
-                      </div>
-                    </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100">Mercado Nacional · BI</h2>
+                <p className="text-[11px] text-slate-500">Análisis competitivo · {fmt(records.length)} registros · {analytics ? `${analytics.totalPeso.toLocaleString('es')} kg total mercado` : ''}</p>
+              </div>
+            </div>
+            <div className="flex gap-2 items-center w-full sm:w-auto">
+              <div className="flex-1 sm:flex-initial min-w-0">
+                <label className="text-[10px] font-medium text-slate-500 uppercase block sm:hidden">Empresa</label>
+                <select
+                  value={selectedCompany}
+                  onChange={e => setSelectedCompany(e.target.value)}
+                  className="w-full sm:w-auto max-w-[220px] sm:max-w-[280px] text-sm border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 truncate"
+                  disabled={loadingRecords}
+                >
+                  {companyList.map(c => (
+                    <option key={c} value={c}>{c}</option>
                   ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2 pt-4 px-5">
-                <CardTitle className="text-base flex items-center gap-2"><Activity className="h-5 w-5 text-amber-600" /> Tipos de Movimiento</CardTitle>
-              </CardHeader>
-              <CardContent className="px-5 pb-4">
-                <div className="space-y-2">
-                  {analytics?.tiposMov.map(([tipo, count], i) => (
-                    <div key={tipo} className="flex items-center gap-3 cursor-pointer hover:bg-amber-50/50 -mx-2 px-2 py-1 rounded"
-                      onClick={() => { setFilterTipo(tipo); setView('search'); }}>
-                      <span className="text-xs font-medium text-slate-700 flex-1">{tipo}</span>
-                      <span className="text-xs text-slate-500 font-mono">{count.toLocaleString()}</span>
-                      <div className="w-32 h-4 bg-slate-100 rounded-sm overflow-hidden">
-                        <div className="h-full rounded-sm" style={{ width: `${(count / (analytics?.total || 1)) * 100}%`, backgroundColor: COLORS[i % COLORS.length] }} />
-                      </div>
-                      <span className="text-[10px] text-slate-400 w-8 text-right">{(count / (analytics?.total || 1) * 100).toFixed(1)}%</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-4 pt-3 border-t">
-                  <p className="text-[10px] text-slate-500 uppercase font-bold mb-2">Top Productos</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {analytics?.denoms.slice(0, 8).map(([denom, count]) => (
-                      <Badge key={denom} variant="secondary" className="text-[10px] cursor-pointer hover:bg-emerald-100"
-                        onClick={() => { setSearch(denom); setView('search'); }}>
-                        {denom.substring(0, 30)}... ({count.toLocaleString()})
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Monthly trend */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5">
-              <CardTitle className="text-base flex items-center gap-2"><Calendar className="h-5 w-5 text-violet-600" /> Movimientos por Mes</CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 pb-4">
-              <div className="flex items-end gap-2 h-40">
-                {sortedMeses.map(([mes, count]) => (
-                  <div key={mes} className="flex-1 flex flex-col items-center gap-1 group">
-                    <span className="text-[9px] text-slate-400 group-hover:text-violet-600 transition-colors">{count.toLocaleString()}</span>
-                    <div className="w-full bg-violet-500 group-hover:bg-violet-700 rounded-t transition-all duration-300"
-                      style={{ height: `${(count / maxMes) * 120}px`, minHeight: '4px' }} title={`${mes}: ${count} registros`} />
-                    <span className="text-[9px] text-slate-500">{mes.substring(5)}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Certificadores - ALL */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5">
-              <CardTitle className="text-base flex items-center gap-2"><Factory className="h-5 w-5 text-teal-600" /> Todos los Certificadores ({analytics?.certificadores.length})</CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 pb-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
-                {analytics?.certificadores.map(([cert, count], i) => (
-                  <div key={cert} className="flex items-center gap-2 cursor-pointer hover:bg-teal-50/50 -mx-2 px-2 py-1 rounded"
-                    onClick={() => { setSearch(cert); setView('search'); }}>
-                    <span className="text-[10px] font-mono text-slate-400 w-6">{i + 1}</span>
-                    <span className="text-xs font-medium text-slate-700 flex-1 truncate" title={cert}>{cert}</span>
-                    <span className="text-xs text-slate-500 font-mono">{count.toLocaleString()}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </>
-      ) : (
-        /* SEARCH VIEW */
-        <>
-          {/* Filters */}
-          <Card>
-            <CardContent className="p-3">
-              <div className="flex flex-wrap gap-2 items-center">
-                <div className="relative flex-1 min-w-[200px]">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input placeholder="Buscar trámite, COTE, frigorífico, producto, país..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
-                  {search && <X className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 cursor-pointer hover:text-red-500" onClick={() => setSearch('')} />}
-                </div>
-                {filterPais && <Badge variant="secondary" className="cursor-pointer" onClick={() => setFilterPais('')}>{filterPais} ×</Badge>}
-                {filterProductor && <Badge variant="secondary" className="cursor-pointer max-w-[200px] truncate" onClick={() => setFilterProductor('')}>{filterProductor} ×</Badge>}
-                {filterTipo && <Badge variant="secondary" className="cursor-pointer" onClick={() => setFilterTipo('')}>{filterTipo} ×</Badge>}
-                <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} className="text-xs border rounded px-2 py-1.5">
-                  <option value="fecha">Ordenar por fecha</option>
-                  <option value="cajas">Ordenar por cajas</option>
-                  <option value="peso">Ordenar por peso</option>
                 </select>
               </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {analytics?.paises.slice(0, 8).map(([pais]) => (
-                  <button key={pais} className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${filterPais === pais ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`} onClick={() => setFilterPais(filterPais === pais ? '' : pais)}>{pais}</button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExport}
+                disabled={loadingRecords || !records.length}
+                className="shrink-0"
+              >
+                <Download className="w-4 h-4 mr-1.5" /> Excel
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-          {/* Dynamic charts for filtered records */}
-          {filteredAnalytics && !loadingRecords && filteredRecords.length > 0 && (
-            <>
-              {/* Filtered KPIs */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <Card className="border-l-4 border-l-emerald-500">
-                  <CardContent className="p-3">
-                    <div className="flex items-center gap-2 text-emerald-700"><Package className="h-4 w-4" /><span className="text-[10px] uppercase font-semibold">Registros</span></div>
-                    <p className="text-lg font-bold text-emerald-700 mt-1">{filteredAnalytics.total.toLocaleString()}</p>
-                  </CardContent>
-                </Card>
-                <Card className="border-l-4 border-l-amber-500">
-                  <CardContent className="p-3">
-                    <div className="flex items-center gap-2 text-amber-700"><Package className="h-4 w-4" /><span className="text-[10px] uppercase font-semibold">Cajas</span></div>
-                    <p className="text-lg font-bold text-amber-700 mt-1">{filteredAnalytics.totalCajas.toLocaleString()}</p>
-                  </CardContent>
-                </Card>
-                <Card className="border-l-4 border-l-violet-500">
-                  <CardContent className="p-3">
-                    <div className="flex items-center gap-2 text-violet-700"><Weight className="h-4 w-4" /><span className="text-[10px] uppercase font-semibold">Kg Neto</span></div>
-                    <p className="text-lg font-bold text-violet-700 mt-1">{filteredAnalytics.totalPeso.toLocaleString()}</p>
-                  </CardContent>
-                </Card>
-                <Card className="border-l-4 border-l-blue-500">
-                  <CardContent className="p-3">
-                    <div className="flex items-center gap-2 text-blue-700"><MapPin className="h-4 w-4" /><span className="text-[10px] uppercase font-semibold">Países</span></div>
-                    <p className="text-lg font-bold text-blue-700 mt-1">{filteredAnalytics.paises.length}</p>
-                  </CardContent>
-                </Card>
+      {/* ===== TABS ===== */}
+      <div className="flex gap-0.5 overflow-x-auto border-b border-slate-200 dark:border-slate-700 -mb-1">
+        {TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`flex items-center gap-1.5 px-3 sm:px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === t.id
+                ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400'
+                : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            <t.icon className="w-4 h-4" />
+            <span className="hidden sm:inline">{t.label}</span>
+            <span className="sm:hidden">{t.label.split(' ')[0]}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ===== LOADING RECORDS BANNER ===== */}
+      {loadingRecords && (
+        <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-900/10">
+          <CardContent className="p-3 flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+            <p className="text-xs text-amber-700 dark:text-amber-400">{loadProgress || 'Cargando registros…'}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ===== TAB CONTENT ===== */}
+      {!loadingRecords && records.length > 0 && (
+        <>
+          {/* ============ DASHBOARD TAB ============ */}
+          {activeTab === 'dashboard' && (
+            <div className="space-y-4">
+              {/* KPIs */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <KpiCard icon={Weight} label="Peso Neto" value={fmtKg(companyStats.totalPn)} sublabel={`${fmt(companyStats.totalCajas)} cajas`} color={PALETTE_HEX[0]} />
+                <KpiCard icon={Ship} label="Embarques" value={fmt(companyStats.total)} sublabel="registros" color={PALETTE_HEX[1]} />
+                <KpiCard icon={Users} label="Clientes" value={fmt(companyStats.uniqueClientes)} sublabel="únicos" color={PALETTE_HEX[2]} />
+                <KpiCard icon={Package} label="Cortes" value={fmt(companyStats.uniqueCortes)} sublabel="únicos" color={PALETTE_HEX[3]} />
+                <KpiCard icon={Globe} label="Países" value={fmt(companyStats.uniquePaises)} sublabel="destinos" color={PALETTE_HEX[5]} />
+                <KpiCard icon={Award} label="Participación" value={fmtPct(companyStats.marketShare)} sublabel="del mercado" color={PALETTE_HEX[4]} />
               </div>
 
-              {/* Customizable chart */}
+              {/* Monthly evolution */}
               <Card>
                 <CardHeader className="pb-2 pt-4 px-5">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <CardTitle className="text-base flex items-center gap-2"><BarChart3 className="h-5 w-5 text-emerald-600" /> Gráfico Dinámico</CardTitle>
-                    <div className="flex gap-2 flex-wrap">
-                      <select value={chartDimension} onChange={e => setChartDimension(e.target.value as any)} className="text-xs border rounded px-2 py-1">
-                        <option value="paises">Por País</option>
-                        <option value="productores">Por Productor</option>
-                        <option value="denoms">Por Producto</option>
-                        <option value="cortes">Por Corte</option>
-                        <option value="tipos">Por Tipo Mov.</option>
-                        <option value="certifs">Por Certificador</option>
-                        <option value="meses">Por Mes</option>
-                      </select>
-                      <select value={chartMetric} onChange={e => setChartMetric(e.target.value as any)} className="text-xs border rounded px-2 py-1">
-                        <option value="registros">Registros</option>
-                        <option value="cajas">Cajas</option>
-                        <option value="peso">Kg Neto</option>
-                      </select>
-                    </div>
-                  </div>
+                  <SectionTitle
+                    icon={Calendar}
+                    title="Evolución mensual"
+                    subtitle={`Peso neto por mes — ${selectedCompany}`}
+                  />
                 </CardHeader>
                 <CardContent className="px-5 pb-4">
-                  {(() => {
-                    const data = (filteredAnalytics as any)[chartDimension] as [string, number][];
-                    if (!data || data.length === 0) return <p className="text-sm text-slate-400 text-center py-8">Sin datos para esta combinación</p>;
-                    const maxVal = Math.max(...data.map(d => d[1]));
-                    const isMeses = chartDimension === 'meses';
-                    return (
-                      <div className={isMeses ? "flex items-end gap-2 h-40" : "space-y-1.5"}>
-                        {data.map(([label, count], i) => (
-                          <div key={label} className={isMeses ? "flex-1 flex flex-col items-center gap-1 group" : "flex items-center gap-3 group"}>
-                            <span className={isMeses ? "text-[9px] text-slate-400 group-hover:text-emerald-600" : "text-xs font-medium text-slate-700 w-40 truncate"} title={label}>
-                              {isMeses ? label.substring(5) : label}
-                            </span>
-                            {isMeses ? (
-                              <>
-                                <span className="text-[9px] text-slate-400 group-hover:text-emerald-600">{count.toLocaleString()}</span>
-                                <div className="w-full bg-emerald-500 group-hover:bg-emerald-700 rounded-t transition-all duration-300"
-                                  style={{ height: `${(count / maxVal) * 120}px`, minHeight: '4px' }} title={`${label}: ${count}`} />
-                              </>
-                            ) : (
-                              <>
-                                <div className="flex-1 h-5 bg-slate-100 rounded-md overflow-hidden relative">
-                                  <div className="h-full rounded-md transition-all duration-500 flex items-center px-2"
-                                    style={{ width: `${(count / maxVal) * 100}%`, backgroundColor: COLORS[i % COLORS.length] }}>
-                                    <span className="text-[10px] font-semibold text-white whitespace-nowrap">{count.toLocaleString()}</span>
-                                  </div>
-                                </div>
-                                <span className="text-[10px] text-slate-400 w-10 text-right">{(count / filteredAnalytics.total * 100).toFixed(1)}%</span>
-                              </>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()}
+                  {monthlyEvolution.length > 0 ? (
+                    <VBarChart
+                      data={monthlyEvolution.map(m => ({ label: m.label, value: m.value }))}
+                      compareTo={monthlyEvolution.map(m => ({ label: m.label, value: m.marketValue }))}
+                    />
+                  ) : (
+                    <EmptyState message="Sin datos de evolución temporal" />
+                  )}
                 </CardContent>
               </Card>
 
-              {/* Mini charts row */}
+              {/* Top paises + Top cortes */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <Card>
                   <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="text-sm flex items-center gap-2"><Ship className="h-4 w-4 text-blue-600" /> Países ({filteredAnalytics.paises.length})</CardTitle>
+                    <SectionTitle icon={Globe} title="Top 5 países" subtitle="Por peso neto" />
                   </CardHeader>
-                  <CardContent className="px-5 pb-3">
-                    <div className="flex flex-wrap gap-1.5">
-                      {filteredAnalytics.paises.map(([pais, count]) => (
-                        <button key={pais} className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${filterPais === pais ? 'bg-emerald-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
-                          onClick={() => setFilterPais(filterPais === pais ? '' : pais)}>
-                          {pais} ({count.toLocaleString()})
-                        </button>
-                      ))}
-                    </div>
+                  <CardContent className="px-5 pb-4">
+                    {companyStats.paises.length > 0 ? (
+                      <div className="space-y-2">
+                        {companyStats.paises.slice(0, 5).map(([pa, pn], i) => (
+                          <HBar key={pa} label={pa} value={pn} max={companyStats.paises[0][1]} color={PALETTE_HEX[i % PALETTE_HEX.length]} format={fmtKg} />
+                        ))}
+                      </div>
+                    ) : <EmptyState message="Sin datos de países" />}
                   </CardContent>
                 </Card>
+
                 <Card>
                   <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="text-sm flex items-center gap-2"><Activity className="h-4 w-4 text-amber-600" /> Tipos de Movimiento</CardTitle>
+                    <SectionTitle icon={Package} title="Top 5 cortes" subtitle="Por peso neto" />
                   </CardHeader>
-                  <CardContent className="px-5 pb-3">
-                    <div className="space-y-1.5">
-                      {filteredAnalytics.tipos.map(([tipo, count], i) => (
-                        <div key={tipo} className="flex items-center gap-2 cursor-pointer hover:bg-amber-50/50 -mx-2 px-2 py-0.5 rounded"
-                          onClick={() => setFilterTipo(filterTipo === tipo ? '' : tipo)}>
-                          <span className="text-xs font-medium text-slate-700 flex-1">{tipo}</span>
-                          <span className="text-xs text-slate-500 font-mono">{count.toLocaleString()}</span>
-                          <div className="w-20 h-3 bg-slate-100 rounded-sm overflow-hidden">
-                            <div className="h-full rounded-sm" style={{ width: `${(count / filteredAnalytics.total) * 100}%`, backgroundColor: COLORS[i % COLORS.length] }} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                  <CardContent className="px-5 pb-4">
+                    {companyStats.cortes.length > 0 ? (
+                      <div className="space-y-2">
+                        {companyStats.cortes.slice(0, 5).map(([co, pn], i) => (
+                          <HBar key={co} label={co} value={pn} max={companyStats.cortes[0][1]} color={PALETTE_HEX[(i + 2) % PALETTE_HEX.length]} format={fmtKg} />
+                        ))}
+                      </div>
+                    ) : <EmptyState message="Sin datos de cortes" />}
                   </CardContent>
                 </Card>
               </div>
-
-              {/* Top productos y cortes */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4 text-emerald-600" /> Top Productos</CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-5 pb-3">
-                    <div className="space-y-1">
-                      {filteredAnalytics.denoms.map(([denom, count]) => (
-                        <div key={denom} className="flex items-center gap-2 cursor-pointer hover:bg-emerald-50/50 -mx-2 px-2 py-0.5 rounded"
-                          onClick={() => setSearch(denom)}>
-                          <span className="text-xs text-slate-700 flex-1 truncate" title={denom}>{denom}</span>
-                          <span className="text-xs text-slate-500 font-mono">{count.toLocaleString()}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4 text-violet-600" /> Top Cortes</CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-5 pb-3">
-                    <div className="space-y-1">
-                      {filteredAnalytics.cortes.map(([corte, count]) => (
-                        <div key={corte} className="flex items-center gap-2 cursor-pointer hover:bg-violet-50/50 -mx-2 px-2 py-0.5 rounded"
-                          onClick={() => setSearch(corte)}>
-                          <span className="text-xs text-slate-700 flex-1 truncate" title={corte}>{corte}</span>
-                          <span className="text-xs text-slate-500 font-mono">{count.toLocaleString()}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </>
-          )}
-
-          {/* Results count */}
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-500">
-              {loadingRecords ? 'Cargando 62.984 registros...' : `${filteredRecords.length.toLocaleString()} registros encontrados`}
-            </p>
-            {filteredRecords.length > 0 && <p className="text-xs text-slate-400">Página {page} de {totalPages}</p>}
-          </div>
-
-          {/* Table */}
-          {loadingRecords ? (
-            <Skeleton className="h-96" />
-          ) : (
-            <Card>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-slate-50 text-left text-xs text-slate-500 uppercase sticky top-0">
-                        <th className="px-3 py-2.5">Trámite</th>
-                        <th className="px-3 py-2.5">Fecha</th>
-                        <th className="px-3 py-2.5">COTE</th>
-                        <th className="px-3 py-2.5 hidden md:table-cell">Productor</th>
-                        <th className="px-3 py-2.5 hidden lg:table-cell">Producto</th>
-                        <th className="px-3 py-2.5">País</th>
-                        <th className="px-3 py-2.5">Tipo</th>
-                        <th className="px-3 py-2.5 text-right">Cajas</th>
-                        <th className="px-3 py-2.5 text-right hidden md:table-cell">Kg Neto</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pagedRecords.length === 0 ? (
-                        <tr><td colSpan={9} className="text-center py-10 text-slate-400">No se encontraron registros</td></tr>
-                      ) : pagedRecords.map((r, i) => (
-                        <tr key={i} className="border-b hover:bg-blue-50/40">
-                          <td className="px-3 py-2 text-xs font-mono">{r.t}</td>
-                          <td className="px-3 py-2 text-xs">{r.f ? fd(r.f) : '-'}</td>
-                          <td className="px-3 py-2 text-xs font-mono font-medium text-blue-700">{r.c || '-'}</td>
-                          <td className="px-3 py-2 text-xs hidden md:table-cell max-w-[180px] truncate" title={r.p}>{r.p}</td>
-                          <td className="px-3 py-2 text-xs hidden lg:table-cell max-w-[200px] truncate" title={r.d}>{r.d || '-'}</td>
-                          <td className="px-3 py-2 text-xs">{r.pa || '-'}</td>
-                          <td className="px-3 py-2"><span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${r.tm === 'Exportación' ? 'bg-blue-100 text-blue-700' : r.tm === 'Depósito' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{r.tm}</span></td>
-                          <td className="px-3 py-2 text-xs text-right font-mono">{r.e > 0 ? r.e.toLocaleString() : '-'}</td>
-                          <td className="px-3 py-2 text-xs text-right font-mono hidden md:table-cell">{r.pn > 0 ? r.pn.toLocaleString() : '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Anterior</Button>
-              <span className="text-xs text-slate-500">{page} / {totalPages}</span>
-              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Siguiente</Button>
             </div>
           )}
-        </>
-      )}
 
-      {/* COMPARE VIEW */}
-      {view === 'compare' && (
-        <>
-          {/* Selectors */}
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex flex-wrap gap-3 items-end">
-                <div className="flex-1 min-w-[200px]">
-                  <label className="text-xs font-medium text-slate-600">Establecimiento 1</label>
-                  <select value={compareEst1} onChange={e => setCompareEst1(e.target.value)} className="w-full mt-1 text-sm border rounded px-2 py-1.5">
-                    <option value="">Seleccionar...</option>
-                    {analytics?.productores.map(([p]) => <option key={p} value={p}>{p}</option>)}
-                    {analytics?.certificadores.map(([c]) => <option key={c} value={c}>{c} (certificador)</option>)}
-                  </select>
-                </div>
-                <div className="flex-1 min-w-[200px]">
-                  <label className="text-xs font-medium text-slate-600">Establecimiento 2</label>
-                  <select value={compareEst2} onChange={e => setCompareEst2(e.target.value)} className="w-full mt-1 text-sm border rounded px-2 py-1.5">
-                    <option value="">Seleccionar...</option>
-                    {analytics?.productores.map(([p]) => <option key={p} value={p}>{p}</option>)}
-                    {analytics?.certificadores.map(([c]) => <option key={c} value={c}>{c} (certificador)</option>)}
-                  </select>
-                </div>
-                <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={runComparison} disabled={!compareEst1 || !compareEst2 || compareEst1 === compareEst2 || compareLoading}>
-                  {compareLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitCompare className="h-4 w-4" />} Comparar
-                </Button>
+          {/* ============ COMPETENCIA TAB ============ */}
+          {activeTab === 'competencia' && (
+            <div className="space-y-4">
+              {/* Top N selector */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-medium text-slate-500">Mostrar top:</span>
+                {[5, 10, 20].map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setTopN(n as 5 | 10 | 20)}
+                    className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                      topN === n
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 border-slate-200 dark:border-slate-700 hover:border-emerald-400'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+                <Badge variant="secondary" className="ml-auto text-[10px]">
+                  {competitionRanking.length} certificadores totales
+                </Badge>
               </div>
-              {!recordsLoaded && <p className="text-[10px] text-amber-600 mt-2">⚠️ Se cargarán 62.984 registros para comparar (puede tardar unos segundos)</p>}
-            </CardContent>
-          </Card>
 
-          {compareData && (
-            <>
-              {/* Comparison KPIs */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {[
-                  { label: 'Registros', est1: compareData.est1.total, est2: compareData.est2.total, icon: Package, color: 'emerald' },
-                  { label: 'Cajas', est1: compareData.est1.totalCajas, est2: compareData.est2.totalCajas, icon: Package, color: 'amber' },
-                  { label: 'Kg Neto', est1: compareData.est1.totalPeso, est2: compareData.est2.totalPeso, icon: Weight, color: 'violet' },
-                  { label: 'Países', est1: compareData.est1.paises.length, est2: compareData.est2.paises.length, icon: MapPin, color: 'blue' },
-                ].map((kpi, i) => {
-                  const max = Math.max(kpi.est1, kpi.est2) || 1;
-                  const w1 = (kpi.est1 / max) * 100;
-                  const w2 = (kpi.est2 / max) * 100;
-                  const winner = kpi.est1 > kpi.est2 ? 1 : kpi.est2 > kpi.est1 ? 2 : 0;
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                {/* Ranking bar chart */}
+                <Card className="lg:col-span-3">
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={BarChart3} title="Ranking de frigoríficos" subtitle={`Top ${topN} por peso neto · verde = ${selectedCompany}`} />
+                  </CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    <div className="space-y-1.5 max-h-96 overflow-y-auto pr-2">
+                      {competitionRanking.slice(0, topN).map((row, i) => {
+                        const isMe = row.name === selectedCompany;
+                        return (
+                          <HBar
+                            key={row.name}
+                            label={`${i + 1}. ${row.name.substring(0, 28)}`}
+                            value={row.pn}
+                            max={competitionRanking[0].pn}
+                            color={isMe ? COMPANY_COLOR : COMPETITOR_COLOR}
+                            format={fmtKg}
+                            highlight={isMe}
+                          />
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Market share pie */}
+                <Card className="lg:col-span-2">
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={PieIcon} title="Participación de mercado" subtitle={`Top ${topN} + Otros`} />
+                  </CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    <PieChart
+                      data={[
+                        ...competitionRanking.slice(0, topN).map((r, i) => ({
+                          label: r.name,
+                          value: r.pn,
+                          color: r.name === selectedCompany ? COMPANY_COLOR : PALETTE_HEX[i % PALETTE_HEX.length],
+                        })),
+                        {
+                          label: 'Otros',
+                          value: competitionRanking.slice(topN).reduce((s, r) => s + r.pn, 0),
+                          color: '#cbd5e1',
+                        },
+                      ]}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Full ranking table */}
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5">
+                  <SectionTitle icon={Layers} title="Tabla completa de competencia" subtitle={`${competitionRanking.length} certificadores ordenados por peso neto`} />
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 z-10">
+                        <tr className="border-b text-left text-slate-500 dark:text-slate-400 uppercase">
+                          <th className="px-3 py-2 font-semibold">#</th>
+                          <th className="px-3 py-2 font-semibold">Empresa</th>
+                          <th className="px-3 py-2 font-semibold text-right">Registros</th>
+                          <th className="px-3 py-2 font-semibold text-right hidden sm:table-cell">Cajas</th>
+                          <th className="px-3 py-2 font-semibold text-right">Peso Neto</th>
+                          <th className="px-3 py-2 font-semibold text-right hidden md:table-cell">Países</th>
+                          <th className="px-3 py-2 font-semibold text-right hidden md:table-cell">Cortes</th>
+                          <th className="px-3 py-2 font-semibold text-right">% Mercado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {competitionRanking.map((row, i) => {
+                          const isMe = row.name === selectedCompany;
+                          return (
+                            <tr
+                              key={row.name}
+                              className={`border-b hover:bg-slate-50 dark:hover:bg-slate-800/50 ${isMe ? 'bg-emerald-50 dark:bg-emerald-900/20 font-semibold' : ''}`}
+                            >
+                              <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                              <td className="px-3 py-2 text-slate-700 dark:text-slate-300 max-w-[200px] truncate" title={row.name}>
+                                {isMe && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5" />}
+                                {row.name}
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-500">{fmt(row.regs)}</td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-500 hidden sm:table-cell">{fmt(row.cajas)}</td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-700 dark:text-slate-300">{fmt(row.pn)}</td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-500 hidden md:table-cell">{row.paises}</td>
+                              <td className="px-3 py-2 text-right font-mono text-slate-500 hidden md:table-cell">{row.cortes}</td>
+                              <td className="px-3 py-2 text-right font-mono">
+                                <span className={isMe ? 'text-emerald-600 font-bold' : 'text-slate-500'}>
+                                  {row.share.toFixed(2)}%
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* ============ CLIENTES TAB ============ */}
+          {activeTab === 'clientes' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {/* Top clients */}
+                <Card className="lg:col-span-2">
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={Users} title="Top clientes por peso" subtitle={`Destinos de ${selectedCompany} (excluye puertos y aeropuertos)`} />
+                  </CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    {clientAnalysis.topClients.length > 0 ? (
+                      <div className="space-y-1.5 max-h-96 overflow-y-auto pr-2">
+                        {clientAnalysis.topClients.map((c, i) => (
+                          <HBar
+                            key={c.name}
+                            label={c.name.substring(0, 28)}
+                            value={c.pn}
+                            max={clientAnalysis.topClients[0].pn}
+                            color={PALETTE_HEX[i % PALETTE_HEX.length]}
+                            format={fmtKg}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyState message="La empresa no tiene clientes directos (solo envíos a puertos)" />
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Exclusive vs shared summary */}
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={Target} title="Exclusividad" subtitle="Resumen de clientes" />
+                  </CardHeader>
+                  <CardContent className="px-5 pb-4 space-y-3">
+                    <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
+                      <div className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="text-xl font-bold text-emerald-700 dark:text-emerald-400">{clientAnalysis.exclusive.length}</p>
+                        <p className="text-[10px] text-slate-500">Clientes exclusivos</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20">
+                      <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center">
+                        <Users className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="text-xl font-bold text-blue-700 dark:text-blue-400">{clientAnalysis.shared.length}</p>
+                        <p className="text-[10px] text-slate-500">Clientes compartidos</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800">
+                      <div className="w-9 h-9 rounded-lg bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
+                        <Building2 className="w-4 h-4 text-slate-600" />
+                      </div>
+                      <div>
+                        <p className="text-xl font-bold text-slate-700 dark:text-slate-300">{clientAnalysis.topClients.length}</p>
+                        <p className="text-[10px] text-slate-500">Clientes totales</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Exclusive + shared lists */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={CheckCircle2} title="Clientes exclusivos" subtitle="Solo abastecidos por la empresa seleccionada" />
+                  </CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    {clientAnalysis.exclusive.length > 0 ? (
+                      <div className="space-y-1 max-h-72 overflow-y-auto pr-2">
+                        {clientAnalysis.exclusive.map(c => (
+                          <div key={c.name} className="flex items-center justify-between gap-2 py-1.5 px-2 rounded hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
+                            <span className="text-xs text-slate-700 dark:text-slate-300 flex-1 truncate" title={c.name}>{c.name}</span>
+                            <Badge variant="outline" className="text-[9px] border-emerald-300 text-emerald-700 dark:text-emerald-400">Exclusivo</Badge>
+                            <span className="text-xs font-mono text-slate-500 w-20 text-right">{fmtKg(c.pn)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyState message="Sin clientes exclusivos" />
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={Users} title="Clientes compartidos" subtitle="Atendidos también por otros certificadores" />
+                  </CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    {clientAnalysis.shared.length > 0 ? (
+                      <div className="space-y-1 max-h-72 overflow-y-auto pr-2">
+                        {clientAnalysis.shared.map(c => (
+                          <div key={c.name} className="flex items-center justify-between gap-2 py-1.5 px-2 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20">
+                            <span className="text-xs text-slate-700 dark:text-slate-300 flex-1 truncate" title={c.name}>{c.name}</span>
+                            <Badge variant="outline" className="text-[9px] border-blue-300 text-blue-700 dark:text-blue-400">{c.competitors} cert.</Badge>
+                            <span className="text-xs font-mono text-slate-500 w-20 text-right">{fmtKg(c.pn)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyState message="Sin clientes compartidos" />
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+
+          {/* ============ CORTES & DESTINOS TAB ============ */}
+          {activeTab === 'cortes' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Cortes ranking */}
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={Package} title="Ranking de cortes" subtitle={`Top 15 por peso neto — ${selectedCompany}`} />
+                  </CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    {companyStats.cortes.length > 0 ? (
+                      <div className="space-y-1.5 max-h-80 overflow-y-auto pr-2">
+                        {companyStats.cortes.slice(0, 15).map(([co, pn], i) => (
+                          <HBar key={co} label={co.substring(0, 24)} value={pn} max={companyStats.cortes[0][1]} color={PALETTE_HEX[i % PALETTE_HEX.length]} format={fmtKg} />
+                        ))}
+                      </div>
+                    ) : <EmptyState message="Sin datos de cortes" />}
+                  </CardContent>
+                </Card>
+
+                {/* Paises ranking */}
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <SectionTitle icon={Globe} title="Ranking de destinos" subtitle={`Top 15 países por peso neto — ${selectedCompany}`} />
+                  </CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    {companyStats.paises.length > 0 ? (
+                      <div className="space-y-1.5 max-h-80 overflow-y-auto pr-2">
+                        {companyStats.paises.slice(0, 15).map(([pa, pn], i) => (
+                          <HBar key={pa} label={pa.substring(0, 24)} value={pn} max={companyStats.paises[0][1]} color={PALETTE_HEX[(i + 1) % PALETTE_HEX.length]} format={fmtKg} />
+                        ))}
+                      </div>
+                    ) : <EmptyState message="Sin datos de países" />}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Heatmap cortes × paises */}
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5">
+                  <SectionTitle icon={Layers} title="Heatmap: cortes × destinos" subtitle={`Distribución de peso neto — ${selectedCompany}`} />
+                </CardHeader>
+                <CardContent className="px-5 pb-4">
+                  {heatmapData.cortes.length > 0 && heatmapData.paises.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr>
+                            <th className="text-left px-2 py-2 text-[10px] font-semibold text-slate-500 uppercase sticky left-0 bg-white dark:bg-slate-900">Corte \ País</th>
+                            {heatmapData.paises.map(pa => (
+                              <th key={pa} className="px-1 py-2 text-center text-[9px] font-medium text-slate-500 min-w-[50px]" title={pa}>
+                                <div className="rotate-0 truncate max-w-[60px]">{pa.substring(0, 8)}</div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {heatmapData.cortes.map(co => (
+                            <tr key={co} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                              <td className="px-2 py-1.5 text-xs text-slate-700 dark:text-slate-300 truncate max-w-[140px] sticky left-0 bg-white dark:bg-slate-900" title={co}>
+                                {co}
+                              </td>
+                              {heatmapData.paises.map(pa => (
+                                <HeatCell key={pa} value={heatmapData.matrix[co]?.[pa] || 0} max={heatmapData.maxVal} color={COMPANY_COLOR} />
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <EmptyState message="Datos insuficientes para el heatmap" />
+                  )}
+                  <p className="text-[10px] text-slate-400 mt-2">Intensidad de color proporcional al peso neto. Valores en kg (K = miles).</p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* ============ INSIGHTS TAB ============ */}
+          {activeTab === 'insights' && (
+            <div className="space-y-4">
+              {/* Header card */}
+              <Card className="border-violet-200 bg-gradient-to-br from-violet-50 to-slate-50 dark:from-violet-900/20 dark:to-slate-900">
+                <CardContent className="p-5 flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center shrink-0">
+                    <Sparkles className="w-5 h-5 text-violet-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Inteligencia comercial automática</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Análisis generado a partir de {fmt(records.length)} registros del mercado. Empresa analizada: <strong className="text-violet-700 dark:text-violet-400">{selectedCompany}</strong>.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Insight cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {insights.map((ins, i) => {
+                  const colorMap = {
+                    positive: { border: 'border-emerald-300', bg: 'bg-emerald-50/60 dark:bg-emerald-900/15', icon: 'text-emerald-600', iconBg: 'bg-emerald-100 dark:bg-emerald-900/40' },
+                    warning: { border: 'border-amber-300', bg: 'bg-amber-50/60 dark:bg-amber-900/15', icon: 'text-amber-600', iconBg: 'bg-amber-100 dark:bg-amber-900/40' },
+                    info: { border: 'border-blue-300', bg: 'bg-blue-50/60 dark:bg-blue-900/15', icon: 'text-blue-600', iconBg: 'bg-blue-100 dark:bg-blue-900/40' },
+                    opportunity: { border: 'border-violet-300', bg: 'bg-violet-50/60 dark:bg-violet-900/15', icon: 'text-violet-600', iconBg: 'bg-violet-100 dark:bg-violet-900/40' },
+                  };
+                  const c = colorMap[ins.type];
                   return (
-                    <Card key={i}>
-                      <CardContent className="p-3">
-                        <p className="text-[10px] uppercase font-semibold text-slate-500 mb-2">{kpi.label}</p>
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-blue-700 w-32 truncate" title={compareData.est1.name}>{compareData.est1.name.substring(0,20)}</span>
-                            <div className="flex-1 h-5 bg-slate-100 rounded overflow-hidden">
-                              <div className="h-full bg-blue-500 rounded flex items-center px-2" style={{ width: `${w1}%` }}>
-                                <span className="text-[9px] font-bold text-white">{kpi.est1.toLocaleString()}</span>
-                              </div>
-                            </div>
-                            {winner === 1 && <span className="text-[10px] text-emerald-600 font-bold">▲</span>}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-emerald-700 w-32 truncate" title={compareData.est2.name}>{compareData.est2.name.substring(0,20)}</span>
-                            <div className="flex-1 h-5 bg-slate-100 rounded overflow-hidden">
-                              <div className="h-full bg-emerald-500 rounded flex items-center px-2" style={{ width: `${w2}%` }}>
-                                <span className="text-[9px] font-bold text-white">{kpi.est2.toLocaleString()}</span>
-                              </div>
-                            </div>
-                            {winner === 2 && <span className="text-[10px] text-emerald-600 font-bold">▲</span>}
-                          </div>
+                    <Card key={i} className={`border-l-4 ${c.border} ${c.bg}`}>
+                      <CardContent className="p-4 flex items-start gap-3">
+                        <div className={`w-8 h-8 rounded-lg ${c.iconBg} flex items-center justify-center shrink-0`}>
+                          <ins.icon className={`w-4 h-4 ${c.icon}`} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-snug">{ins.title}</p>
+                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">{ins.detail}</p>
                         </div>
                       </CardContent>
                     </Card>
                   );
                 })}
               </div>
-
-              {/* Side by side: Paises */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><MapPin className="h-4 w-4 text-blue-600" /> {compareData.est1.name} — Países</CardTitle></CardHeader>
-                  <CardContent className="px-5 pb-4">
-                    <div className="space-y-1">
-                      {compareData.est1.paises.slice(0, 8).map(([pais, count]: [string, number], i: number) => {
-                        const max = compareData.est1.paises[0]?.[1] || 1;
-                        return <div key={pais} className="flex items-center gap-2"><span className="text-xs text-slate-700 w-32 truncate">{pais}</span><div className="flex-1 h-4 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-blue-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500 w-10 text-right">{count}</span></div>;
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><MapPin className="h-4 w-4 text-emerald-600" /> {compareData.est2.name} — Países</CardTitle></CardHeader>
-                  <CardContent className="px-5 pb-4">
-                    <div className="space-y-1">
-                      {compareData.est2.paises.slice(0, 8).map(([pais, count]: [string, number], i: number) => {
-                        const max = compareData.est2.paises[0]?.[1] || 1;
-                        return <div key={pais} className="flex items-center gap-2"><span className="text-xs text-slate-700 w-32 truncate">{pais}</span><div className="flex-1 h-4 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-emerald-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500 w-10 text-right">{count}</span></div>;
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Side by side: Productos */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4 text-blue-600" /> {compareData.est1.name} — Productos</CardTitle></CardHeader>
-                  <CardContent className="px-5 pb-4">
-                    <div className="space-y-0.5">
-                      {compareData.est1.denoms.slice(0, 8).map(([denom, count]: [string, number]) => <div key={denom} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1 truncate" title={denom}>{denom}</span><span className="text-xs font-mono text-slate-500">{count}</span></div>)}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4 text-emerald-600" /> {compareData.est2.name} — Productos</CardTitle></CardHeader>
-                  <CardContent className="px-5 pb-4">
-                    <div className="space-y-0.5">
-                      {compareData.est2.denoms.slice(0, 8).map(([denom, count]: [string, number]) => <div key={denom} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1 truncate" title={denom}>{denom}</span><span className="text-xs font-mono text-slate-500">{count}</span></div>)}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Side by side: Tipos de movimiento */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Activity className="h-4 w-4 text-blue-600" /> {compareData.est1.name} — Tipos</CardTitle></CardHeader>
-                  <CardContent className="px-5 pb-4">
-                    <div className="space-y-1">
-                      {compareData.est1.tipos.map(([tipo, count]: [string, number], i: number) => { const max = compareData.est1.total || 1; return <div key={tipo} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1">{tipo}</span><div className="w-20 h-3 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-blue-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500">{count}</span></div>; })}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Activity className="h-4 w-4 text-emerald-600" /> {compareData.est2.name} — Tipos</CardTitle></CardHeader>
-                  <CardContent className="px-5 pb-4">
-                    <div className="space-y-1">
-                      {compareData.est2.tipos.map(([tipo, count]: [string, number], i: number) => { const max = compareData.est2.total || 1; return <div key={tipo} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1">{tipo}</span><div className="w-20 h-3 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-emerald-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500">{count}</span></div>; })}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Monthly comparison overlay */}
-              <Card>
-                <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Calendar className="h-4 w-4 text-violet-600" /> Comparación Mensual</CardTitle></CardHeader>
-                <CardContent className="px-5 pb-4">
-                  {(() => {
-                    const allMeses = [...new Set([...compareData.est1.meses.map((m: [string, number]) => m[0]), ...compareData.est2.meses.map((m: [string, number]) => m[0])])].sort();
-                    const maxVal = Math.max(...compareData.est1.meses.map((m: [string, number]) => m[1]), ...compareData.est2.meses.map((m: [string, number]) => m[1]), 1);
-                    return (
-                      <div className="flex items-end gap-1.5 h-32">
-                        {allMeses.map(mes => {
-                          const v1 = compareData.est1.meses.find((m: [string, number]) => m[0] === mes)?.[1] || 0;
-                          const v2 = compareData.est2.meses.find((m: [string, number]) => m[0] === mes)?.[1] || 0;
-                          return (
-                            <div key={mes} className="flex-1 flex flex-col items-center gap-0.5 group">
-                              <div className="flex items-end gap-0.5 h-24">
-                                <div className="w-3 bg-blue-500 group-hover:bg-blue-700 rounded-t transition-all" style={{ height: `${(v1/maxVal)*80}px`, minHeight: '2px' }} title={`${compareData.est1.name}: ${v1}`} />
-                                <div className="w-3 bg-emerald-500 group-hover:bg-emerald-700 rounded-t transition-all" style={{ height: `${(v2/maxVal)*80}px`, minHeight: '2px' }} title={`${compareData.est2.name}: ${v2}`} />
-                              </div>
-                              <span className="text-[8px] text-slate-500">{mes.substring(5)}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                  <div className="flex gap-4 mt-2 justify-center">
-                    <span className="text-[10px] flex items-center gap-1"><span className="w-3 h-3 bg-blue-500 rounded"></span> {compareData.est1.name.substring(0, 25)}</span>
-                    <span className="text-[10px] flex items-center gap-1"><span className="w-3 h-3 bg-emerald-500 rounded"></span> {compareData.est2.name.substring(0, 25)}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </>
+            </div>
           )}
         </>
       )}
