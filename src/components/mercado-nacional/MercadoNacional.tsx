@@ -104,6 +104,49 @@ export default function MercadoNacional() {
   const totalPages = Math.ceil(filteredRecords.length / LIMIT);
   const pagedRecords = filteredRecords.slice((page - 1) * LIMIT, page * LIMIT);
 
+  // Compute analytics from filtered records (dynamic charts)
+  const filteredAnalytics = useMemo(() => {
+    if (!filteredRecords.length) return null;
+    const paises: Record<string, number> = {};
+    const productores: Record<string, number> = {};
+    const tipos: Record<string, number> = {};
+    const denoms: Record<string, number> = {};
+    const cortes: Record<string, number> = {};
+    const meses: Record<string, number> = {};
+    const certifs: Record<string, number> = {};
+    let totalCajas = 0, totalPeso = 0;
+
+    for (const r of filteredRecords) {
+      if (r.pa) paises[r.pa] = (paises[r.pa] || 0) + 1;
+      if (r.p) productores[r.p] = (productores[r.p] || 0) + 1;
+      if (r.tm) tipos[r.tm] = (tipos[r.tm] || 0) + 1;
+      if (r.d) denoms[r.d] = (denoms[r.d] || 0) + 1;
+      if (r.co) cortes[r.co] = (cortes[r.co] || 0) + 1;
+      if (r.cf) certifs[r.cf] = (certifs[r.cf] || 0) + 1;
+      if (r.f) { const m = r.f.substring(0, 7); meses[m] = (meses[m] || 0) + 1; }
+      totalCajas += r.e || 0;
+      totalPeso += r.pn || 0;
+    }
+
+    const sortEntries = (obj: Record<string, number>) => Object.entries(obj).sort(([,a],[,b]) => b - a);
+
+    return {
+      total: filteredRecords.length,
+      totalCajas, totalPeso,
+      paises: sortEntries(paises).slice(0, 12),
+      productores: sortEntries(productores).slice(0, 12),
+      tipos: sortEntries(tipos),
+      denoms: sortEntries(denoms).slice(0, 10),
+      cortes: sortEntries(cortes).slice(0, 10),
+      certifs: sortEntries(certifs).slice(0, 10),
+      meses: Object.entries(meses).sort(([a],[b]) => a.localeCompare(b)),
+    };
+  }, [filteredRecords]);
+
+  // Chart metric selector
+  const [chartMetric, setChartMetric] = useState<'registros' | 'cajas' | 'peso'>('registros');
+  const [chartDimension, setChartDimension] = useState<'paises' | 'productores' | 'denoms' | 'cortes' | 'tipos' | 'meses' | 'certifs'>('paises');
+
   // Reset page when filters change
   useEffect(() => { setPage(1); }, [search, filterPais, filterProductor, filterTipo, sortBy]);
 
@@ -327,6 +370,174 @@ export default function MercadoNacional() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Dynamic charts for filtered records */}
+          {filteredAnalytics && !loadingRecords && filteredRecords.length > 0 && (
+            <>
+              {/* Filtered KPIs */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Card className="border-l-4 border-l-emerald-500">
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-2 text-emerald-700"><Package className="h-4 w-4" /><span className="text-[10px] uppercase font-semibold">Registros</span></div>
+                    <p className="text-lg font-bold text-emerald-700 mt-1">{filteredAnalytics.total.toLocaleString()}</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-l-4 border-l-amber-500">
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-2 text-amber-700"><Package className="h-4 w-4" /><span className="text-[10px] uppercase font-semibold">Cajas</span></div>
+                    <p className="text-lg font-bold text-amber-700 mt-1">{filteredAnalytics.totalCajas.toLocaleString()}</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-l-4 border-l-violet-500">
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-2 text-violet-700"><Weight className="h-4 w-4" /><span className="text-[10px] uppercase font-semibold">Kg Neto</span></div>
+                    <p className="text-lg font-bold text-violet-700 mt-1">{filteredAnalytics.totalPeso.toLocaleString()}</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-l-4 border-l-blue-500">
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-2 text-blue-700"><MapPin className="h-4 w-4" /><span className="text-[10px] uppercase font-semibold">Países</span></div>
+                    <p className="text-lg font-bold text-blue-700 mt-1">{filteredAnalytics.paises.length}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Customizable chart */}
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <CardTitle className="text-base flex items-center gap-2"><BarChart3 className="h-5 w-5 text-emerald-600" /> Gráfico Dinámico</CardTitle>
+                    <div className="flex gap-2 flex-wrap">
+                      <select value={chartDimension} onChange={e => setChartDimension(e.target.value as any)} className="text-xs border rounded px-2 py-1">
+                        <option value="paises">Por País</option>
+                        <option value="productores">Por Productor</option>
+                        <option value="denoms">Por Producto</option>
+                        <option value="cortes">Por Corte</option>
+                        <option value="tipos">Por Tipo Mov.</option>
+                        <option value="certifs">Por Certificador</option>
+                        <option value="meses">Por Mes</option>
+                      </select>
+                      <select value={chartMetric} onChange={e => setChartMetric(e.target.value as any)} className="text-xs border rounded px-2 py-1">
+                        <option value="registros">Registros</option>
+                        <option value="cajas">Cajas</option>
+                        <option value="peso">Kg Neto</option>
+                      </select>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="px-5 pb-4">
+                  {(() => {
+                    const data = (filteredAnalytics as any)[chartDimension] as [string, number][];
+                    if (!data || data.length === 0) return <p className="text-sm text-slate-400 text-center py-8">Sin datos para esta combinación</p>;
+                    const maxVal = Math.max(...data.map(d => d[1]));
+                    const isMeses = chartDimension === 'meses';
+                    return (
+                      <div className={isMeses ? "flex items-end gap-2 h-40" : "space-y-1.5"}>
+                        {data.map(([label, count], i) => (
+                          <div key={label} className={isMeses ? "flex-1 flex flex-col items-center gap-1 group" : "flex items-center gap-3 group"}>
+                            <span className={isMeses ? "text-[9px] text-slate-400 group-hover:text-emerald-600" : "text-xs font-medium text-slate-700 w-40 truncate"} title={label}>
+                              {isMeses ? label.substring(5) : label}
+                            </span>
+                            {isMeses ? (
+                              <>
+                                <span className="text-[9px] text-slate-400 group-hover:text-emerald-600">{count.toLocaleString()}</span>
+                                <div className="w-full bg-emerald-500 group-hover:bg-emerald-700 rounded-t transition-all duration-300"
+                                  style={{ height: `${(count / maxVal) * 120}px`, minHeight: '4px' }} title={`${label}: ${count}`} />
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex-1 h-5 bg-slate-100 rounded-md overflow-hidden relative">
+                                  <div className="h-full rounded-md transition-all duration-500 flex items-center px-2"
+                                    style={{ width: `${(count / maxVal) * 100}%`, backgroundColor: COLORS[i % COLORS.length] }}>
+                                    <span className="text-[10px] font-semibold text-white whitespace-nowrap">{count.toLocaleString()}</span>
+                                  </div>
+                                </div>
+                                <span className="text-[10px] text-slate-400 w-10 text-right">{(count / filteredAnalytics.total * 100).toFixed(1)}%</span>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+
+              {/* Mini charts row */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <CardTitle className="text-sm flex items-center gap-2"><Ship className="h-4 w-4 text-blue-600" /> Países ({filteredAnalytics.paises.length})</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-5 pb-3">
+                    <div className="flex flex-wrap gap-1.5">
+                      {filteredAnalytics.paises.map(([pais, count]) => (
+                        <button key={pais} className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${filterPais === pais ? 'bg-emerald-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+                          onClick={() => setFilterPais(filterPais === pais ? '' : pais)}>
+                          {pais} ({count.toLocaleString()})
+                        </button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <CardTitle className="text-sm flex items-center gap-2"><Activity className="h-4 w-4 text-amber-600" /> Tipos de Movimiento</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-5 pb-3">
+                    <div className="space-y-1.5">
+                      {filteredAnalytics.tipos.map(([tipo, count], i) => (
+                        <div key={tipo} className="flex items-center gap-2 cursor-pointer hover:bg-amber-50/50 -mx-2 px-2 py-0.5 rounded"
+                          onClick={() => setFilterTipo(filterTipo === tipo ? '' : tipo)}>
+                          <span className="text-xs font-medium text-slate-700 flex-1">{tipo}</span>
+                          <span className="text-xs text-slate-500 font-mono">{count.toLocaleString()}</span>
+                          <div className="w-20 h-3 bg-slate-100 rounded-sm overflow-hidden">
+                            <div className="h-full rounded-sm" style={{ width: `${(count / filteredAnalytics.total) * 100}%`, backgroundColor: COLORS[i % COLORS.length] }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Top productos y cortes */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4 text-emerald-600" /> Top Productos</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-5 pb-3">
+                    <div className="space-y-1">
+                      {filteredAnalytics.denoms.map(([denom, count]) => (
+                        <div key={denom} className="flex items-center gap-2 cursor-pointer hover:bg-emerald-50/50 -mx-2 px-2 py-0.5 rounded"
+                          onClick={() => setSearch(denom)}>
+                          <span className="text-xs text-slate-700 flex-1 truncate" title={denom}>{denom}</span>
+                          <span className="text-xs text-slate-500 font-mono">{count.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4 text-violet-600" /> Top Cortes</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-5 pb-3">
+                    <div className="space-y-1">
+                      {filteredAnalytics.cortes.map(([corte, count]) => (
+                        <div key={corte} className="flex items-center gap-2 cursor-pointer hover:bg-violet-50/50 -mx-2 px-2 py-0.5 rounded"
+                          onClick={() => setSearch(corte)}>
+                          <span className="text-xs text-slate-700 flex-1 truncate" title={corte}>{corte}</span>
+                          <span className="text-xs text-slate-500 font-mono">{count.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          )}
 
           {/* Results count */}
           <div className="flex items-center justify-between">
