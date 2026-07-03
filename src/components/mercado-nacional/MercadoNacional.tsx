@@ -736,7 +736,7 @@ export default function MercadoNacional() {
                   <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><MapPin className="h-4 w-4 text-blue-600" /> {compareData.est1.name} — Países</CardTitle></CardHeader>
                   <CardContent className="px-5 pb-4">
                     <div className="space-y-1">
-                      {compareData.est1.paises.slice(0, 8).map(([pais, count], i) => {
+                      {compareData.est1.paises.slice(0, 8).map(([pais, count]: [string, number], i: number) => {
                         const max = compareData.est1.paises[0]?.[1] || 1;
                         return <div key={pais} className="flex items-center gap-2"><span className="text-xs text-slate-700 w-32 truncate">{pais}</span><div className="flex-1 h-4 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-blue-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500 w-10 text-right">{count}</span></div>;
                       })}
@@ -747,7 +747,7 @@ export default function MercadoNacional() {
                   <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><MapPin className="h-4 w-4 text-emerald-600" /> {compareData.est2.name} — Países</CardTitle></CardHeader>
                   <CardContent className="px-5 pb-4">
                     <div className="space-y-1">
-                      {compareData.est2.paises.slice(0, 8).map(([pais, count], i) => {
+                      {compareData.est2.paises.slice(0, 8).map(([pais, count]: [string, number], i: number) => {
                         const max = compareData.est2.paises[0]?.[1] || 1;
                         return <div key={pais} className="flex items-center gap-2"><span className="text-xs text-slate-700 w-32 truncate">{pais}</span><div className="flex-1 h-4 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-emerald-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500 w-10 text-right">{count}</span></div>;
                       })}
@@ -782,7 +782,7 @@ export default function MercadoNacional() {
                   <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Activity className="h-4 w-4 text-blue-600" /> {compareData.est1.name} — Tipos</CardTitle></CardHeader>
                   <CardContent className="px-5 pb-4">
                     <div className="space-y-1">
-                      {compareData.est1.tipos.map(([tipo, count], i) => { const max = compareData.est1.total || 1; return <div key={tipo} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1">{tipo}</span><div className="w-20 h-3 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-blue-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500">{count}</span></div>; })}
+                      {compareData.est1.tipos.map(([tipo, count]: [string, number], i: number) => { const max = compareData.est1.total || 1; return <div key={tipo} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1">{tipo}</span><div className="w-20 h-3 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-blue-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500">{count}</span></div>; })}
                     </div>
                   </CardContent>
                 </Card>
@@ -790,7 +790,7 @@ export default function MercadoNacional() {
                   <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Activity className="h-4 w-4 text-emerald-600" /> {compareData.est2.name} — Tipos</CardTitle></CardHeader>
                   <CardContent className="px-5 pb-4">
                     <div className="space-y-1">
-                      {compareData.est2.tipos.map(([tipo, count], i) => { const max = compareData.est2.total || 1; return <div key={tipo} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1">{tipo}</span><div className="w-20 h-3 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-emerald-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500">{count}</span></div>; })}
+                      {compareData.est2.tipos.map(([tipo, count]: [string, number], i: number) => { const max = compareData.est2.total || 1; return <div key={tipo} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1">{tipo}</span><div className="w-20 h-3 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-emerald-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500">{count}</span></div>; })}
                     </div>
                   </CardContent>
                 </Card>
