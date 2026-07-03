@@ -915,7 +915,8 @@ export default function MercadoNacional() {
       agg.regs++;
       if (r.pa) agg.paises.add(r.pa);
       if (r.ed) agg.clientes.add(r.ed);
-      agg.depositos[r.dep] = (agg.depositos[r.dep] || 0) + (r.pn || 0);
+      const dep = r.dep || '';
+      if (dep) agg.depositos[dep] = (agg.depositos[dep] || 0) + (r.pn || 0);
       agg.embarques++;
     }
 
@@ -997,7 +998,8 @@ export default function MercadoNacional() {
       if (r.pa) agg.paises.add(r.pa);
       if (r.ed) agg.clientes.add(r.ed);
       if (r.d) agg.denoms.add(r.d);
-      agg.depositoPn[r.dep] = (agg.depositoPn[r.dep] || 0) + (r.pn || 0);
+      const depKey = r.dep || '';
+      if (depKey) agg.depositoPn[depKey] = (agg.depositoPn[depKey] || 0) + (r.pn || 0);
       if (r.f) {
         const m = r.f.substring(0, 7);
         if (last3.has(m)) agg.recentPn += r.pn || 0;
@@ -1077,7 +1079,8 @@ export default function MercadoNacional() {
         agg.caliralPn += r.pn || 0;
       } else {
         agg.otrosPn += r.pn || 0;
-        agg.otrosDepositos[r.dep] = (agg.otrosDepositos[r.dep] || 0) + (r.pn || 0);
+        const od = r.dep || '';
+        if (od) agg.otrosDepositos[od] = (agg.otrosDepositos[od] || 0) + (r.pn || 0);
       }
     }
 
