@@ -1,0 +1,338 @@
+{
+  "total": 62984,
+  "totalCajas": 12443419,
+  "totalPeso": 341123198,
+  "paises": [
+    [
+      "CHINA",
+      14534
+    ],
+    [
+      "ESTADOS UNIDOS",
+      11314
+    ],
+    [
+      "HOLANDA",
+      5690
+    ],
+    [
+      "ISRAEL",
+      4552
+    ],
+    [
+      "CHINA (sólo a Depósitos)",
+      3965
+    ],
+    [
+      "UNION EUROPEA (sólo a Depósito)",
+      3531
+    ],
+    [
+      "ESPAÑA",
+      2310
+    ],
+    [
+      "JAPON",
+      2177
+    ],
+    [
+      "PORTUGAL",
+      2163
+    ],
+    [
+      "ITALIA",
+      1587
+    ],
+    [
+      "ALEMANIA",
+      1510
+    ],
+    [
+      "TERCEROS PAISES (sólo a Depósitos)",
+      1470
+    ],
+    [
+      "SUIZA",
+      834
+    ],
+    [
+      "NORUEGA",
+      784
+    ],
+    [
+      "BRASIL",
+      679
+    ],
+    [
+      "FRANCIA",
+      537
+    ],
+    [
+      "CHILE",
+      537
+    ],
+    [
+      "CANADA",
+      514
+    ],
+    [
+      "ESTADOS UNIDOS (sólo a Deposito)",
+      482
+    ],
+    [
+      "RUSIA",
+      392
+    ]
+  ],
+  "productores": [
+    [
+      "Frigorífico Tacuarembó S.A.",
+      12515
+    ],
+    [
+      "Frigorífico Pul (Pulsa S.A.)",
+      6235
+    ],
+    [
+      "Breeders & Packers Uruguay S.A.",
+      4975
+    ],
+    [
+      "Frigorífico Las Piedras S.A.",
+      4660
+    ],
+    [
+      "Frigorífico La Caballada (Cledinor S.A.)",
+      4198
+    ],
+    [
+      "Frigorífico San Jacinto (Nirea S.A.)",
+      4137
+    ],
+    [
+      "Frigorífico Matadero Pando (Ontilcor S.A.)",
+      4003
+    ],
+    [
+      "Inaler S.A.",
+      3762
+    ],
+    [
+      "Frigorífico Canelones S.A.",
+      2979
+    ],
+    [
+      "Frigoyí (Bilacor S.A.)",
+      2714
+    ],
+    [
+      "Frigorífico Sirsil S.A. (Sirsil S.A.)",
+      2162
+    ],
+    [
+      "Frigorífico Las Moras (Chiadel S.A.)",
+      2118
+    ],
+    [
+      "Copayan S.A.",
+      1991
+    ],
+    [
+      "Solís Meat Uruguay (Ersinal S.A.)",
+      1593
+    ],
+    [
+      "Establecimientos Colonia S.A.",
+      1412
+    ],
+    [
+      "Frigorífico Clay S.A.",
+      1236
+    ],
+    [
+      "Frigorífico Casa Blanca",
+      669
+    ],
+    [
+      "Frigorífico Durazno (Frigocerro S.A.)",
+      358
+    ],
+    [
+      "Frigorífico La Trinidad (Oferan S.A.)",
+      226
+    ],
+    [
+      "Frigorífico Sarel S.A.",
+      196
+    ],
+    [
+      "Frigorífico El Amanecer (Agroindustrial Del Este S.A.)",
+      193
+    ],
+    [
+      "Zutfray S.A.",
+      184
+    ],
+    [
+      "Coltirey S.A.",
+      107
+    ],
+    [
+      "Cardama S.A.",
+      58
+    ],
+    [
+      "Frigosalto (Somicar S.A.)",
+      53
+    ]
+  ],
+  "certificadores": [
+    [
+      "Frigorífico Tacuarembó S.A.",
+      10918
+    ],
+    [
+      "Frigorífico Pul (Pulsa S.A.)",
+      5189
+    ],
+    [
+      "Breeders & Packers Uruguay S.A.",
+      4952
+    ],
+    [
+      "Frigorífico Las Piedras S.A.",
+      4660
+    ],
+    [
+      "Frigorífico La Caballada (Cledinor S.A.)",
+      4168
+    ],
+    [
+      "Frigorífico Matadero Pando (Ontilcor S.A.)",
+      4002
+    ],
+    [
+      "Inaler S.A.",
+      3833
+    ],
+    [
+      "Frigorífico San Jacinto (Nirea S.A.)",
+      3264
+    ],
+    [
+      "Frigorífico Canelones S.A.",
+      2953
+    ],
+    [
+      "Frigoyí (Bilacor S.A.)",
+      2714
+    ],
+    [
+      "Frigorífico Arbiza S.A.",
+      2219
+    ],
+    [
+      "Frigorífico Sirsil S.A. (Sirsil S.A.)",
+      2162
+    ],
+    [
+      "Copayan S.A.",
+      1991
+    ],
+    [
+      "Frigorífico Las Moras (Chiadel S.A.)",
+      1928
+    ],
+    [
+      "Establecimientos Colonia S.A.",
+      1726
+    ]
+  ],
+  "tiposMov": [
+    [
+      "Exportación",
+      46072
+    ],
+    [
+      "Depósito",
+      10689
+    ],
+    [
+      "Recarga",
+      6223
+    ]
+  ],
+  "denoms": [
+    [
+      "CARNE BOVINA DESOSADA MADURADA",
+      23749
+    ],
+    [
+      "CARNE BOVINA SIN HUESO CONGELADA / FROZEN BONELESS BEEF",
+      6481
+    ],
+    [
+      "SUBPRODUCTOS BOVINOS COMESTIBLES CONGELADOS / FROZEN EDIBLE BEEF BY-PRODUCTS",
+      5493
+    ],
+    [
+      "CARNE BOVINA DESOSADA MADURADA CONGELADA",
+      2435
+    ],
+    [
+      "CARNE BOVINA DESOSADA SALADA ENFRIADA / CHILLED SALTED BONELESS BEEF",
+      2219
+    ],
+    [
+      "CARNE BOVINA CON HUESO CONGELADA / FROZEN BONE IN BEEF",
+      1985
+    ],
+    [
+      "CARNE BOVINA DESOSADA SALADA CONGELADA / FROZEN SALTED BONELESS BEEF",
+      1837
+    ],
+    [
+      "CARNE BOVINA DESOSADA",
+      1829
+    ],
+    [
+      "MENUDENCIAS BOVINAS COMESTIBLES MADURADAS",
+      1730
+    ],
+    [
+      "CARNE BOVINA DESOSADA MADURADA ENFRIADA",
+      1574
+    ],
+    [
+      "TRIPAS BOVINAS",
+      1450
+    ],
+    [
+      "SUBPRODUCTO BOVINO COMESTIBLE",
+      1297
+    ],
+    [
+      "MENUDENCIAS BOVINAS COMESTIBLES",
+      1142
+    ],
+    [
+      "CARNE BOVINA SIN HUESO MADURADA CONGELADA / FROZEN BONELESS MATURATED BEEF",
+      984
+    ],
+    [
+      "SANGRE FETAL",
+      695
+    ]
+  ],
+  "meses": {
+    "2026-01": 10270,
+    "2026-02": 11186,
+    "2026-03": 11436,
+    "2026-04": 8018,
+    "2026-05": 9809,
+    "2026-06": 11356,
+    "2026-07": 653,
+    "2025-02": 1,
+    "2025-12": 255
+  }
+}
