@@ -15,13 +15,9 @@ const tabs = [
   { id: 'exportaciones' as const, label: 'Exportaciones', icon: Ship },
   { id: 'cruce-caliral' as const, label: 'Cruces Frimaral', icon: ArrowLeftRight },
   { id: 'cruces-x-cote' as const, label: 'Cruces X COTE', icon: GitCompare },
-<<<<<<< HEAD
   { id: 'mercado-nacional' as const, label: 'Mercado Nacional', icon: Globe },
-  { id: 'trazabilidad' as const, label: 'Trazabilidad', icon: Search },
-=======
   { id: 'trazabilidad-explorer' as const, label: 'Trazabilidad', icon: Search },
   { id: 'trazabilidad' as const, label: 'Búsqueda', icon: Search },
->>>>>>> 2a0fd688b0cec21c550a0f03344e0c3139cba643
   { id: 'comparativa' as const, label: 'Comparativa', icon: GitCompare },
   { id: 'analiticas' as const, label: 'Analíticas', icon: BarChart3 },
   { id: 'importar' as const, label: 'Importar / Exportar', icon: Download },
