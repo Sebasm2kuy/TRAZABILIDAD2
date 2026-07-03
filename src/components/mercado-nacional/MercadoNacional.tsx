@@ -762,7 +762,7 @@ export default function MercadoNacional() {
                   <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4 text-blue-600" /> {compareData.est1.name} — Productos</CardTitle></CardHeader>
                   <CardContent className="px-5 pb-4">
                     <div className="space-y-0.5">
-                      {compareData.est1.denoms.slice(0, 8).map(([denom, count]) => <div key={denom} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1 truncate" title={denom}>{denom}</span><span className="text-xs font-mono text-slate-500">{count}</span></div>)}
+                      {compareData.est1.denoms.slice(0, 8).map(([denom, count]: [string, number]) => <div key={denom} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1 truncate" title={denom}>{denom}</span><span className="text-xs font-mono text-slate-500">{count}</span></div>)}
                     </div>
                   </CardContent>
                 </Card>
@@ -770,7 +770,7 @@ export default function MercadoNacional() {
                   <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4 text-emerald-600" /> {compareData.est2.name} — Productos</CardTitle></CardHeader>
                   <CardContent className="px-5 pb-4">
                     <div className="space-y-0.5">
-                      {compareData.est2.denoms.slice(0, 8).map(([denom, count]) => <div key={denom} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1 truncate" title={denom}>{denom}</span><span className="text-xs font-mono text-slate-500">{count}</span></div>)}
+                      {compareData.est2.denoms.slice(0, 8).map(([denom, count]: [string, number]) => <div key={denom} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1 truncate" title={denom}>{denom}</span><span className="text-xs font-mono text-slate-500">{count}</span></div>)}
                     </div>
                   </CardContent>
                 </Card>
