@@ -930,7 +930,7 @@ export default function MercadoNacional() {
   const productoresNoCaliral = useMemo<ProductorNoCaliral[]>(() => {
     const arr = [...productoresNoCaliralRaw];
     const dir = depositSortDir === 'asc' ? 1 : -1;
-    arr.sort((a, b) => {
+    arr.sort((a: any, b: any) => {
       const av = a[depositSortKey];
       const bv = b[depositSortKey];
       if (typeof av === 'string' && typeof bv === 'string') return av.localeCompare(bv) * dir;
