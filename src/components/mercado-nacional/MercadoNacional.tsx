@@ -24,7 +24,9 @@ interface MovRecord {
   t: string; f: string; c: string; cf: string; p: string; np: string;
   ed: string; tm: string; pa: string; d: string; co: string;
   pa2: number; e: number; pb: number; pn: number; tt: string; sh: string;
-  tpd?: string;
+  tpd?: string; tp?: number | null;
+  isd?: boolean; // is deposito (productor != certificador)
+  dep?: string;  // deposito name (= certificador when isd=true)
 }
 
 interface Analytics {
@@ -66,15 +68,20 @@ const COMPETITOR_COLOR = '#3b82f6'; // blue — competitors
 const DEPOSIT_OTHER_COLOR = '#8b5cf6'; // violet — other deposits
 const OPPORTUNITY_COLOR = '#f59e0b'; // amber — opportunities
 
-/** Logistics nodes excluded from "real client" / "real deposit" analysis */
+/** Logistics nodes excluded from "real client" analysis */
 function isLogisticsEd(ed: string): boolean {
   if (!ed) return true;
   const e = ed.trim();
   if (e === 'Puerto de Montevideo') return true;
   if (e.startsWith('Aeropuerto')) return true;
-  if (e.startsWith('P. F.')) return true; // Pasos fronterizos
+  if (e.startsWith('P. F.')) return true;
   if (e === 'Puerto de la Paloma') return true;
   return false;
+}
+
+/** Check if a record uses a deposito (productor != certificador) */
+function isDepositoRecord(r: MovRecord): boolean {
+  return r.isd === true;
 }
 
 // ============================================================
@@ -768,9 +775,9 @@ export default function MercadoNacional() {
   // DEPÓSITOS TAB — COMPUTATIONS (all filtered by tipoProductoFilter)
   // ============================================================
 
-  /** Records where ed is a real deposit (logistics nodes excluded). */
+  /** Records where productor != certificador (isDeposito=true) — real deposits */
   const depositRecords = useMemo<MovRecord[]>(() => {
-    return filteredRecords.filter(r => r.ed && !isLogisticsEd(r.ed));
+    return filteredRecords.filter(r => r.isd === true && r.dep);
   }, [filteredRecords]);
 
   /** Total peso neto of the deposit market (filtered). */
@@ -781,7 +788,7 @@ export default function MercadoNacional() {
   // ---------- Section A: Caliral as deposit ----------
 
   const caliralDepositoStats = useMemo(() => {
-    const caliralRecs = depositRecords.filter(r => r.ed === DEFAULT_COMPANY);
+    const caliralRecs = depositRecords.filter(r => r.dep === DEFAULT_COMPANY);
     const productoresSet = new Set<string>();
     const meses: Record<string, number> = {};
     const productoresPn: Record<string, number> = {};
@@ -825,11 +832,11 @@ export default function MercadoNacional() {
       productores: Set<string>; clientes: Set<string>;
     }> = {};
     for (const r of depositRecords) {
-      if (!map[r.ed]) map[r.ed] = { regs: 0, pn: 0, productores: new Set(), clientes: new Set() };
-      map[r.ed].regs++;
-      map[r.ed].pn += r.pn || 0;
-      if (r.p) map[r.ed].productores.add(r.p);
-      if (r.cf) map[r.ed].clientes.add(r.cf);
+      if (!map[r.dep]) map[r.dep] = { regs: 0, pn: 0, productores: new Set(), clientes: new Set() };
+      map[r.dep].regs++;
+      map[r.dep].pn += r.pn || 0;
+      if (r.p) map[r.dep].productores.add(r.p);
+      if (r.cf) map[r.dep].clientes.add(r.cf);
     }
     const totalPn = Object.values(map).reduce((s, v) => s + v.pn, 0) || 1;
     return Object.entries(map)
@@ -851,7 +858,7 @@ export default function MercadoNacional() {
     const otrosCortesPn: Record<string, number> = {};
 
     for (const r of depositRecords) {
-      if (r.ed === DEFAULT_COMPANY) {
+      if (r.dep === DEFAULT_COMPANY) {
         if (r.pa) caliralPaises.add(r.pa);
         if (r.co) caliralCortes.add(r.co);
       } else {
@@ -885,7 +892,7 @@ export default function MercadoNacional() {
     // Find producers who DO use Caliral as a deposit
     const caliralProductores = new Set<string>();
     for (const r of depositRecords) {
-      if (r.ed === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
+      if (r.dep === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
     }
 
     const map: Record<string, {
@@ -906,7 +913,7 @@ export default function MercadoNacional() {
       agg.regs++;
       if (r.pa) agg.paises.add(r.pa);
       if (r.ed) agg.clientes.add(r.ed);
-      agg.depositos[r.ed] = (agg.depositos[r.ed] || 0) + (r.pn || 0);
+      agg.depositos[r.dep] = (agg.depositos[r.dep] || 0) + (r.pn || 0);
       agg.embarques++;
     }
 
@@ -962,7 +969,7 @@ export default function MercadoNacional() {
     // Producers using Caliral — excluded from opportunity index
     const caliralProductores = new Set<string>();
     for (const r of depositRecords) {
-      if (r.ed === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
+      if (r.dep === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
     }
 
     interface ProdAgg {
@@ -988,7 +995,7 @@ export default function MercadoNacional() {
       if (r.pa) agg.paises.add(r.pa);
       if (r.ed) agg.clientes.add(r.ed);
       if (r.d) agg.denoms.add(r.d);
-      agg.depositoPn[r.ed] = (agg.depositoPn[r.ed] || 0) + (r.pn || 0);
+      agg.depositoPn[r.dep] = (agg.depositoPn[r.dep] || 0) + (r.pn || 0);
       if (r.f) {
         const m = r.f.substring(0, 7);
         if (last3.has(m)) agg.recentPn += r.pn || 0;
@@ -1064,11 +1071,11 @@ export default function MercadoNacional() {
       if (!prodMap[r.p]) prodMap[r.p] = { caliralPn: 0, otrosPn: 0, total: 0, otrosDepositos: {} };
       const agg = prodMap[r.p];
       agg.total += r.pn || 0;
-      if (r.ed === DEFAULT_COMPANY) {
+      if (r.dep === DEFAULT_COMPANY) {
         agg.caliralPn += r.pn || 0;
       } else {
         agg.otrosPn += r.pn || 0;
-        agg.otrosDepositos[r.ed] = (agg.otrosDepositos[r.ed] || 0) + (r.pn || 0);
+        agg.otrosDepositos[r.dep] = (agg.otrosDepositos[r.dep] || 0) + (r.pn || 0);
       }
     }
 
@@ -1097,7 +1104,7 @@ export default function MercadoNacional() {
     const caliralProductores = new Set<string>();
     for (const r of depositRecords) {
       if (r.p) totalProductores.add(r.p);
-      if (r.ed === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
+      if (r.dep === DEFAULT_COMPANY && r.p) caliralProductores.add(r.p);
     }
     const pctProductores = totalProductores.size > 0
       ? (caliralProductores.size / totalProductores.size) * 100
