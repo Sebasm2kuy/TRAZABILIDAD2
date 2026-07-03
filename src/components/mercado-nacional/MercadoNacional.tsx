@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Globe, Search, X, TrendingUp, Package, Weight, Ship, Warehouse,
   Factory, MapPin, Calendar, ChevronRight, ChevronDown, Download, Upload, Loader2,
-  BarChart3, PieChart, Activity
+  BarChart3, PieChart, Activity, GitCompare
 } from 'lucide-react';
 import { dataUrl } from '@/lib/staticData';
 import { fd, fmt } from '@/lib/utils';
@@ -43,10 +43,16 @@ export default function MercadoNacional() {
   const [filterPais, setFilterPais] = useState('');
   const [filterProductor, setFilterProductor] = useState('');
   const [filterTipo, setFilterTipo] = useState('');
-  const [view, setView] = useState<'dashboard' | 'search'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'search' | 'compare'>('dashboard');
   const [sortBy, setSortBy] = useState<'fecha' | 'cajas' | 'peso'>('fecha');
   const [page, setPage] = useState(1);
   const LIMIT = 50;
+
+  // Compare mode state
+  const [compareEst1, setCompareEst1] = useState('');
+  const [compareEst2, setCompareEst2] = useState('');
+  const [compareData, setCompareData] = useState<{ est1: any; est2: any } | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
 
   // Load analytics (small, fast)
   useEffect(() => {
@@ -77,6 +83,50 @@ export default function MercadoNacional() {
   useEffect(() => {
     if (view === 'search') loadRecords();
   }, [view, loadRecords]);
+
+  // Compute stats for a single establishment from records
+  const computeEstStats = useCallback((recs: MovRecord[], name: string) => {
+    const paises: Record<string, number> = {};
+    const denoms: Record<string, number> = {};
+    const cortes: Record<string, number> = {};
+    const tipos: Record<string, number> = {};
+    const meses: Record<string, number> = {};
+    let totalCajas = 0, totalPeso = 0;
+    for (const r of recs) {
+      if (r.pa) paises[r.pa] = (paises[r.pa] || 0) + 1;
+      if (r.d) denoms[r.d] = (denoms[r.d] || 0) + 1;
+      if (r.co) cortes[r.co] = (cortes[r.co] || 0) + 1;
+      if (r.tm) tipos[r.tm] = (tipos[r.tm] || 0) + 1;
+      if (r.f) { const m = r.f.substring(0, 7); meses[m] = (meses[m] || 0) + 1; }
+      totalCajas += r.e || 0;
+      totalPeso += r.pn || 0;
+    }
+    const sortEntries = (obj: Record<string, number>) => Object.entries(obj).sort(([,a],[,b]) => b - a);
+    return {
+      name, total: recs.length, totalCajas, totalPeso,
+      paises: sortEntries(paises).slice(0, 10),
+      denoms: sortEntries(denoms).slice(0, 10),
+      cortes: sortEntries(cortes).slice(0, 10),
+      tipos: sortEntries(tipos),
+      meses: Object.entries(meses).sort(([a],[b]) => a.localeCompare(b)),
+    };
+  }, []);
+
+  // Run comparison
+  const runComparison = useCallback(async () => {
+    if (!compareEst1 || !compareEst2 || compareEst1 === compareEst2) return;
+    setCompareLoading(true);
+    if (!recordsLoaded) await loadRecords();
+
+    const recs1 = records.filter(r => r.p === compareEst1 || r.cf === compareEst1);
+    const recs2 = records.filter(r => r.p === compareEst2 || r.cf === compareEst2);
+
+    setCompareData({
+      est1: computeEstStats(recs1, compareEst1),
+      est2: computeEstStats(recs2, compareEst2),
+    });
+    setCompareLoading(false);
+  }, [compareEst1, compareEst2, records, recordsLoaded, loadRecords, computeEstStats]);
 
   // Filter records
   const filteredRecords = useMemo(() => {
@@ -186,6 +236,9 @@ export default function MercadoNacional() {
           </Button>
           <Button variant={view === 'search' ? 'default' : 'outline'} size="sm" onClick={() => setView('search')}>
             <Search className="h-4 w-4 mr-1" /> Buscar
+          </Button>
+          <Button variant={view === 'compare' ? 'default' : 'outline'} size="sm" onClick={() => setView('compare')}>
+            <GitCompare className="h-4 w-4 mr-1" /> Comparar
           </Button>
         </div>
       </div>
@@ -323,13 +376,13 @@ export default function MercadoNacional() {
             </CardContent>
           </Card>
 
-          {/* Certificadores */}
+          {/* Certificadores - ALL */}
           <Card>
             <CardHeader className="pb-2 pt-4 px-5">
-              <CardTitle className="text-base flex items-center gap-2"><Factory className="h-5 w-5 text-teal-600" /> Top Certificadores</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2"><Factory className="h-5 w-5 text-teal-600" /> Todos los Certificadores ({analytics?.certificadores.length})</CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
                 {analytics?.certificadores.map(([cert, count], i) => (
                   <div key={cert} className="flex items-center gap-2 cursor-pointer hover:bg-teal-50/50 -mx-2 px-2 py-1 rounded"
                     onClick={() => { setSearch(cert); setView('search'); }}>
@@ -598,6 +651,183 @@ export default function MercadoNacional() {
               <span className="text-xs text-slate-500">{page} / {totalPages}</span>
               <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Siguiente</Button>
             </div>
+          )}
+        </>
+      )}
+
+      {/* COMPARE VIEW */}
+      {view === 'compare' && (
+        <>
+          {/* Selectors */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex flex-wrap gap-3 items-end">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="text-xs font-medium text-slate-600">Establecimiento 1</label>
+                  <select value={compareEst1} onChange={e => setCompareEst1(e.target.value)} className="w-full mt-1 text-sm border rounded px-2 py-1.5">
+                    <option value="">Seleccionar...</option>
+                    {analytics?.productores.map(([p]) => <option key={p} value={p}>{p}</option>)}
+                    {analytics?.certificadores.map(([c]) => <option key={c} value={c}>{c} (certificador)</option>)}
+                  </select>
+                </div>
+                <div className="flex-1 min-w-[200px]">
+                  <label className="text-xs font-medium text-slate-600">Establecimiento 2</label>
+                  <select value={compareEst2} onChange={e => setCompareEst2(e.target.value)} className="w-full mt-1 text-sm border rounded px-2 py-1.5">
+                    <option value="">Seleccionar...</option>
+                    {analytics?.productores.map(([p]) => <option key={p} value={p}>{p}</option>)}
+                    {analytics?.certificadores.map(([c]) => <option key={c} value={c}>{c} (certificador)</option>)}
+                  </select>
+                </div>
+                <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={runComparison} disabled={!compareEst1 || !compareEst2 || compareEst1 === compareEst2 || compareLoading}>
+                  {compareLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitCompare className="h-4 w-4" />} Comparar
+                </Button>
+              </div>
+              {!recordsLoaded && <p className="text-[10px] text-amber-600 mt-2">⚠️ Se cargarán 62.984 registros para comparar (puede tardar unos segundos)</p>}
+            </CardContent>
+          </Card>
+
+          {compareData && (
+            <>
+              {/* Comparison KPIs */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {[
+                  { label: 'Registros', est1: compareData.est1.total, est2: compareData.est2.total, icon: Package, color: 'emerald' },
+                  { label: 'Cajas', est1: compareData.est1.totalCajas, est2: compareData.est2.totalCajas, icon: Package, color: 'amber' },
+                  { label: 'Kg Neto', est1: compareData.est1.totalPeso, est2: compareData.est2.totalPeso, icon: Weight, color: 'violet' },
+                  { label: 'Países', est1: compareData.est1.paises.length, est2: compareData.est2.paises.length, icon: MapPin, color: 'blue' },
+                ].map((kpi, i) => {
+                  const max = Math.max(kpi.est1, kpi.est2) || 1;
+                  const w1 = (kpi.est1 / max) * 100;
+                  const w2 = (kpi.est2 / max) * 100;
+                  const winner = kpi.est1 > kpi.est2 ? 1 : kpi.est2 > kpi.est1 ? 2 : 0;
+                  return (
+                    <Card key={i}>
+                      <CardContent className="p-3">
+                        <p className="text-[10px] uppercase font-semibold text-slate-500 mb-2">{kpi.label}</p>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-blue-700 w-32 truncate" title={compareData.est1.name}>{compareData.est1.name.substring(0,20)}</span>
+                            <div className="flex-1 h-5 bg-slate-100 rounded overflow-hidden">
+                              <div className="h-full bg-blue-500 rounded flex items-center px-2" style={{ width: `${w1}%` }}>
+                                <span className="text-[9px] font-bold text-white">{kpi.est1.toLocaleString()}</span>
+                              </div>
+                            </div>
+                            {winner === 1 && <span className="text-[10px] text-emerald-600 font-bold">▲</span>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-emerald-700 w-32 truncate" title={compareData.est2.name}>{compareData.est2.name.substring(0,20)}</span>
+                            <div className="flex-1 h-5 bg-slate-100 rounded overflow-hidden">
+                              <div className="h-full bg-emerald-500 rounded flex items-center px-2" style={{ width: `${w2}%` }}>
+                                <span className="text-[9px] font-bold text-white">{kpi.est2.toLocaleString()}</span>
+                              </div>
+                            </div>
+                            {winner === 2 && <span className="text-[10px] text-emerald-600 font-bold">▲</span>}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+
+              {/* Side by side: Paises */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><MapPin className="h-4 w-4 text-blue-600" /> {compareData.est1.name} — Países</CardTitle></CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    <div className="space-y-1">
+                      {compareData.est1.paises.slice(0, 8).map(([pais, count], i) => {
+                        const max = compareData.est1.paises[0]?.[1] || 1;
+                        return <div key={pais} className="flex items-center gap-2"><span className="text-xs text-slate-700 w-32 truncate">{pais}</span><div className="flex-1 h-4 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-blue-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500 w-10 text-right">{count}</span></div>;
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><MapPin className="h-4 w-4 text-emerald-600" /> {compareData.est2.name} — Países</CardTitle></CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    <div className="space-y-1">
+                      {compareData.est2.paises.slice(0, 8).map(([pais, count], i) => {
+                        const max = compareData.est2.paises[0]?.[1] || 1;
+                        return <div key={pais} className="flex items-center gap-2"><span className="text-xs text-slate-700 w-32 truncate">{pais}</span><div className="flex-1 h-4 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-emerald-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500 w-10 text-right">{count}</span></div>;
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Side by side: Productos */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4 text-blue-600" /> {compareData.est1.name} — Productos</CardTitle></CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    <div className="space-y-0.5">
+                      {compareData.est1.denoms.slice(0, 8).map(([denom, count]) => <div key={denom} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1 truncate" title={denom}>{denom}</span><span className="text-xs font-mono text-slate-500">{count}</span></div>)}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Package className="h-4 w-4 text-emerald-600" /> {compareData.est2.name} — Productos</CardTitle></CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    <div className="space-y-0.5">
+                      {compareData.est2.denoms.slice(0, 8).map(([denom, count]) => <div key={denom} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1 truncate" title={denom}>{denom}</span><span className="text-xs font-mono text-slate-500">{count}</span></div>)}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Side by side: Tipos de movimiento */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Activity className="h-4 w-4 text-blue-600" /> {compareData.est1.name} — Tipos</CardTitle></CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    <div className="space-y-1">
+                      {compareData.est1.tipos.map(([tipo, count], i) => { const max = compareData.est1.total || 1; return <div key={tipo} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1">{tipo}</span><div className="w-20 h-3 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-blue-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500">{count}</span></div>; })}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Activity className="h-4 w-4 text-emerald-600" /> {compareData.est2.name} — Tipos</CardTitle></CardHeader>
+                  <CardContent className="px-5 pb-4">
+                    <div className="space-y-1">
+                      {compareData.est2.tipos.map(([tipo, count], i) => { const max = compareData.est2.total || 1; return <div key={tipo} className="flex items-center gap-2"><span className="text-xs text-slate-700 flex-1">{tipo}</span><div className="w-20 h-3 bg-slate-100 rounded-sm overflow-hidden"><div className="h-full bg-emerald-500 rounded-sm" style={{ width: `${(count/max)*100}%` }} /></div><span className="text-xs font-mono text-slate-500">{count}</span></div>; })}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Monthly comparison overlay */}
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5"><CardTitle className="text-sm flex items-center gap-2"><Calendar className="h-4 w-4 text-violet-600" /> Comparación Mensual</CardTitle></CardHeader>
+                <CardContent className="px-5 pb-4">
+                  {(() => {
+                    const allMeses = [...new Set([...compareData.est1.meses.map(m => m[0]), ...compareData.est2.meses.map(m => m[0])])].sort();
+                    const maxVal = Math.max(...compareData.est1.meses.map(m => m[1]), ...compareData.est2.meses.map(m => m[1]), 1);
+                    return (
+                      <div className="flex items-end gap-1.5 h-32">
+                        {allMeses.map(mes => {
+                          const v1 = compareData.est1.meses.find(m => m[0] === mes)?.[1] || 0;
+                          const v2 = compareData.est2.meses.find(m => m[0] === mes)?.[1] || 0;
+                          return (
+                            <div key={mes} className="flex-1 flex flex-col items-center gap-0.5 group">
+                              <div className="flex items-end gap-0.5 h-24">
+                                <div className="w-3 bg-blue-500 group-hover:bg-blue-700 rounded-t transition-all" style={{ height: `${(v1/maxVal)*80}px`, minHeight: '2px' }} title={`${compareData.est1.name}: ${v1}`} />
+                                <div className="w-3 bg-emerald-500 group-hover:bg-emerald-700 rounded-t transition-all" style={{ height: `${(v2/maxVal)*80}px`, minHeight: '2px' }} title={`${compareData.est2.name}: ${v2}`} />
+                              </div>
+                              <span className="text-[8px] text-slate-500">{mes.substring(5)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                  <div className="flex gap-4 mt-2 justify-center">
+                    <span className="text-[10px] flex items-center gap-1"><span className="w-3 h-3 bg-blue-500 rounded"></span> {compareData.est1.name.substring(0, 25)}</span>
+                    <span className="text-[10px] flex items-center gap-1"><span className="w-3 h-3 bg-emerald-500 rounded"></span> {compareData.est2.name.substring(0, 25)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
           )}
         </>
       )}
