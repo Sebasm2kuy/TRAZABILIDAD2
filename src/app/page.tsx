@@ -8,11 +8,14 @@ import ShipmentTable from '@/components/shipments/ShipmentTable';
 import ExportacionesTable from '@/components/exportaciones/ExportacionesTable';
 import CruceCaliral from '@/components/cruce-caliral/CruceCaliral';
 import CrucosXCote from '@/components/cruces-x-cote/CrucosXCote';
+import MercadoNacional from '@/components/mercado-nacional/MercadoNacional';
+import TrazabilidadExplorer from '@/components/trazabilidad-explorer/TrazabilidadExplorer';
 import TraceSearch from '@/components/traceability/TraceSearch';
 import AnalyticsCharts from '@/components/analytics/AnalyticsCharts';
 import ProductoDestino from '@/components/comparativa/ProductoDestino';
 import ImportExportPanel from '@/components/import-export/ImportExportPanel';
 import NewRecordForm from '@/components/new-record/NewRecordForm';
+import AIAssistant from '@/components/AIAssistant';
 import { initialPull } from '@/lib/googleSheets';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
@@ -31,6 +34,8 @@ export default function Home() {
       case 'exportaciones': return <ExportacionesTable />;
       case 'cruce-caliral': return <CruceCaliral />;
       case 'cruces-x-cote': return <CrucosXCote />;
+      case 'mercado-nacional': return <MercadoNacional />;
+      case 'trazabilidad-explorer': return <TrazabilidadExplorer />;
       case 'trazabilidad': return <TraceSearch />;
       case 'comparativa': return <ProductoDestino />;
       case 'analiticas': return <AnalyticsCharts />;
@@ -50,6 +55,7 @@ export default function Home() {
           </ErrorBoundary>
         </main>
       </div>
+      <AIAssistant />
     </ErrorBoundary>
   );
 }

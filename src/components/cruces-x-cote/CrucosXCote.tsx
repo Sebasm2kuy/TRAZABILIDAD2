@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { schedulePush } from '@/lib/googleSheets';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { useAppStore } from '@/store/useAppStore';
 import React from 'react';
 
 const STOCK_DATA_KEY = 'trazabilidad_stock_data';
@@ -195,6 +196,7 @@ async function loadDepositos(): Promise<Shipment[]> {
 }
 
 export default function CrucosXCote() {
+  const { navigateAndFilter } = useAppStore();
   const [stockData, setStockData] = useState<StockLoad | null>(null);
   const [palletAssignments, setPalletAssignments] = useState<Record<string, { codigo: string; tipo: 'COTE' | 'PASE_SANITARIO' }>>({});
   const [ingresoMap, setIngresoMap] = useState<Map<string, IngresoAgg>>(new Map());
@@ -587,7 +589,16 @@ export default function CrucosXCote() {
                           </td>
                           <td className="px-3 py-2 text-xs text-right font-mono">
                             {row.exportCajas > 0 ? (
-                              <span className="text-blue-700">{row.exportCajas.toLocaleString('es-UY')}</span>
+                              <button
+                                className="text-blue-700 hover:text-blue-900 hover:underline font-medium cursor-pointer"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigateAndFilter('exportaciones', undefined, row.cote);
+                                }}
+                                title={`Ver exportaciones que referencian ${row.cote}`}
+                              >
+                                {row.exportCajas.toLocaleString('es-UY')}
+                              </button>
                             ) : <span className="text-slate-300">—</span>}
                           </td>
                           <td className="px-3 py-2 text-xs text-right font-mono">
