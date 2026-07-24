@@ -782,8 +782,7 @@ export default function MercadoNacional() {
     'Frigorífico Sirsil S.A. (Sirsil S.A.)', 'Frigorífico Pul (Pulsa S.A.)',
     'Frigorífico El Amanecer (Agroindustrial Del Este S.A.)', 'Breeders & Packers Uruguay S.A.',
     'Frigorífico San Jacinto (Nirea S.A.)', 'Frigorífico Matadero Pando (Ontilcor S.A.)',
-    'Solís Meat Uruguay (Ersinal S.A.)', 'Frigorífico Casa Blanca', 'Copayan S.A.',
-    'Frigorífico Tacuarembó S.A.', 'Establecimientos Colonia S.A.', 'Frigorífico Canelones S.A.',
+    'Copayan S.A.', 'Establecimientos Colonia S.A.', 'Frigorífico Canelones S.A.',
     'Frigorífico Clay S.A.', 'Frigorífico Las Moras (Chiadel S.A.)', 'Frigorífico Sarel S.A.',
     'Inaler S.A.', 'Berdick S.A.', 'Despro S.A.', 'Frigorífico Durazno (Frigocerro S.A.)',
     'Frigorífico La Trinidad (Oferan S.A.)', 'Coltirey S.A.', 'Zutfray S.A.', 'Cardama S.A.',
@@ -792,15 +791,23 @@ export default function MercadoNacional() {
     'LONSA SCIENCE S.R.L.', 'Frigorífico Carrasco S.A.', 'Probiomont S.A.', 'Fanaphru S.A.',
   ]), []);
 
-  /** A record is a deposit record when certificador is NOT a producer */
+  /** Producers that also act as deposits/clients — exclude from producer-only logic */
+  const PRODUCTORES_CON_DEPOSITO_SET = useMemo(() => new Set([
+    'Solís Meat Uruguay (Ersinal S.A.)',
+    'Frigorífico Casa Blanca',
+    'Frigorífico Tacuarembó S.A.',
+  ]), []);
+
+  /** A record is a deposit record when certificador is NOT a producer, OR is a producer that also acts as deposit */
   const depositRecords = useMemo<MovRecord[]>(() => {
     return filteredRecords.filter(r => {
       if (!r.cf) return false;
       // Deposit = certificador is NOT in the producer list
-      if (PRODUCTORES_SET.has(r.cf)) return false;
+      // OR certificador IS in the producer list but also acts as deposit/client
+      if (PRODUCTORES_SET.has(r.cf) && !PRODUCTORES_CON_DEPOSITO_SET.has(r.cf)) return false;
       return true;
     });
-  }, [filteredRecords, PRODUCTORES_SET]);
+  }, [filteredRecords, PRODUCTORES_SET, PRODUCTORES_CON_DEPOSITO_SET]);
 
   /** Total peso neto of the deposit market (filtered). */
   const totalDepositPn = useMemo(() => {
