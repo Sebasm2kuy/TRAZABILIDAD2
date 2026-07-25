@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type Tab = 'dashboard' | 'depositos' | 'exportaciones' | 'cruce-caliral' | 'cruces-x-cote' | 'mercado-nacional' | 'trazabilidad-explorer' | 'trazabilidad' | 'comparativa' | 'analiticas' | 'importar' | 'nuevo';
+export type Tab = 'dashboard' | 'depositos' | 'exportaciones' | 'cruce-caliral' | 'cruces-x-cote' | 'mercado-nacional' | 'trazabilidad-explorer' | 'trazabilidad' | 'comparativa' | 'analiticas' | 'importar' | 'nuevo' | 'clientes-estrategicos';
 
 interface Filters {
   pais: string;

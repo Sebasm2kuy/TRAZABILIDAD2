@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import Sidebar from '@/components/Sidebar';
 import Dashboard from '@/components/dashboard/Dashboard';
@@ -16,16 +16,43 @@ import ProductoDestino from '@/components/comparativa/ProductoDestino';
 import ImportExportPanel from '@/components/import-export/ImportExportPanel';
 import NewRecordForm from '@/components/new-record/NewRecordForm';
 import AIAssistant from '@/components/AIAssistant';
-import { initialPull } from '@/lib/googleSheets';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { Login } from '@/components/auth/Login';
+import { ClientesEstrategicos } from '@/components/clientes-estrategicos/ClientesEstrategicos';
+import { getSession, onAuthChange, getAllowedTabs, type AuthUser } from '@/lib/auth';
 
 export default function Home() {
-  const { activeTab } = useAppStore();
+  const { activeTab, setActiveTab } = useAppStore();
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
 
-  // Firebase pull runs in background — app renders immediately with local data
   useEffect(() => {
-    initialPull().catch(() => { /* Firebase not available, use local data */ });
+    const s = getSession();
+    setUser(s);
+    setAuthChecked(true);
+    const unsub = onAuthChange(() => setUser(getSession()));
+    return unsub;
   }, []);
+
+  // Si el rol no tiene acceso a la tab activa, forzar a la primera permitida
+  useEffect(() => {
+    if (!user) return;
+    const allowed = getAllowedTabs(user.role);
+    if (!allowed.includes(activeTab)) {
+      setActiveTab(allowed[0] as any);
+    }
+  }, [user, activeTab, setActiveTab]);
+
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-emerald-500" />
+      </div>
+    );
+  }
+  if (!user) {
+    return <Login onLogin={setUser} />;
+  }
 
   const renderContent = () => {
     switch (activeTab) {
@@ -41,6 +68,7 @@ export default function Home() {
       case 'analiticas': return <AnalyticsCharts />;
       case 'importar': return <ImportExportPanel />;
       case 'nuevo': return <NewRecordForm />;
+      case 'clientes-estrategicos': return <ClientesEstrategicos />;
       default: return <Dashboard />;
     }
   };
@@ -48,14 +76,14 @@ export default function Home() {
   return (
     <ErrorBoundary>
       <div className="flex h-screen overflow-hidden bg-slate-50">
-        <Sidebar />
+        <Sidebar user={user} />
         <main className="flex-1 overflow-y-auto overflow-x-hidden">
           <ErrorBoundary>
             {renderContent()}
           </ErrorBoundary>
         </main>
       </div>
-      <AIAssistant />
+      {user.role === 'supervisor' && <AIAssistant />}
     </ErrorBoundary>
   );
 }
