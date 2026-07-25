@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Search, ArrowUpDown, Download, Trophy, X } from 'lucide-react';
-import { fetchShipments } from '@/lib/staticData';
+import { loadDepositos } from '@/lib/dataRepository';
 import type { Shipment } from '@/lib/types';
 import { fmt } from '@/lib/utils';
 import { useAppStore } from '@/store/useAppStore';
@@ -21,10 +21,11 @@ export default function ProductoDestino() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { navigateAndFilter } = useAppStore();
 
+  // FIX: usa loadDepositos() de dataRepository que carga desde embarques.xlsx
   useEffect(() => {
     (async () => {
-      const all = await fetchShipments({ page: 1, limit: 99999 });
-      setShipments(all.data);
+      const all = await loadDepositos();
+      setShipments(all);
       setLoading(false);
     })();
   }, []);

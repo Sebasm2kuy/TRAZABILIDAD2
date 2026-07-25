@@ -10,6 +10,7 @@
 // ============================================================
 
 import type { MovRecord } from '@/intelligence-engine/types';
+import type { Shipment, ExpRecord } from '@/lib/types';
 import { dataUrl } from '@/lib/staticData';
 
 let cache: MovRecord[] | null = null;
@@ -114,6 +115,7 @@ export function parseEmbarquesRows(rows: unknown[][]): MovRecord[] {
     const tpd = deriveTpd(denom);
 
     const rec: MovRecord = {
+      tramite,
       t: isExport ? 'EXPORTACION' : 'INGRESO',
       f: parseDate(get(row, 'Fecha del Trámite', 'Fecha del Tramite')),
       c: cote,
@@ -205,4 +207,86 @@ export function getEmbarquesCacheStats(): { totalRecords: number; loaded: boolea
     totalRecords: cache?.length ?? 0,
     loaded: cache !== null,
   };
+}
+
+// ============================================================
+// Conversión MovRecord → Shipment / ExpRecord
+// ------------------------------------------------------------
+// Permite que dataRepository.loadDepositos() / loadExportaciones()
+// sirvan datos del Excel a todos los componentes que esperan esos
+// tipos (Dashboard, ShipmentTable, ExportacionesTable, etc.).
+// ============================================================
+
+/** Convierte un MovRecord del Excel a un Shipment (formato de depósito). */
+function movRecordToShipment(r: MovRecord, idx: number): Shipment {
+  const tramite = r.tramite || 0;
+  return {
+    id: `emb-${idx}-${tramite || r.c || idx}`,
+    nroTramite: tramite,
+    fechaTramite: r.f || '',
+    nroCote: r.c || '',
+    nombreEstablecimientoCertif: r.cf || null,
+    nombreEstablecimientoProd: r.p || null,
+    nroEstablecimientoProd: parseInt((r.np || '').replace(/[^0-9]/g, '')) || null,
+    tipoTransporte: r.tt || null,
+    nombreEstablecimientoDestino: r.ed || '',
+    tipoMovimiento: r.tm || null,
+    observaciones: null,
+    paisDestino: r.pa || '',
+    denominacionMercaderia: r.d || '',
+    corte: r.co || '',
+    pallets: r.pa2 || null,
+    cantidadEnvases: r.e || null,
+    pesoBruto: r.pb || null,
+    pesoNeto: r.pn || null,
+    tipo: r.t === 'EXPORTACION' ? 'EXPORTACION' : 'DEPOSITO',
+  };
+}
+
+/** Convierte un MovRecord del Excel a un ExpRecord (formato de exportación). */
+function movRecordToExpRecord(r: MovRecord, idx: number): ExpRecord {
+  return {
+    ...movRecordToShipment(r, idx),
+    tipo: 'EXPORTACION',
+  };
+}
+
+/**
+ * Devuelve todos los registros del Excel como Shipment[] (depósitos +
+ * recargas). Filtra solo los que son tipo Depósito o Recarga.
+ * Cachea el resultado para llamadas subsiguientes.
+ */
+let depositosCache: Shipment[] | null = null;
+export async function loadEmbarquesAsDepositos(): Promise<Shipment[]> {
+  if (depositosCache) return depositosCache;
+  const records = await loadEmbarquesRecords();
+  depositosCache = records
+    .filter(r => {
+      const tm = (r.tm || '').toUpperCase();
+      return tm.includes('DEP') || tm.includes('RECARGA') || tm.includes('INGRESO');
+    })
+    .map((r, i) => movRecordToShipment(r, i));
+  return depositosCache;
+}
+
+/**
+ * Devuelve todos los registros del Excel como ExpRecord[] (exportaciones).
+ * Filtra solo los que son tipo Exportación.
+ * Cachea el resultado para llamadas subsiguientes.
+ */
+let exportacionesCache: ExpRecord[] | null = null;
+export async function loadEmbarquesAsExportaciones(): Promise<ExpRecord[]> {
+  if (exportacionesCache) return exportacionesCache;
+  const records = await loadEmbarquesRecords();
+  exportacionesCache = records
+    .filter(r => (r.tm || '').toUpperCase().includes('EXPORT'))
+    .map((r, i) => movRecordToExpRecord(r, i));
+  return exportacionesCache;
+}
+
+/** Limpia todos los caches (para forzar recarga). */
+export function clearAllEmbarquesCaches(): void {
+  clearEmbarquesCache();
+  depositosCache = null;
+  exportacionesCache = null;
 }

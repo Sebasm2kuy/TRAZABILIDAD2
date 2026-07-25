@@ -13,6 +13,7 @@ import {
   Warehouse, Boxes, Network,
 } from 'lucide-react';
 import { dataUrl } from '@/lib/staticData';
+import { loadEmbarquesRecords } from '@/lib/embarquesLoader';
 import { fmt } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -367,12 +368,11 @@ export default function MercadoNacional() {
         const ra = await fetch(dataUrl('data/nacional_analytics.json'));
         if (ra.ok && !cancelled) setAnalytics(await ra.json());
 
-        setLoadProgress('Cargando 62.984 registros (21.7 MB)…');
-        const rr = await fetch(dataUrl('data/nacional_mgmp.json'));
-        if (rr.ok && !cancelled) {
-          const data: MovRecord[] = await rr.json();
-          setRecords(data);
-        }
+        // FIX: ahora carga desde embarques.xlsx (52,940 registros) en vez
+        // del JSON pre-procesado nacional_mgmp.json
+        setLoadProgress('Cargando embarques.xlsx (52,940 registros)…');
+        const data = await loadEmbarquesRecords(msg => !cancelled && setLoadProgress(msg));
+        if (!cancelled) setRecords(data);
       } catch (err) {
         console.error('Error loading data:', err);
         toast.error('Error al cargar los datos del mercado');

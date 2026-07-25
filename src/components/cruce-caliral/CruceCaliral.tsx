@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { schedulePush } from '@/lib/googleSheets'
 import { dataUrl } from '@/lib/staticData';
+import { loadDepositos as loadDepCentral, loadExportaciones as loadExpCentral } from '@/lib/dataRepository';
 import type { ExpRecord } from '@/lib/types';
 import type { StockLoad, StockCodigoAgg, StockPallet } from '@/lib/parseStockXls';
 import { buildStockAggMap, SIN_CODIGO_KEY } from '@/lib/parseStockXls';
@@ -325,145 +326,29 @@ function applyExpEdits(data: ExpRecord[], edits: Record<string, Partial<ExpRecor
 }
 
 async function ensureData(forceReload = false) {
+  // FIX: ahora usa loadDepositos/loadExportaciones de dataRepository
+  // que cargan desde embarques.xlsx. Eliminados los fetch a JSON
+  // estático + merge manual + fixRecordDates (deprecated).
   if (!cache.loaded || forceReload) {
-    const [sR, eR] = await Promise.all([
-      fetch(dataUrl('data/shipments.json') + '?t=' + Date.now()),
-      fetch(dataUrl('data/exportaciones.json') + '?t=' + Date.now()),
+    const [allShipments, allExports] = await Promise.all([
+      loadDepCentral(),
+      loadExpCentral(),
     ]);
-    const allShipments: IngresoLine[] = await sR.json();
-    const allExports: ExpRecord[] = await eR.json();
-
-    // Merge: imported Excel data takes priority if static JSON is empty
-    // Read from trazabilidad_dep_imported (Excel import in Depositos tab)
-    let importedShipments: IngresoLine[] = [];
-    try {
-      const depImpRaw = localStorage.getItem('trazabilidad_dep_imported');
-      if (depImpRaw) importedShipments = JSON.parse(depImpRaw);
-    } catch { /* ignore */ }
-
-    // If static JSON is empty but imported data exists, use imported data as base
-    let baseShipments = allShipments;
-    if (baseShipments.length === 0 && importedShipments.length > 0) {
-      baseShipments = importedShipments;
-    }
 
     // Filter to Caliral-bound shipments
-    let caliralShipments = baseShipments.filter(s => String(s.nombreEstablecimientoDestino || '').toLowerCase().includes('caliral'));
-
-    // Also include imported records that are not already in base (for non-caliral merge)
-    if (baseShipments === allShipments && importedShipments.length > 0) {
-      const existingIds = new Set(caliralShipments.map(s => s.id));
-      for (const nr of importedShipments) {
-        if (!existingIds.has(nr.id)) {
-          caliralShipments.push(nr);
-        }
-      }
-    }
-
-    // Also include new deposit records from Depositos page (manual creates)
-    try {
-      const depNewRaw = localStorage.getItem('trazabilidad_dep_new_records');
-      if (depNewRaw) {
-        const depNew: IngresoLine[] = JSON.parse(depNewRaw);
-        const existingIds = new Set(caliralShipments.map(s => s.id));
-        for (const nr of depNew) {
-          if (!existingIds.has(nr.id)) {
-            caliralShipments.push(nr);
-          }
-        }
-      }
-    } catch { /* ignore */ }
-
-    // Apply deposit edits from Depositos page
-    try {
-      const depEditsRaw = localStorage.getItem('trazabilidad_dep_edits');
-      if (depEditsRaw) {
-        const depEdits: Record<string, Partial<IngresoLine>> = JSON.parse(depEditsRaw);
-        caliralShipments = caliralShipments.map(s => depEdits[s.id] ? { ...s, ...depEdits[s.id] } : s);
-      }
-    } catch { /* ignore */ }
-
-    // Remove deleted deposits
-    try {
-      const depDelRaw = localStorage.getItem('trazabilidad_dep_deleted');
-      if (depDelRaw) {
-        const depDeleted: Set<string> = new Set(JSON.parse(depDelRaw));
-        caliralShipments = caliralShipments.filter(s => !depDeleted.has(s.id));
-      }
-    } catch { /* ignore */ }
-
-    // Fix swapped dates (MM/DD ↔ DD/MM corruption from old Excel imports)
-    const shipDateFields = ['fechaTramite', 'fechaEmitidoCote', 'fechaInicioFaena', 'fechaFinFaena', 'fechaInicioProduccion', 'fechaFinProduccion', 'fechaInicioCongelacion', 'fechaFinCongelacion'];
-    const fixedShipments = fixRecordDates(caliralShipments, shipDateFields);
-    if (fixedShipments !== caliralShipments) {
-      // Save corrected data back to localStorage
-      try {
-        const depImpRaw = localStorage.getItem('trazabilidad_dep_imported');
-        if (depImpRaw) {
-          const depImported: IngresoLine[] = JSON.parse(depImpRaw);
-          const fixedDep = fixRecordDates(depImported, shipDateFields);
-          if (fixedDep !== depImported) localStorage.setItem('trazabilidad_dep_imported', JSON.stringify(fixedDep));
-        }
-      } catch { /* ignore */ }
-      caliralShipments = fixedShipments;
-    }
+    const caliralShipments = (allShipments as unknown as IngresoLine[]).filter(s =>
+      String(s.nombreEstablecimientoDestino || '').toLowerCase().includes('caliral')
+    );
 
     cache.shipments = caliralShipments;
     cache.exportsRaw = allExports;
     cache.loaded = true;
   }
 
-  // Build full export list: static JSON + imported Excel + new PDF uploads (always re-read localStorage)
-  const allExportsList = [...cache.exportsRaw];
+  // Build full export list (cache.exportsRaw ya tiene imported + batches + newRecords + edits + deleted)
+  const allExportsList = [...cache.exportsRaw] as ExpRecord[];
 
-  // Read from trazabilidad_exp_imported (Excel import in Exportaciones tab)
-  try {
-    const expImpRaw = localStorage.getItem('trazabilidad_exp_imported');
-    if (expImpRaw) {
-      const expImported: ExpRecord[] = JSON.parse(expImpRaw);
-      // If static JSON is empty, use imported as base
-      if (allExportsList.length === 0) {
-        allExportsList.push(...expImported);
-      } else {
-        const existingIds = new Set(allExportsList.map(e => e.id));
-        for (const nr of expImported) {
-          if (!existingIds.has(nr.id)) allExportsList.push(nr);
-        }
-      }
-    }
-  } catch { /* ignore */ }
-
-  // Also include new records from PDF uploads
-  try {
-    const raw = localStorage.getItem('trazabilidad_new_records');
-    if (raw) {
-      const newRecs: ExpRecord[] = JSON.parse(raw);
-      const existingIds = new Set(allExportsList.map(e => e.id));
-      for (const nr of newRecs) {
-        if (nr.tipo === 'EXPORTACION' && !existingIds.has(nr.id)) {
-          allExportsList.push(nr);
-        }
-      }
-    }
-  } catch { /* ignore */ }
-
-  // Fix swapped dates on exports too
-  const expDateFields = ['fechaTramite', 'fechaEmitidoCote', 'fechaInicioFaena', 'fechaFinFaena', 'fechaInicioProduccion', 'fechaFinProduccion', 'fechaInicioCongelacion', 'fechaFinCongelacion', 'recibidaFechaHora'];
-  const fixedExports = fixRecordDates(allExportsList, expDateFields);
-  if (fixedExports !== allExportsList) {
-    try {
-      const expImpRaw = localStorage.getItem('trazabilidad_exp_imported');
-      if (expImpRaw) {
-        const expImported: ExpRecord[] = JSON.parse(expImpRaw);
-        const fixedImp = fixRecordDates(expImported, expDateFields);
-        if (fixedImp !== expImported) localStorage.setItem('trazabilidad_exp_imported', JSON.stringify(fixedImp));
-      }
-    } catch { /* ignore */ }
-    allExportsList.length = 0;
-    allExportsList.push(...fixedExports);
-  }
-
-  // Apply edits from Exportaciones page to ALL exports (including PDF uploads)
+  // Apply edits from Exportaciones page
   const expEdits = loadExpEdits();
   cache.exports = applyExpEdits(allExportsList, expEdits);
 }

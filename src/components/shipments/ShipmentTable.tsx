@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { Search, X, ChevronLeft, ChevronRight, Eye, FileCheck, Pencil, Save, RotateCcw, CheckCircle2, Plus, Trash2, Download, Upload, Loader2, Check, Globe, Sparkles, ClipboardPaste, Package, FileText } from 'lucide-react';
 import { fetchShipments, fetchAnalytics, getCotes, dataUrl } from '@/lib/staticData';
+import { loadDepositos } from '@/lib/dataRepository';
 import { parseEnviosExcel } from '@/lib/parseExcelRegistro';
 import { parseCotePdf, coteToShipmentRecord } from '@/lib/parseCotePdf';
 import type { Shipment } from '@/lib/types';
@@ -160,60 +161,20 @@ function toInputDate(d: string | null | undefined): string {
   } catch { return ''; }
 }
 
-// Cache for raw data from shipments.json
+// Cache for raw data — FIX: ahora usa loadDepositos() de dataRepository
+// que carga desde embarques.xlsx en vez de ingresos_frimaral.json.
 const depCache: { data: Shipment[]; loaded: boolean } = { data: [], loaded: false };
 
-const DEP_IMPORTED_KEY = 'trazabilidad_dep_imported';
-
 async function ensureDep() {
-  // Always reload if empty
   if (!depCache.loaded || depCache.data.length === 0) {
     depCache.loaded = false;
     depCache.data = [];
-
-    // Try localStorage first
-    const imported = localStorage.getItem(DEP_IMPORTED_KEY);
-    if (imported) {
-      try {
-        const parsed = JSON.parse(imported);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          depCache.data = parsed;
-        }
-      } catch { /* ignore */ }
-    }
-
-    // If no local data, load from pre-processed JSON
-    if (depCache.data.length === 0) {
-      try {
-        const r = await fetch(dataUrl('data/ingresos_frimaral.json'));
-        if (r.ok) {
-          const data = await r.json();
-          if (Array.isArray(data) && data.length > 0) {
-            depCache.data = data;
-          }
-        }
-      } catch { /* ignore */ }
-    }
-
-    // Also merge new_records (manual/PDF)
     try {
-      const newRecs = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
-      if (Array.isArray(newRecs) && newRecs.length > 0) {
-        const existingIds = new Set(depCache.data.map((r: Shipment) => r.id));
-        for (const r of newRecs) {
-          if (!existingIds.has(r.id)) depCache.data.push(r);
-        }
-      }
-    } catch { /* ignore */ }
-
-    // Also merge edits (for new_dep_ records that were edited)
-    try {
-      const edits = JSON.parse(localStorage.getItem('trazabilidad_dep_edits') || '{}');
-      for (const r of depCache.data) {
-        if (edits[r.id]) Object.assign(r, edits[r.id]);
-      }
-    } catch { /* ignore */ }
-
+      const data = await loadDepositos();
+      depCache.data = Array.isArray(data) ? data : [];
+    } catch {
+      depCache.data = [];
+    }
     depCache.loaded = true;
   }
 }
@@ -710,7 +671,7 @@ export default function ShipmentTable() {
       const merged = [...depCache.data, ...trulyNew];
       depCache.data = merged;
       depCache.loaded = true;
-      localStorage.setItem(DEP_IMPORTED_KEY, JSON.stringify(merged));
+      localStorage.setItem('trazabilidad_dep_imported', JSON.stringify(merged));
       schedulePush();
 
       const dupCount = newRecords.length - trulyNew.length;

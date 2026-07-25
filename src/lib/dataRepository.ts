@@ -1,4 +1,5 @@
 import { dataUrl, fetchShipments } from './staticData';
+import { loadEmbarquesAsDepositos, loadEmbarquesAsExportaciones } from './embarquesLoader';
 import type { ExpRecord, Shipment } from './types';
 
 export const STORAGE_KEYS = {
@@ -66,12 +67,19 @@ async function fetchJson<T>(path: string): Promise<T> {
 }
 
 export async function loadDepositos(): Promise<Shipment[]> {
+  // FIX: ahora carga desde embarques.xlsx en vez de data/shipments.json.
+  // Los imports manuales del usuario (localStorage) se mergean encima.
+  let base = await loadEmbarquesAsDepositos();
+
+  // Si el usuario importó datos manualmente, mergearlos encima (priority)
   const imported = readStorageJson<Shipment[] | null>(STORAGE_KEYS.depImported, null);
-  let base = imported ?? await fetchJson<Shipment[]>('data/shipments.json');
+  if (imported && imported.length > 0) {
+    base = mergeUniqueById(imported, base);
+  }
 
   const batchRecords = readStorageJson<ImportedBatch[]>(STORAGE_KEYS.importedBatches, [])
     .flatMap(batch => batch.data || [])
-    .filter(record => record.tipo === 'INGRESO');
+    .filter(record => record.tipo === 'INGRESO' || record.tipo === 'DEPOSITO');
   base = mergeUniqueById(base, batchRecords);
 
   const newRecords = readStorageJson<Shipment[]>(STORAGE_KEYS.depNew, []);
@@ -85,8 +93,13 @@ export async function loadDepositos(): Promise<Shipment[]> {
 }
 
 export async function loadExportaciones(): Promise<ExpRecord[]> {
+  // FIX: ahora carga desde embarques.xlsx en vez de data/exportaciones.json.
+  let base = await loadEmbarquesAsExportaciones();
+
   const imported = readStorageJson<ExpRecord[] | null>(STORAGE_KEYS.expImported, null);
-  let base = imported ?? await fetchJson<ExpRecord[]>('data/exportaciones.json');
+  if (imported && imported.length > 0) {
+    base = mergeUniqueById(imported, base);
+  }
 
   const batchRecords = readStorageJson<ImportedBatch<ExpRecord>[]>(STORAGE_KEYS.importedBatches, [])
     .flatMap(batch => batch.data || [])

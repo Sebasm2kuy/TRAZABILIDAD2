@@ -3,32 +3,12 @@ import { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Legend } from 'recharts';
-import { dataUrl } from '@/lib/staticData';
 import { fmt } from '@/lib/utils';
+import { loadDepositos, loadExportaciones } from '@/lib/dataRepository';
 import type { Shipment, ExpRecord } from '@/lib/types';
 
-// Same data loaders as Dashboard
-async function loadAllDepositos(): Promise<Shipment[]> {
-  const imported = localStorage.getItem('trazabilidad_dep_imported');
-  let base: Shipment[];
-  if (imported) { try { base = JSON.parse(imported); } catch { base = []; } }
-  else { const r = await fetch(dataUrl('data/shipments.json')); base = await r.json(); }
-  try { const raw = localStorage.getItem('trazabilidad_dep_new_records'); if (raw) { const nr: Shipment[] = JSON.parse(raw); const ids = new Set(base.map(s => s.id)); for (const n of nr) { if (!ids.has(n.id)) base.push(n); } } } catch { /* ignore */ }
-  try { const raw = localStorage.getItem('trazabilidad_dep_edits'); if (raw) { const ed: Record<string, Partial<Shipment>> = JSON.parse(raw); base = base.map(s => ed[s.id] ? { ...s, ...ed[s.id] } : s); } } catch { /* ignore */ }
-  try { const raw = localStorage.getItem('trazabilidad_dep_deleted'); if (raw) { const del: Set<string> = new Set(JSON.parse(raw)); base = base.filter(s => !del.has(s.id)); } } catch { /* ignore */ }
-  return base;
-}
-
-async function loadAllExportaciones(): Promise<ExpRecord[]> {
-  const imported = localStorage.getItem('trazabilidad_exp_imported');
-  let base: ExpRecord[];
-  if (imported) { try { base = JSON.parse(imported); } catch { base = []; } }
-  else { const r = await fetch(dataUrl('data/exportaciones.json')); base = await r.json(); }
-  try { const raw = localStorage.getItem('trazabilidad_new_records'); if (raw) { const nr: ExpRecord[] = JSON.parse(raw); const ids = new Set(base.map(e => e.id)); for (const n of nr) { if (!ids.has(n.id)) base.push(n); } } } catch { /* ignore */ }
-  try { const raw = localStorage.getItem('trazabilidad_exp_edits'); if (raw) { const ed: Record<string, Partial<ExpRecord>> = JSON.parse(raw); base = base.map(e => ed[e.id] ? { ...e, ...ed[e.id] } : e); } } catch { /* ignore */ }
-  try { const raw = localStorage.getItem('trazabilidad_exp_deleted'); if (raw) { const del: Set<string> = new Set(JSON.parse(raw)); base = base.filter(e => !del.has(e.id)); } } catch { /* ignore */ }
-  return base;
-}
+// FIX: ahora usa loaders centralizados de dataRepository que cargan
+// desde embarques.xlsx en vez de JSON estático.
 
 export default function AnalyticsCharts() {
   const [depositos, setDepositos] = useState<Shipment[]>([]);
@@ -36,7 +16,7 @@ export default function AnalyticsCharts() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([loadAllDepositos(), loadAllExportaciones()])
+    Promise.all([loadDepositos(), loadExportaciones()])
       .then(([dep, exp]) => { setDepositos(dep); setExportaciones(exp); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);

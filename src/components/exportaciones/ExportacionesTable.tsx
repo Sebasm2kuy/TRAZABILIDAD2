@@ -16,6 +16,7 @@ import { parseCotePdf, coteToExpRecord } from '@/lib/parseCotePdf';
 import { parseExpoExcel } from '@/lib/parseExcelRegistro';
 import { schedulePush } from '@/lib/googleSheets'
 import { dataUrl } from '@/lib/staticData';
+import { loadExportaciones } from '@/lib/dataRepository';
 import { toast } from 'sonner';
 import { fd, fdt, fmt } from '@/lib/utils';
 
@@ -54,48 +55,20 @@ const EXP_IMPORTED_KEY = 'trazabilidad_exp_imported';
 
 const expCache: { data: ExpRecord[]; loaded: boolean; analytics: Record<string, unknown> | null } = { data: [], loaded: false, analytics: null };
 
+// FIX: ahora usa loadExportaciones() de dataRepository que carga desde
+// embarques.xlsx en vez de exportaciones_frimaral.json.
 async function ensureExp() {
-  // Always check if we have data, reload if empty
   if (!expCache.loaded || expCache.data.length === 0) {
     expCache.loaded = false;
     expCache.data = [];
     expCache.analytics = { total: 0, pesoNetoTotal: 0, pesoBrutoTotal: 0, envasesTotal: 0, uniquePaisCount: 0, uniqueProductoCount: 0, uniqueDestinoCount: 0, lastDate: null, byPais: [], byProducto: [], byDestino: [] };
 
-    // Try localStorage first (user imports)
-    const imported = localStorage.getItem(EXP_IMPORTED_KEY);
-    if (imported) {
-      try {
-        const parsed = JSON.parse(imported);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          expCache.data = parsed;
-        }
-      } catch { /* ignore */ }
-    }
-
-    // If no local data, ALWAYS load from pre-processed JSON
-    if (expCache.data.length === 0) {
-      try {
-        const expR = await fetch(dataUrl('data/exportaciones_frimaral.json'));
-        if (expR.ok) {
-          const data = await expR.json();
-          if (Array.isArray(data) && data.length > 0) {
-            expCache.data = data;
-          }
-        }
-      } catch { /* ignore */ }
-    }
-
-    // Also merge new_records (manual/PDF)
     try {
-      const newRecs = JSON.parse(localStorage.getItem('trazabilidad_new_records') || '[]');
-      if (Array.isArray(newRecs) && newRecs.length > 0) {
-        const existingIds = new Set(expCache.data.map((r: ExpRecord) => r.id));
-        for (const r of newRecs) {
-          if (!existingIds.has(r.id)) expCache.data.push(r);
-        }
-      }
-    } catch { /* ignore */ }
-
+      const data = await loadExportaciones();
+      expCache.data = Array.isArray(data) ? data : [];
+    } catch {
+      expCache.data = [];
+    }
     expCache.loaded = true;
   }
 }

@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Package, Search, X, ChevronRight, ChevronDown, FileCheck, ArrowLeftRight, Truck, Ship, Scale, Plus } from 'lucide-react';
 import { buildStockAggMap, SIN_CODIGO_KEY, type StockLoad, type StockCodigoAgg, type StockPallet } from '@/lib/parseStockXls';
 import { dataUrl } from '@/lib/staticData';
+import { loadDepositos as loadDepCentral, loadExportaciones as loadExpCentral } from '@/lib/dataRepository';
 import type { Shipment, ExpRecord } from '@/lib/types';
 import { fd, fmt } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -110,89 +111,14 @@ function getExportRefsByCote(expRecords: ExpRecord[]): Map<string, ExportRef[]> 
   return map;
 }
 
+// FIX: ahora delega en loadDepositos/loadExportaciones de dataRepository
+// que cargan desde embarques.xlsx en vez de JSON estático.
 async function loadExportaciones(): Promise<ExpRecord[]> {
-  // Use ONLY pre-processed JSON from exportaciones MGAP file as base
-  // (NOT trazabilidad_exp_imported because it has old/duplicate data)
-  let baseRecords: ExpRecord[] = [];
-  try {
-    const r = await fetch(dataUrl('data/exportaciones_frimaral.json'));
-    if (r.ok) {
-      const data = await r.json();
-      if (Array.isArray(data) && data.length > 0) baseRecords = data;
-    }
-  } catch { /* ignore */ }
-
-  // Add ONLY NEW records created from "Exportaciones" (manual + PDF uploads)
-  try {
-    const newRecs = localStorage.getItem('trazabilidad_new_records');
-    if (newRecs) {
-      const parsed = JSON.parse(newRecs);
-      if (Array.isArray(parsed)) {
-        const existingIds = new Set(baseRecords.map((r: ExpRecord) => r.id));
-        for (const r of parsed) {
-          if (!existingIds.has(r.id)) baseRecords.push(r);
-        }
-      }
-    }
-  } catch { /* ignore */ }
-
-  // Apply edits
-  try {
-    const editsRaw = localStorage.getItem('trazabilidad_exp_edits');
-    if (editsRaw) {
-      const edits = JSON.parse(editsRaw);
-      for (const r of baseRecords) {
-        if (edits[r.id]) {
-          Object.assign(r, edits[r.id]);
-        }
-      }
-    }
-  } catch { /* ignore */ }
-
-  return baseRecords;
+  try { return await loadExpCentral(); } catch { return []; }
 }
 
 async function loadDepositos(): Promise<Shipment[]> {
-  // Use ONLY pre-processed JSON from ingresos MGAP file as base
-  // (NOT trazabilidad_dep_imported because it has old/duplicate data)
-  let baseRecords: Shipment[] = [];
-  try {
-    const r = await fetch(dataUrl('data/ingresos_frimaral.json'));
-    if (r.ok) {
-      const data = await r.json();
-      if (Array.isArray(data) && data.length > 0) baseRecords = data;
-    }
-  } catch { /* ignore */ }
-
-  // Add ONLY NEW records created from "A Depósitos" (manual + PDF uploads)
-  // These have ids starting with 'new_' or 'manual_' or 'pdf_'
-  try {
-    const newRecs = localStorage.getItem('trazabilidad_dep_new_records');
-    if (newRecs) {
-      const parsed = JSON.parse(newRecs);
-      if (Array.isArray(parsed)) {
-        const existingIds = new Set(baseRecords.map((r: Shipment) => r.id));
-        for (const r of parsed) {
-          if (!existingIds.has(r.id)) baseRecords.push(r);
-        }
-      }
-    }
-  } catch { /* ignore */ }
-
-  // Apply edits (override fields) - only for records that exist in baseRecords
-  try {
-    const editsRaw = localStorage.getItem('trazabilidad_dep_edits');
-    if (editsRaw) {
-      const edits = JSON.parse(editsRaw);
-      for (const r of baseRecords) {
-        if (edits[r.id]) {
-          Object.assign(r, edits[r.id]);
-        }
-      }
-    }
-  } catch { /* ignore */ }
-
-  return baseRecords;
+  try { return await loadDepCentral(); } catch { return []; }
 }
 
 export default function CrucosXCote() {

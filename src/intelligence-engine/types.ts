@@ -3,6 +3,8 @@
 // ============================================================
 
 export interface MovRecord {
+  /** Nro. Trámite (campo numérico de la columna 1 del Excel). */
+  tramite?: number;
   t: string; f: string; c: string; cf: string; p: string; np: string;
   ed: string; tm: string; pa: string; d: string; co: string;
   pa2: number; e: number; pb: number; pn: number; tt: string; sh: string;
