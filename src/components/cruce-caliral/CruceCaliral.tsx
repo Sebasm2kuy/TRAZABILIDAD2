@@ -628,18 +628,30 @@ function SinCruceInlineRow({ row, ingresoMap, stockAggMap, edits, onSaved, onEdi
 function PalletAssignRow({ pallet, allCodes, onAssign }: {
   pallet: StockPallet;
   allCodes: string[];
-  onAssign: (palletId: string, codigo: string, tipo: 'COTE' | 'PASE_SANITARIO') => void;
+  onAssign: (palletId: string, codigo: string, tipo: 'COTE' | 'PASE_SANITARIO', cajas?: number) => void;
 }) {
   const [assigning, setAssigning] = useState(false);
   const [newCode, setNewCode] = useState('');
+  // FIX: input para cantidad de cajas — default = pallet.cajas
+  const [cotasInput, setCajasInput] = useState(String(pallet.cajas));
 
   const handleAssign = () => {
     const code = newCode.trim().toUpperCase();
     if (!code) return;
     const tipo: 'COTE' | 'PASE_SANITARIO' = code.startsWith('B') ? 'PASE_SANITARIO' : 'COTE';
-    onAssign(pallet.id, code, tipo);
+    const cajasNum = parseInt(cotasInput, 10);
+    // Si la cantidad es igual a pallet.cajas, no la guardamos (ahorra espacio)
+    const cajas = (!isNaN(cajasNum) && cajasNum > 0 && cajasNum !== pallet.cajas) ? cajasNum : undefined;
+    onAssign(pallet.id, code, tipo, cajas);
     setAssigning(false);
     setNewCode('');
+    setCajasInput(String(pallet.cajas));
+  };
+
+  const handleCancel = () => {
+    setAssigning(false);
+    setNewCode('');
+    setCajasInput(String(pallet.cajas));
   };
 
   if (assigning) {
@@ -653,23 +665,35 @@ function PalletAssignRow({ pallet, allCodes, onAssign }: {
         <td className="px-2 py-1 font-mono">{pallet.nroLote || '-'}</td>
         <td className="px-2 py-1">{pallet.fechaVencimiento ? fd(pallet.fechaVencimiento) : '-'}</td>
         <td className="px-2 py-1">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-wrap">
             <Input
               className="h-6 w-[120px] text-[11px] font-mono"
               placeholder="P12345 / B44473"
               value={newCode}
               onChange={e => setNewCode(e.target.value.toUpperCase())}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAssign(); } if (e.key === 'Escape') { setAssigning(false); setNewCode(''); } }}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAssign(); } if (e.key === 'Escape') { handleCancel(); } }}
               autoFocus
               list={`assign-codes-${pallet.id}`}
             />
             <datalist id={`assign-codes-${pallet.id}`}>
               {allCodes.map(c => <option key={c} value={c} />)}
             </datalist>
+            {/* FIX: input para cantidad de cajas */}
+            <Input
+              type="number"
+              min={1}
+              max={pallet.cajas}
+              className="h-6 w-[80px] text-[11px] font-mono text-right"
+              placeholder="Cajas"
+              value={cotasInput}
+              onChange={e => setCajasInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAssign(); } if (e.key === 'Escape') { handleCancel(); } }}
+              title={`Cajas a asignar a este COTE/PASE (máx ${pallet.cajas.toLocaleString('es-UY')} del pallet)`}
+            />
             <Button size="sm" className="h-6 px-2 text-[10px] bg-emerald-600 hover:bg-emerald-700" onClick={handleAssign} disabled={!newCode.trim()}>
               <CheckCircle2 className="h-3 w-3 mr-0.5" />OK
             </Button>
-            <Button size="sm" variant="ghost" className="h-6 px-1" onClick={() => { setAssigning(false); setNewCode(''); }}>
+            <Button size="sm" variant="ghost" className="h-6 px-1" onClick={handleCancel}>
               <X className="h-3 w-3" />
             </Button>
           </div>
@@ -1290,7 +1314,7 @@ export default function CruceCaliral() {
   const [stockData, setStockData] = useState<StockLoad | null>(null);
   const [stockAggMap, setStockAggMap] = useState<Map<string, StockCodigoAgg>>(new Map());
   const [stockLoading, setStockLoading] = useState(false);
-  const [palletAssignments, setPalletAssignments] = useState<Record<string, { codigo: string; tipo: 'COTE' | 'PASE_SANITARIO' }>>({});
+  const [palletAssignments, setPalletAssignments] = useState<Record<string, { codigo: string; tipo: 'COTE' | 'PASE_SANITARIO'; cajas?: number }>>({});
 
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -1688,11 +1712,15 @@ export default function CruceCaliral() {
   }, []);
 
   // --- Rebuild stock map with assignments applied ---
-  const rebuildStockMap = useCallback((data: StockLoad | null, assignments: Record<string, { codigo: string; tipo: 'COTE' | 'PASE_SANITARIO' }>) => {
+  const rebuildStockMap = useCallback((data: StockLoad | null, assignments: Record<string, { codigo: string; tipo: 'COTE' | 'PASE_SANITARIO'; cajas?: number }>) => {
     if (!data) { setStockAggMap(new Map()); return; }
     const modified = data.pallets.map(p => {
       const a = assignments[p.id];
-      if (a) return { ...p, codigo: a.codigo, codigoTipo: a.tipo };
+      if (a) {
+        // FIX: override cajas si el usuario especificó una cantidad al asignar
+        const cajasOverride = typeof a.cajas === 'number' && a.cajas > 0 ? a.cajas : p.cajas;
+        return { ...p, codigo: a.codigo, codigoTipo: a.tipo, cajas: cajasOverride };
+      }
       return p;
     });
     setStockAggMap(buildStockAggMap(modified));
@@ -1704,13 +1732,13 @@ export default function CruceCaliral() {
   }, [stockData, palletAssignments, rebuildStockMap]);
 
   // --- Handle pallet assignment ---
-  const handleAssignPallet = useCallback((palletId: string, codigo: string, tipo: 'COTE' | 'PASE_SANITARIO') => {
+  const handleAssignPallet = useCallback((palletId: string, codigo: string, tipo: 'COTE' | 'PASE_SANITARIO', cajas?: number) => {
     setPalletAssignments(prev => {
-      const next = { ...prev, [palletId]: { codigo, tipo } };
+      const next = { ...prev, [palletId]: { codigo, tipo, ...(cajas !== undefined ? { cajas } : {}) } };
       localStorage.setItem('trazabilidad_stock_assignments', JSON.stringify(next));
       return next;
     });
-    toast.success(`Pallet asignado a ${codigo}`);
+    toast.success(`Pallet asignado a ${codigo}${cajas !== undefined ? ` (${cajas} cajas)` : ''}`);
   }, []);
 
   // Rename a pallet's codigo (for fixing e.g. "15070" → "P15070")

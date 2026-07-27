@@ -124,7 +124,7 @@ async function loadDepositos(): Promise<Shipment[]> {
 export default function CrucosXCote() {
   const { navigateAndFilter } = useAppStore();
   const [stockData, setStockData] = useState<StockLoad | null>(null);
-  const [palletAssignments, setPalletAssignments] = useState<Record<string, { codigo: string; tipo: 'COTE' | 'PASE_SANITARIO' }>>({});
+  const [palletAssignments, setPalletAssignments] = useState<Record<string, { codigo: string; tipo: 'COTE' | 'PASE_SANITARIO'; cajas?: number }>>({});
   const [ingresoMap, setIngresoMap] = useState<Map<string, IngresoAgg>>(new Map());
   const [exportCajasMap, setExportCajasMap] = useState<Map<string, number>>(new Map());
   const [exportRefsMap, setExportRefsMap] = useState<Map<string, ExportRef[]>>(new Map());
@@ -225,7 +225,10 @@ export default function CrucosXCote() {
     if (!stockData) return new Map<string, StockCodigoAgg>();
     const modified: StockPallet[] = stockData.pallets.map(p => {
       const a = palletAssignments[p.id];
-      if (a) return { ...p, codigo: a.codigo, codigoTipo: a.tipo };
+      if (a) {
+        const cajasOverride = typeof a.cajas === 'number' && a.cajas > 0 ? a.cajas : p.cajas;
+        return { ...p, codigo: a.codigo, codigoTipo: a.tipo, cajas: cajasOverride };
+      }
       return p;
     });
     return buildStockAggMap(modified);
