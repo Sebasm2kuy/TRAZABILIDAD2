@@ -15,7 +15,6 @@ import AnalyticsCharts from '@/components/analytics/AnalyticsCharts';
 import ProductoDestino from '@/components/comparativa/ProductoDestino';
 import ImportExportPanel from '@/components/import-export/ImportExportPanel';
 import NewRecordForm from '@/components/new-record/NewRecordForm';
-import AIAssistant from '@/components/AIAssistant';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { Login } from '@/components/auth/Login';
 import { ClientesEstrategicos } from '@/components/clientes-estrategicos/ClientesEstrategicos';
@@ -83,7 +82,6 @@ export default function Home() {
           </ErrorBoundary>
         </main>
       </div>
-      {user.role === 'supervisor' && <AIAssistant />}
     </ErrorBoundary>
   );
 }
