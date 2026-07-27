@@ -61,9 +61,7 @@ function getPeriodPresets(): PeriodPreset[] {
   const fmtDate = (date: Date) => date.toISOString().split('T')[0];
   return [
     { id: 'todo', label: 'Todo el período', start: '', end: '' },
-    { id: '2025', label: 'Año 2025', start: '2025-01-01', end: '2025-12-31' },
     { id: '2026', label: 'Año 2026', start: '2026-01-01', end: '2026-12-31' },
-    { id: 'ult12', label: 'Últimos 12 meses', start: fmtDate(new Date(y, m - 11, 1)), end: fmtDate(now) },
     { id: 'ult6', label: 'Últimos 6 meses', start: fmtDate(new Date(y, m - 5, 1)), end: fmtDate(now) },
     { id: 'ult3', label: 'Últimos 3 meses', start: fmtDate(new Date(y, m - 2, 1)), end: fmtDate(now) },
   ];
