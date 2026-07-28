@@ -28,6 +28,7 @@ export const SYNC_KEYS = [
   'trazabilidad_stock_data',
   'trazabilidad_dep_imported',
   'trazabilidad_exp_imported',
+  'trazabilidad_imported_batches',
   'trazabilidad_stock_assignments',
 ];
 

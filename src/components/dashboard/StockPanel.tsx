@@ -1,20 +1,19 @@
 'use client';
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Package, Upload, Search, X, FileCheck, Loader2, ChevronRight, ChevronDown } from 'lucide-react';
 import { buildStockAggMap, SIN_CODIGO_KEY, type StockLoad, type StockCodigoAgg, type StockPallet } from '@/lib/parseStockXls';
-import { dataUrl } from '@/lib/staticData';
-import type { Shipment } from '@/lib/types';
+import type { ExpRecord, Shipment } from '@/lib/types';
 import { fd, fmt } from '@/lib/utils';
 import { toast } from 'sonner';
 import { schedulePush } from '@/lib/googleSheets';
+import { loadDepositos, loadExportaciones } from '@/lib/dataRepository';
 
 const STOCK_DATA_KEY = 'trazabilidad_stock_data';
 const STOCK_ASSIGN_KEY = 'trazabilidad_stock_assignments';
-const DEP_IMPORTED_KEY = 'trazabilidad_dep_imported';
 
 // Aggregate ingreso by COTE
 interface IngresoAgg {
@@ -135,32 +134,6 @@ function aggregateExportCajasByCote(expRecords: ExpRecord[]): Map<string, number
     }
   }
   return map;
-}
-
-import type { ExpRecord } from '@/lib/types';
-
-const EXP_IMPORTED_KEY = 'trazabilidad_exp_imported';
-
-async function loadExportaciones(): Promise<ExpRecord[]> {
-  const imported = localStorage.getItem(EXP_IMPORTED_KEY);
-  if (imported) {
-    try { return JSON.parse(imported); } catch { return []; }
-  }
-  try {
-    const r = await fetch(dataUrl('data/exportaciones.json'));
-    return await r.json();
-  } catch { return []; }
-}
-
-async function loadDepositos(): Promise<Shipment[]> {
-  const imported = localStorage.getItem(DEP_IMPORTED_KEY);
-  if (imported) {
-    try { return JSON.parse(imported); } catch { return []; }
-  }
-  try {
-    const r = await fetch(dataUrl('data/shipments.json'));
-    return await r.json();
-  } catch { return []; }
 }
 
 export default function StockPanel() {
