@@ -17,6 +17,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import React from 'react';
+import { readImportedDepositos } from '@/lib/dataRepository';
 
 interface StockPallet {
   id: string; contenedor: string; pallets: number; cajas: number; kilos: number;
@@ -80,7 +81,7 @@ export default function TrazabilidadExplorer() {
         // 3. dep_imported (Excel imports)
         const newRecs = JSON.parse(localStorage.getItem('trazabilidad_dep_new_records') || '[]');
         const edits = JSON.parse(localStorage.getItem('trazabilidad_dep_edits') || '{}');
-        const imported = JSON.parse(localStorage.getItem('trazabilidad_dep_imported') || '[]');
+        const imported = readImportedDepositos();
 
         // Build a map of all ingresos by COTE
         const allIngresosByCote: Record<string, { cajas: number; tramites: number[]; kg: number; fecha: string; denom: string; corte: string }> = {};
