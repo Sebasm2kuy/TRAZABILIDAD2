@@ -31,6 +31,8 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          NEXT_PUBLIC_GOOGLE_APPS_SCRIPT_URL: https://script.google.com/macros/s/AKfycbzL2ilQBnZ0R_pnt-xpb9z3ObBBtNnb6wurf1mY-6lW7as8-mTJv0YHSfe3al8ChFFSCw/exec
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

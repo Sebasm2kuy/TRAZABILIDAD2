@@ -4,8 +4,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
-  Settings, Cloud, CloudOff, RefreshCw, CheckCircle2, XCircle,
-  Loader2, ExternalLink, Save, ShieldAlert, Trash2, Key, Lock, Eye, EyeOff, AlertTriangle, Database
+  Settings, Cloud, CloudOff, CheckCircle2, XCircle,
+  Loader2, Save, ShieldAlert, Trash2, Key, Lock, Eye, EyeOff, AlertTriangle, Database
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as gs from '@/lib/googleSheets';
@@ -36,8 +36,6 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
   const [url, setUrl] = useState('');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [lastSync, setLastSync] = useState('');
 
   const [pwExists, setPwExists] = useState(false);
   const [pwStep, setPwStep] = useState<'idle' | 'create' | 'verify' | 'confirm_reset'>('idle');
@@ -50,7 +48,6 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
   useEffect(() => {
     if (open) {
       setUrl(gs.getSheetUrl());
-      setLastSync(gs.getLastSync());
       setTestResult(null);
       setPwExists(gs.hasPassword());
       setPwStep('idle');
@@ -70,31 +67,18 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
         } else if (detail.count > 0) {
           toast.success(`Sincronizado: ${detail.count} campos cargados de la nube`);
         }
-        setLastSync(gs.getLastSync());
         setPwExists(gs.hasPassword());
       } else if (detail.type === 'auto-push' || detail.type === 'push') {
-        setLastSync(gs.getLastSync());
+        setPwExists(gs.hasPassword());
       }
     };
     window.addEventListener('sheets-sync', handler);
     return () => window.removeEventListener('sheets-sync', handler);
   }, []);
 
-  const handleSave = () => {
-    if (!url.trim()) {
-      gs.setSheetUrl('');
-      toast.success('Sincronización desactivada. Datos solo en este navegador.');
-      setTestResult(null);
-      onOpenChange(false);
-      return;
-    }
-    gs.setSheetUrl(url.trim());
-    toast.success('URL guardada. Probá la conexión.');
-  };
-
   const handleTest = async () => {
-    if (!url.trim()) {
-      toast.error('Ingresá la URL primero');
+    if (!gs.isConfigured()) {
+      toast.error('La URL de Apps Script no está incluida en el build');
       return;
     }
     setTesting(true);
@@ -103,26 +87,13 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
     setTestResult({
       ok: result.ok,
       message: result.ok
-        ? `Conectado a Firebase`
+        ? `Identidad: ${result.user} · Rol: ${result.role} · Revisión: ${result.revision ?? 0}`
         : (result.error || 'No se pudo conectar'),
     });
+    if (!result.ok) {
+      toast.error(result.error || 'No se pudo conectar');
+    }
     setTesting(false);
-  };
-
-  const handleSyncNow = async () => {
-    if (!gs.isConfigured()) {
-      toast.error('Configurá la URL de Firebase primero');
-      return;
-    }
-    setSyncing(true);
-    const result = await gs.fullSync();
-    setSyncing(false);
-    setLastSync(gs.getLastSync());
-    if (result.error) {
-      toast.error(`Error: ${result.error}`);
-    } else {
-      toast.success(`Sincronizado: ${result.pulled} bajados, ${result.pushed} subidos`);
-    }
   };
 
   const handleCreatePassword = async () => {
@@ -154,35 +125,12 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
   };
 
   const handleFactoryReset = async () => {
-    // SECURITY WARNING: This function performs a destructive DELETE to Firebase.
-    // The password has already been verified before reaching this point
-    // (pwStep === 'confirm_reset' is only reachable after handleVerifyPassword succeeds).
-    // However, the Firebase DELETE request is unauthenticated — anyone with the URL can delete data.
-    // If authentication is needed, consider using Firebase Security Rules or a backend proxy.
+    // This reset is deliberately local-only. Remote deletion/restoration must be
+    // an authenticated owner command implemented by the Apps Script backend.
     setResetting(true);
     try {
       for (const key of ALL_DATA_KEYS) {
         localStorage.removeItem(key);
-      }
-
-      // Only clear remote Firebase data if Firebase is configured AND password has been verified
-      // (password verification is guaranteed by the pwStep flow: 'verify' → 'confirm_reset')
-      if (gs.isConfigured()) {
-        try {
-          const fbUrl = gs.getSheetUrl();
-          console.warn('[FactoryReset] Deleting remote Firebase data for:', fbUrl);
-          const response = await fetch(`${fbUrl}/.json`, {
-            method: 'DELETE',
-          });
-          if (!response.ok) {
-            console.error('[FactoryReset] Firebase DELETE failed:', response.status, response.statusText);
-          } else {
-            console.info('[FactoryReset] Firebase data deleted successfully');
-          }
-        } catch (fbErr) {
-          // Log the error but continue — local data is already cleared
-          console.error('[FactoryReset] Error deleting Firebase data:', fbErr);
-        }
       }
 
       localStorage.setItem('trazabilidad_last_sync', new Date().toISOString());
@@ -212,11 +160,11 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
 
         <div className="mt-6 space-y-6">
 
-          {/* ========== FIREBASE SYNC SECTION ========== */}
+          {/* ========== APPS SCRIPT PILOT SECTION ========== */}
           <div className="space-y-4">
             <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
               <Database className="h-4 w-4 text-orange-500" />
-              Sincronización con Firebase
+              Backend Google Apps Script
             </h3>
 
             {/* Status */}
@@ -227,10 +175,10 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
                 <CloudOff className="h-5 w-5 text-amber-600" />
               )}
               <div>
-                <p className="text-sm font-medium">{configured ? 'Conectado a Firebase' : 'No conectado'}</p>
+                <p className="text-sm font-medium">{configured ? 'Piloto configurado' : 'No configurado'}</p>
                 <p className="text-xs text-slate-500">
                   {configured
-                    ? (lastSync ? `Ultima sync: ${new Date(lastSync).toLocaleString('es-UY')}` : 'Sincronización lista')
+                    ? 'Pendiente de validar identidad; pull/push desactivados'
                     : 'Los datos se guardan solo en este navegador (se pierden al borrar cache)'}
                 </p>
               </div>
@@ -239,26 +187,22 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
             {/* URL Input */}
             <div className="space-y-2">
               <label className="block text-sm font-medium text-slate-700">
-                URL de Firebase Realtime Database
+                URL del Web App
               </label>
               <Input
-                placeholder="https://tu-proyecto-default-rtdb.firebaseio.com"
+                placeholder="https://script.google.com/macros/s/.../exec"
                 value={url}
-                onChange={e => { setUrl(e.target.value); setTestResult(null); }}
+                readOnly
                 className="text-xs font-mono"
-                onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
               />
               <p className="text-[11px] text-slate-400">
-                La URL de tu Realtime Database de Firebase (sin /.json al final)
+                Configurada durante el build. No contiene credenciales ni IDs de Drive.
               </p>
             </div>
 
             {/* Buttons row */}
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={handleSave} className="flex-1">
-                <Save className="h-3.5 w-3.5 mr-1.5" />Guardar URL
-              </Button>
-              <Button size="sm" variant="outline" onClick={handleTest} disabled={testing || !url.trim()}>
+              <Button size="sm" variant="outline" className="w-full" onClick={handleTest} disabled={testing || !configured}>
                 {testing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Cloud className="h-3.5 w-3.5 mr-1.5" />}
                 Probar
               </Button>
@@ -272,36 +216,12 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
               </div>
             )}
 
-            {/* Sync button */}
-            {configured && (
-              <div className="space-y-2">
-                <Button
-                  size="sm"
-                  onClick={handleSyncNow}
-                  disabled={syncing}
-                  className="w-full"
-                  variant="outline"
-                >
-                  {syncing ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                  )}
-                  {syncing ? 'Sincronizando...' : 'Sincronizar ahora (subir y bajar)'}
-                </Button>
-                <p className="text-[11px] text-slate-400">
-                  Fusiona datos locales con Firebase. Tus datos locales tienen prioridad.
-                </p>
-              </div>
-            )}
-
             {/* How it works */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <p className="text-xs text-blue-700">
-                <b>Como funciona:</b> Cada vez que editás datos, se guardan automáticamente en Firebase
-                (3 segundos después de tu último cambio). Cuando abrís la app en otro PC o navegador,
-                los datos se cargan automáticamente desde Firebase. Si borras el cache del navegador,
-                no perdés nada porque está guardado en la nube.
+                <b>Modo piloto:</b> este botón solo verifica la identidad, el rol y la revisión del backend.
+                Los datos continúan en este navegador hasta aprobar las pruebas owner/reader y habilitar
+                la migración de forma controlada.
               </p>
             </div>
           </div>
@@ -463,7 +383,8 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
                 </div>
                 <p className="text-xs text-red-700">
                   Estás a punto de borrar <b>TODO</b>: exportaciones, depósitos, cruces caliral, stock cargado,
-                  importaciones y búsquedas recientes. También se borrará Firebase. <b>Esta acción es irreversible.</b>
+                  importaciones y búsquedas recientes de este navegador. El backend y sus backups no se modificarán.
+                  <b> Esta acción local es irreversible.</b>
                 </p>
 
                 <div className="flex gap-2">

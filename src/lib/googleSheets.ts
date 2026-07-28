@@ -1,19 +1,29 @@
 // ============================================================
-// Cloud Sync — DESACTIVADO (sin Firebase)
+// Google Apps Script — PILOTO DE CONECTIVIDAD
 // ------------------------------------------------------------
-// Firebase fue reemplazado por:
-//   - Datos del mercado nacional: public/embarques.xlsx (loader local)
-//   - Persistencia de ediciones: localStorage (sin sync cloud)
-//
-// Esta archivo mantiene las firmas de funciones exportadas para no
-// romper imports en componentes que aún llaman a schedulePush(),
-// initialPull(), etc. — pero todas las operaciones de red son no-op.
-//
-// Para reactivar Firebase en el futuro, restaurar desde
-// googleSheets.ts.bak (versión con REST API completa).
+// Solo `ping()` está activo para validar identidad y rol en el Web App.
+// Pull/push siguen desactivados hasta completar el piloto del dominio.
 // ============================================================
 
 const LAST_SYNC_KEY = 'trazabilidad_last_sync';
+const BACKEND_URL = process.env.NEXT_PUBLIC_GOOGLE_APPS_SCRIPT_URL?.trim() || '';
+
+export interface BackendHealth {
+  ok: boolean;
+  time?: string;
+  user?: string;
+  role?: 'owner' | 'reader';
+  revision?: number;
+  error?: string;
+}
+
+export const APPS_SCRIPT_FETCH_OPTIONS: RequestInit = Object.freeze({
+  method: 'GET',
+  // Apps Script ContentService responds with Access-Control-Allow-Origin: *.
+  // Credentialed CORS is therefore rejected by browsers before JS sees it.
+  credentials: 'omit',
+  redirect: 'follow',
+});
 
 // Mantenido por compat con componentes que lo importan
 export const SYNC_KEYS = [
@@ -28,21 +38,18 @@ export const SYNC_KEYS = [
   'trazabilidad_stock_data',
   'trazabilidad_dep_imported',
   'trazabilidad_exp_imported',
+  'trazabilidad_imported_batches',
   'trazabilidad_stock_assignments',
 ];
 
 // --- Settings ---
 
 export function getSheetUrl(): string {
-  return '';  // Firebase desactivado
-}
-
-export function setSheetUrl(_url: string) {
-  // No-op
+  return BACKEND_URL;
 }
 
 export function isConfigured(): boolean {
-  return false;  // Firebase desactivado
+  return /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(BACKEND_URL);
 }
 
 export function getLastSync(): string {
@@ -50,22 +57,58 @@ export function getLastSync(): string {
   return localStorage.getItem(LAST_SYNC_KEY) || '';
 }
 
-// --- Operaciones de red (todas no-op) ---
+export function parseHealthResponse(payload: unknown): BackendHealth {
+  if (!payload || typeof payload !== 'object') return { ok: false, error: 'Respuesta inválida del backend' };
+  const body = payload as Record<string, unknown>;
+  if (body.ok !== true) {
+    const apiError = body.error && typeof body.error === 'object' ? body.error as Record<string, unknown> : {};
+    return { ok: false, error: String(apiError.message || apiError.code || 'El backend rechazó la solicitud') };
+  }
+  if ((body.role !== 'owner' && body.role !== 'reader') || typeof body.user !== 'string' || !body.user) {
+    return { ok: false, error: 'El backend no devolvió una identidad y rol válidos' };
+  }
+  return {
+    ok: true,
+    time: typeof body.serverTime === 'string' ? body.serverTime : undefined,
+    user: body.user,
+    role: body.role,
+    revision: typeof body.revision === 'number' ? body.revision : undefined,
+  };
+}
 
-export async function ping(): Promise<{ ok: boolean; time?: string; error?: string }> {
-  return { ok: false, error: 'Firebase desactivado — usando archivo embarques.xlsx local' };
+// --- Piloto de red: únicamente health ---
+
+export async function ping(): Promise<BackendHealth> {
+  if (!isConfigured()) return { ok: false, error: 'Falta configurar la URL de Apps Script durante el build' };
+  try {
+    const url = new URL(BACKEND_URL);
+    url.searchParams.set('action', 'health');
+    const response = await fetch(url, APPS_SCRIPT_FETCH_OPTIONS);
+    if (!response.ok) return { ok: false, error: `Apps Script respondió HTTP ${response.status}` };
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.toLowerCase().includes('application/json')) {
+      return {
+        ok: false,
+        error: 'Google devolvió una página de acceso en lugar de JSON. El despliegue requiere autenticación por token.',
+      };
+    }
+    return parseHealthResponse(await response.json() as unknown);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error de red';
+    return { ok: false, error: `No se pudo consultar Apps Script: ${message}` };
+  }
 }
 
 export async function pullFromSheets(): Promise<{ count: number; error?: string }> {
-  return { count: 0, error: 'Firebase desactivado' };
+  return { count: 0, error: 'Sincronización en modo piloto: pull todavía no habilitado' };
 }
 
 export async function pushToSheets(): Promise<{ count: number; error?: string }> {
-  return { count: 0, error: 'Firebase desactivado' };
+  return { count: 0, error: 'Sincronización en modo piloto: push todavía no habilitado' };
 }
 
 export async function fullSync(): Promise<{ pulled: number; pushed: number; error?: string }> {
-  return { pulled: 0, pushed: 0, error: 'Firebase desactivado' };
+  return { pulled: 0, pushed: 0, error: 'Sincronización en modo piloto' };
 }
 
 export function schedulePush() {
