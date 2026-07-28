@@ -159,16 +159,3 @@ inicial, no para sobrescribir continuamente el backend.
 3. ¿Cuántos usuarios simultáneos y cuántas operaciones diarias se esperan?
 4. ¿Se deben conservar los Excel/PDF originales? ¿Por cuánto tiempo?
 5. ¿Quién puede borrar y quién puede restaurar datos?
-
-## Decisiones confirmadas
-
-- todos los usuarios pertenecen al mismo Google Workspace;
-- la cuenta institucional que despliegue será propietaria de los recursos;
-- se esperan como máximo cinco usuarios simultáneos;
-- los Excel/PDF originales y backups se conservarán indefinidamente;
-- solo el propietario podrá importar, editar, borrar y restaurar; los demás usuarios
-  del dominio tendrán acceso de solo lectura.
-
-La fase 1 correspondiente está preparada en `google-apps-script/`. El frontend debe
-permanecer desconectado hasta comprobar con el despliegue real que Apps Script expone
-la identidad activa del dominio de forma fiable.
