@@ -42,15 +42,6 @@ en `user`. Si responde `IDENTITY_UNAVAILABLE`, no se debe relajar la autorizaci�
 hay que revisar la configuración del despliegue o usar Cloud Run con verificación de
 Google Identity.
 
-### GitHub Pages y CORS
-
-`ContentService` responde con `Access-Control-Allow-Origin: *`; los navegadores no
-permiten combinar ese valor con `credentials: include`. Por ello el cliente piloto
-consulta sin cookies. Si el despliegue restringido responde con una página de login o
-`IDENTITY_UNAVAILABLE`, no debe hacerse anónimo para eludir el control: el siguiente
-paso es crear un OAuth Client ID de tipo Web en Google Cloud, iniciar sesión mediante
-Google Identity Services y verificar el ID token en este backend.
-
 ## API implementada
 
 ### GET

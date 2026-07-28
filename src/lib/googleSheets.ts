@@ -17,14 +17,6 @@ export interface BackendHealth {
   error?: string;
 }
 
-export const APPS_SCRIPT_FETCH_OPTIONS: RequestInit = Object.freeze({
-  method: 'GET',
-  // Apps Script ContentService responds with Access-Control-Allow-Origin: *.
-  // Credentialed CORS is therefore rejected by browsers before JS sees it.
-  credentials: 'omit',
-  redirect: 'follow',
-});
-
 // Mantenido por compat con componentes que lo importan
 export const SYNC_KEYS = [
   'trazabilidad_new_records',
@@ -83,15 +75,8 @@ export async function ping(): Promise<BackendHealth> {
   try {
     const url = new URL(BACKEND_URL);
     url.searchParams.set('action', 'health');
-    const response = await fetch(url, APPS_SCRIPT_FETCH_OPTIONS);
+    const response = await fetch(url, { method: 'GET', credentials: 'include', redirect: 'follow' });
     if (!response.ok) return { ok: false, error: `Apps Script respondió HTTP ${response.status}` };
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.toLowerCase().includes('application/json')) {
-      return {
-        ok: false,
-        error: 'Google devolvió una página de acceso en lugar de JSON. El despliegue requiere autenticación por token.',
-      };
-    }
     return parseHealthResponse(await response.json() as unknown);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Error de red';

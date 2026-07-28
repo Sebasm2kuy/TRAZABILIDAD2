@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { APPS_SCRIPT_FETCH_OPTIONS, parseHealthResponse } from './googleSheets';
+import { parseHealthResponse } from './googleSheets';
 
 describe('parseHealthResponse', () => {
-  it('no usa cookies en CORS porque Apps Script responde con origen wildcard', () => {
-    expect(APPS_SCRIPT_FETCH_OPTIONS).toMatchObject({ credentials: 'omit', redirect: 'follow' });
-  });
-
   it('acepta propietario y lector identificados por el backend', () => {
     expect(parseHealthResponse({ ok: true, user: 'owner@example.com', role: 'owner', revision: 2, serverTime: 'now' })).toEqual({
       ok: true, user: 'owner@example.com', role: 'owner', revision: 2, time: 'now',
