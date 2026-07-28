@@ -17,6 +17,7 @@ import { parseExpoExcel } from '@/lib/parseExcelRegistro';
 import { schedulePush } from '@/lib/googleSheets'
 import { dataUrl } from '@/lib/staticData';
 import { loadExportaciones } from '@/lib/dataRepository';
+import { validateShipmentRecord } from '@/lib/recordValidation';
 import { toast } from 'sonner';
 import { fd, fdt, fmt } from '@/lib/utils';
 
@@ -365,7 +366,7 @@ export default function ExportacionesTable() {
   }, []);
 
   const handleSave = useCallback(() => {
-    if (!selected) return;
+    if (!selected) return false;
     const changed: Partial<ExpRecord> = {};
     for (const sec of SECTIONS) {
       for (const f of sec.fields) {
@@ -402,7 +403,14 @@ export default function ExportacionesTable() {
     if (Object.keys(changed).length === 0) {
       setSaveMsg('Sin cambios');
       setTimeout(() => setSaveMsg(null), 2000);
-      return;
+      return true;
+    }
+
+    const updated = { ...selected, ...changed };
+    const validationErrors = validateShipmentRecord(updated, applyEdits(expCache.data, edits));
+    if (validationErrors.length > 0) {
+      toast.error(validationErrors[0]);
+      return false;
     }
 
     const newEdits = { ...edits, [selected.id]: { ...edits[selected.id], ...changed } };
@@ -411,7 +419,6 @@ export default function ExportacionesTable() {
     // Update cache
     expCache.data = applyEdits(expCache.data, newEdits);
     // Update selected
-    const updated = { ...selected, ...changed };
     setSelected(updated);
     // Re-populate form with updated data
     for (const sec of SECTIONS) {
@@ -427,6 +434,7 @@ export default function ExportacionesTable() {
     setEditForm({ ...editForm });
     setSaveMsg('Guardado');
     setTimeout(() => setSaveMsg(null), 2000);
+    return true;
   }, [selected, editForm, edits, detailLineas]);
 
   const handleResetField = useCallback((key: string) => {
@@ -968,8 +976,7 @@ export default function ExportacionesTable() {
                     className={editMode ? 'bg-blue-600 hover:bg-blue-700 h-7' : 'h-7'}
                     onClick={() => {
                       if (editMode) {
-                        handleSave();
-                        setEditMode(false);
+                        if (handleSave()) setEditMode(false);
                       } else {
                         const existingLineas = (selected as any).lineas as ProductoCorteLine[] | undefined;
                         if (existingLineas && existingLineas.length > 0) {

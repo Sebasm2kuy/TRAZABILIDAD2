@@ -7,15 +7,7 @@ import type { Shipment } from '@/lib/types';
 import { dataUrl } from '@/lib/staticData';
 import { STORAGE_KEYS, readStorageJson, writeStorageJson } from '@/lib/dataRepository';
 import { schedulePush } from '@/lib/googleSheets';
-
-interface ImportedBatch {
-  id: string;
-  name: string;
-  date: string;
-  count: number;
-  tipo: 'ingreso' | 'exportacion';
-  data: Shipment[];
-}
+import { type ImportedBatch, prependBatch, processImportRows, removeBatchCopies } from '@/lib/importExportBatches';
 
 const BATCHES_KEY = STORAGE_KEYS.importedBatches;
 
@@ -26,49 +18,21 @@ function saveBatches(batches: ImportedBatch[]) {
   writeStorageJson(BATCHES_KEY, batches);
 }
 
-function mapRowToShipment(row: Record<string, unknown>, tipo: 'ingreso' | 'exportacion', idx: number): Shipment | null {
-  const nroTramite = Number(row['Nro. Trámite'] || row['nroTramite'] || row['Trámite'] || row['tramite'] || 0);
-  const nroCote = String(row['COTE'] || row['nroCote'] || row['cote'] || '').trim().toUpperCase();
-  if (!nroTramite && !nroCote) return null;
+function notifyDataChanged() {
+  window.dispatchEvent(new Event('trazabilidad-data-ready'));
+}
 
-  const fechaRaw = row['Fecha'] || row['fechaTramite'] || row['fecha'] || '';
-  let fechaTramite = '';
-  if (fechaRaw) {
-    try { fechaTramite = new Date(String(fechaRaw) + (String(fechaRaw).length === 10 ? 'T12:00:00' : '')).toISOString(); }
-    catch { fechaTramite = new Date().toISOString(); }
-  } else {
-    fechaTramite = new Date().toISOString();
-  }
-
-  const destino = row['Destino'] || row['nombreEstablecimientoDestino'] || row['destino'];
-
-  return {
-    id: `imp-${tipo}-${Date.now()}-${idx}`,
-    nroTramite,
-    fechaTramite,
-    nroCote,
-    nombreEstablecimientoDestino: String(destino || (tipo === 'ingreso' ? 'CALIRAL' : '')),
-    paisDestino: String(row['País'] || row['Pais'] || row['paisDestino'] || row['pais'] || 'URUGUAY'),
-    denominacionMercaderia: String(row['Producto'] || row['denominacionMercaderia'] || row['producto'] || ''),
-    corte: String(row['Corte'] || row['corte'] || ''),
-    cantidadEnvases: Number(row['Envases'] || row['cantidadEnvases'] || row['envases'] || 0) || null,
-    pesoBruto: Number(row['Peso Bruto'] || row['pesoBruto'] || 0) || null,
-    pesoNeto: Number(row['Peso Neto'] || row['pesoNeto'] || 0) || null,
-    pallets: Number(row['Pallets'] || row['pallets'] || 0) || null,
-    tipoTransporte: String(row['Transporte'] || row['tipoTransporte'] || '') || null,
-    matriculaCamion: String(row['Matrícula'] || row['Matricula'] || row['matriculaCamion'] || '') || null,
-    precinto1: String(row['Precinto'] || row['precinto1'] || row['precinto'] || '') || null,
-    contenedorSerieNro: String(row['Contenedor'] || row['contenedorSerieNro'] || '') || null,
-    nroCertificadoSanitario: String(row['Cert. Sanitario'] || row['nroCertificadoSanitario'] || '') || null,
-    observaciones: String(row['Observaciones'] || row['observaciones'] || '') || null,
-    tipo: tipo === 'ingreso' ? 'INGRESO' : 'EXPORTACION',
-  };
+function removeLegacyCopies(removedBatches: ImportedBatch[]) {
+  const deposits = readStorageJson<Shipment[]>(STORAGE_KEYS.depImported, []);
+  const exports = readStorageJson<Shipment[]>(STORAGE_KEYS.expImported, []);
+  writeStorageJson(STORAGE_KEYS.depImported, removeBatchCopies(deposits, removedBatches));
+  writeStorageJson(STORAGE_KEYS.expImported, removeBatchCopies(exports, removedBatches));
 }
 
 export default function ImportExportPanel() {
   const [batches, setBatches] = useState<ImportedBatch[]>(() => loadBatches());
   const [importing, setImporting] = useState(false);
-  const [lastResult, setLastResult] = useState<{ ok: number; fail: number; batchId: string } | null>(null);
+  const [lastResult, setLastResult] = useState<{ ok: number; fail: number; ambiguous: number; batchId: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [previewBatch, setPreviewBatch] = useState<ImportedBatch | null>(null);
 
@@ -86,26 +50,16 @@ export default function ImportExportPanel() {
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sheetName]);
 
       if (rows.length === 0) {
-        setLastResult({ ok: 0, fail: rows.length, batchId: '' });
+        setLastResult({ ok: 0, fail: rows.length, ambiguous: 0, batchId: '' });
         setImporting(false);
         return;
       }
 
-      // Auto-detect type from data
-      const firstRow = rows[0];
-      const hasPais = firstRow['País'] || firstRow['paisDestino'] || firstRow['Pais'];
-      const hasDestino = firstRow['Destino'] || firstRow['nombreEstablecimientoDestino'];
-      const tipo: 'ingreso' | 'exportacion' = (hasPais && hasDestino) ? 'exportacion' : 'ingreso';
-
-      const mapped: Shipment[] = [];
-      let fail = 0;
-      rows.forEach((row, idx) => {
-        const s = mapRowToShipment(row, tipo, idx);
-        if (s) mapped.push(s); else fail++;
-      });
+      const batchId = `batch-${crypto.randomUUID()}`;
+      const { shipments: mapped, invalid: fail, ambiguous, tipo } = processImportRows(rows, batchId);
 
       const batch: ImportedBatch = {
-        id: `batch-${Date.now()}`,
+        id: batchId,
         name: file.name,
         date: new Date().toISOString(),
         count: mapped.length,
@@ -113,45 +67,44 @@ export default function ImportExportPanel() {
         data: mapped,
       };
 
-      const updated = [batch, ...batches];
+      // Read again after the asynchronous file parsing to avoid overwriting a
+      // batch saved while this file was being processed.
+      const updated = prependBatch(batch, loadBatches());
       setBatches(updated);
       saveBatches(updated);
 
-      // ALSO write to the main table keys so data appears in Depositos/Exportaciones tabs
-      if (tipo === 'ingreso') {
-        try {
-          const existing = readStorageJson<Shipment[]>(STORAGE_KEYS.depImported, []);
-          writeStorageJson(STORAGE_KEYS.depImported, [...mapped, ...existing]);
-        } catch { writeStorageJson(STORAGE_KEYS.depImported, mapped); }
-      } else {
-        try {
-          const existing = readStorageJson<Shipment[]>(STORAGE_KEYS.expImported, []);
-          writeStorageJson(STORAGE_KEYS.expImported, [...mapped, ...existing]);
-        } catch { writeStorageJson(STORAGE_KEYS.expImported, mapped); }
-      }
-
+      notifyDataChanged();
       schedulePush();
-      setLastResult({ ok: mapped.length, fail, batchId: batch.id });
+      setLastResult({ ok: mapped.length, fail, ambiguous, batchId: batch.id });
     } catch (err) {
       console.error(err);
-      setLastResult({ ok: 0, fail: -1, batchId: '' });
+      setLastResult({ ok: 0, fail: -1, ambiguous: 0, batchId: '' });
     }
     setImporting(false);
     if (fileRef.current) fileRef.current.value = '';
   };
 
   const deleteBatch = (id: string) => {
-    const updated = batches.filter(b => b.id !== id);
+    const latest = loadBatches();
+    const removed = latest.filter(b => b.id === id);
+    const updated = latest.filter(b => b.id !== id);
+    removeLegacyCopies(removed);
     setBatches(updated);
     saveBatches(updated);
     if (previewBatch?.id === id) setPreviewBatch(null);
+    notifyDataChanged();
+    schedulePush();
   };
 
   const clearAll = () => {
+    const latest = loadBatches();
+    removeLegacyCopies(latest);
     setBatches([]);
     saveBatches([]);
     setPreviewBatch(null);
     setLastResult(null);
+    notifyDataChanged();
+    schedulePush();
   };
 
   const exportAllBatches = async () => {
@@ -229,14 +182,14 @@ export default function ImportExportPanel() {
                 <><AlertTriangle className="h-4 w-4 shrink-0" /><span>Error al leer el archivo. Verificá que sea un Excel o CSV válido.</span></>
               ) : (
                 <><CheckCircle2 className="h-4 w-4 shrink-0" />
-                  <span>{lastResult.ok} registros importados{lastResult.fail > 0 ? `, ${lastResult.fail} filas ignoradas (sin trámite ni COTE)` : ''}</span></>
+                  <span>{lastResult.ok} registros importados{lastResult.fail > 0 ? `, ${lastResult.fail} filas ignoradas (sin trámite ni COTE)` : ''}{lastResult.ambiguous > 0 ? `, ${lastResult.ambiguous} filas ambiguas ignoradas` : ''}</span></>
               )}
             </div>
           )}
 
           <div className="text-[11px] text-slate-400 space-y-1">
             <p><b>Columnas reconocidas:</b> Nro. Trámite, Fecha, COTE, País/Destino, Producto, Corte, Envases, Peso Bruto, Peso Neto, Contenedor, Precinto, Transporte, Observaciones</p>
-            <p>Si la fila tiene País y Destino se importa como Exportación, si no como Ingreso.</p>
+            <p>Se respeta la columna Tipo. Sin ella, CALIRAL se considera Ingreso; País y Destino indican Exportación. Las filas con señales incompletas o tipos no reconocidos se informan como ambiguas y no se importan.</p>
           </div>
         </CardContent>
       </Card>
@@ -290,8 +243,8 @@ export default function ImportExportPanel() {
                     <tr key={b.id} className="border-b hover:bg-slate-50">
                       <td className="px-3 py-2 text-xs font-medium">{b.name}</td>
                       <td className="px-3 py-2 text-xs">
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${b.tipo === 'ingreso' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                          {b.tipo === 'ingreso' ? 'Ingreso' : 'Exportación'}
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${b.tipo === 'ingreso' ? 'bg-emerald-100 text-emerald-700' : b.tipo === 'mixto' ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {b.tipo === 'ingreso' ? 'Ingreso' : b.tipo === 'mixto' ? 'Mixto' : 'Exportación'}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-xs">{new Date(b.date).toLocaleString('es-UY')}</td>

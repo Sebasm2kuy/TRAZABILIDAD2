@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Search, X, ChevronLeft, ChevronRight, Eye, FileCheck, Pencil, Save, RotateCcw, CheckCircle2, Plus, Trash2, Download, Upload, Loader2, Check, Globe, Sparkles, ClipboardPaste, Package, FileText } from 'lucide-react';
 import { fetchShipments, fetchAnalytics, getCotes, dataUrl } from '@/lib/staticData';
 import { loadDepositos } from '@/lib/dataRepository';
+import { validateShipmentRecord } from '@/lib/recordValidation';
 import { parseEnviosExcel } from '@/lib/parseExcelRegistro';
 import { parseCotePdf, coteToShipmentRecord } from '@/lib/parseCotePdf';
 import type { Shipment } from '@/lib/types';
@@ -336,7 +337,7 @@ export default function ShipmentTable() {
   }, []);
 
   const handleSave = useCallback(() => {
-    if (!selected) return;
+    if (!selected) return false;
     const changed: Partial<Shipment> = {};
     for (const sec of SECTIONS) {
       for (const f of sec.fields) {
@@ -363,15 +364,24 @@ export default function ShipmentTable() {
       (changed as unknown as Record<string, unknown>).cantidadEnvases = cajasFromLineas || null;
       (changed as unknown as Record<string, unknown>).lineas = filledLineas;
     }
-    if (Object.keys(changed).length === 0) {
+    const updated = { ...selected, ...changed };
+    const hasChanges = Object.keys(changed).length > 0;
+    const isUnsavedRecord = newRecords.some(record => record.id === selected.id);
+    if (hasChanges || isUnsavedRecord) {
+      const validationErrors = validateShipmentRecord(updated, applyEdits([...depCache.data, ...newRecords], edits));
+      if (validationErrors.length > 0) {
+        toast.error(validationErrors[0]);
+        return false;
+      }
+    }
+    if (!hasChanges) {
       setSaveMsg('Sin cambios');
       setTimeout(() => setSaveMsg(null), 2000);
-      return;
+      return true;
     }
     const newEdits = { ...edits, [selected.id]: { ...edits[selected.id], ...changed } };
     setEdits(newEdits);
     saveEdits(newEdits);
-    const updated = { ...selected, ...changed };
     setSelected(updated);
     for (const sec of SECTIONS) {
       for (const f of sec.fields) {
@@ -386,7 +396,8 @@ export default function ShipmentTable() {
     setEditForm({ ...editForm });
     setSaveMsg('Guardado');
     setTimeout(() => setSaveMsg(null), 2000);
-  }, [selected, editForm, edits, detailLineas]);
+    return true;
+  }, [selected, editForm, edits, detailLineas, newRecords]);
 
   const handleResetField = useCallback((key: string) => {
     if (!selected) return;
@@ -962,8 +973,7 @@ export default function ShipmentTable() {
                     className={editMode ? 'bg-blue-600 hover:bg-blue-700 h-7' : 'h-7'}
                     onClick={() => {
                       if (editMode) {
-                        handleSave();
-                        setEditMode(false);
+                        if (handleSave()) setEditMode(false);
                       } else {
                         // Initialize lineas from existing record
                         const existingLineas = (selected as any).lineas as ProductoCorteLine[] | undefined;
