@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "export",
-  basePath: "/trazabilidad",
+  basePath: "/trazabilidad2",
   images: { unoptimized: true },
   typescript: {
     ignoreBuildErrors: false,
