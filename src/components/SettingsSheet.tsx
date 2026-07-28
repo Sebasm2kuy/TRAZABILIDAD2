@@ -90,6 +90,9 @@ export default function SettingsSheet({ open, onOpenChange }: SettingsSheetProps
         ? `Identidad: ${result.user} · Rol: ${result.role} · Revisión: ${result.revision ?? 0}`
         : (result.error || 'No se pudo conectar'),
     });
+    if (!result.ok) {
+      toast.error(result.error || 'No se pudo conectar');
+    }
     setTesting(false);
   };
 
