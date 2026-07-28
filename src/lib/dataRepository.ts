@@ -49,6 +49,33 @@ function mergeUniqueById<T extends Shipment>(base: T[], additions: T[]): T[] {
   return merged;
 }
 
+export function mergeImportedRecords<T extends Shipment>(
+  legacy: T[],
+  batches: ImportedBatch<T>[],
+  // eslint-disable-next-line no-unused-vars
+  accepts: (record: T) => boolean,
+): T[] {
+  const batchRecords = batches.flatMap(batch => batch.data || []).filter(accepts);
+  return mergeUniqueById(legacy, batchRecords);
+}
+
+/**
+ * Returns user-imported records from both the legacy per-table key and the
+ * current batch store. Keeping this merge here prevents consumers from
+ * depending on one persistence implementation and deduplicates migrated data.
+ */
+export function readImportedDepositos(): Shipment[] {
+  const legacy = readStorageJson<Shipment[]>(STORAGE_KEYS.depImported, []);
+  const batches = readStorageJson<ImportedBatch[]>(STORAGE_KEYS.importedBatches, []);
+  return mergeImportedRecords(legacy, batches, record => record.tipo === 'INGRESO' || record.tipo === 'DEPOSITO');
+}
+
+export function readImportedExportaciones(): ExpRecord[] {
+  const legacy = readStorageJson<ExpRecord[]>(STORAGE_KEYS.expImported, []);
+  const batches = readStorageJson<ImportedBatch<ExpRecord>[]>(STORAGE_KEYS.importedBatches, []);
+  return mergeImportedRecords(legacy, batches, record => record.tipo === 'EXPORTACION');
+}
+
 function applyEdits<T extends Shipment>(records: T[], edits: Record<string, Partial<T>>): T[] {
   if (Object.keys(edits).length === 0) return records;
   return records.map(record => edits[record.id] ? { ...record, ...edits[record.id] } : record);
@@ -72,15 +99,10 @@ export async function loadDepositos(): Promise<Shipment[]> {
   let base = await loadEmbarquesAsDepositos();
 
   // Si el usuario importó datos manualmente, mergearlos encima (priority)
-  const imported = readStorageJson<Shipment[] | null>(STORAGE_KEYS.depImported, null);
-  if (imported && imported.length > 0) {
+  const imported = readImportedDepositos();
+  if (imported.length > 0) {
     base = mergeUniqueById(imported, base);
   }
-
-  const batchRecords = readStorageJson<ImportedBatch[]>(STORAGE_KEYS.importedBatches, [])
-    .flatMap(batch => batch.data || [])
-    .filter(record => record.tipo === 'INGRESO' || record.tipo === 'DEPOSITO');
-  base = mergeUniqueById(base, batchRecords);
 
   const newRecords = readStorageJson<Shipment[]>(STORAGE_KEYS.depNew, []);
   base = mergeUniqueById(base, newRecords);
@@ -96,15 +118,10 @@ export async function loadExportaciones(): Promise<ExpRecord[]> {
   // FIX: ahora carga desde embarques.xlsx en vez de data/exportaciones.json.
   let base = await loadEmbarquesAsExportaciones();
 
-  const imported = readStorageJson<ExpRecord[] | null>(STORAGE_KEYS.expImported, null);
-  if (imported && imported.length > 0) {
+  const imported = readImportedExportaciones();
+  if (imported.length > 0) {
     base = mergeUniqueById(imported, base);
   }
-
-  const batchRecords = readStorageJson<ImportedBatch<ExpRecord>[]>(STORAGE_KEYS.importedBatches, [])
-    .flatMap(batch => batch.data || [])
-    .filter(record => record.tipo === 'EXPORTACION');
-  base = mergeUniqueById(base, batchRecords);
 
   const newRecords = readStorageJson<ExpRecord[]>(STORAGE_KEYS.expNew, []);
   base = mergeUniqueById(base, newRecords);
